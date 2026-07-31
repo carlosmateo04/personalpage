@@ -1360,3 +1360,15 @@ button {
 .btn-danger-ghost:hover {
   background: rgba(255, 77, 79, 0.12);
 }
+
+.key-help {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 9px;
+  background: var(--panel-hi);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--muted);
+}

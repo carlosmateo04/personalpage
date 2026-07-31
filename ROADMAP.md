@@ -64,12 +64,10 @@ exists.
 | M5 | Bandwidth dashboard | ⬜ |
 | M6 | Unattended 24/7 hardening | ⬜ |
 | M7 | Accounts, Keychain, add-destination | ⬜ |
-| M8 | YouTube OAuth + platform truth | ⬜ |
-| M9 | Facebook, TikTok, others | ⬜ |
-| M10 | Live capture and OBS input | ⬜ |
-| M11 | Quality of life | ⬜ |
-| M12 | Unified chat inbox | ⬜ |
-| M13 | Regression + release | ⬜ |
+| M8 | Facebook, TikTok, others | ⬜ |
+| M9 | Quality of life | ⬜ |
+| — | *Optional:* platform sign-in, live capture, chat | ⬜ |
+| M10 | Regression + release | ⬜ |
 
 ---
 
@@ -149,34 +147,48 @@ incidents logged.
 ## Accounts and platforms
 
 ### M7 · Accounts, Keychain, add-destination
-`+ Add Destination` → platform picker → sign in *or* paste a key, validated at
-add time with a short handshake so a dead key surfaces immediately. Labels,
-avatars, reordering, persistence. Keys in the macOS Keychain.
+`+ Add Destination` → platform picker → paste a key, validated at add time with
+a short handshake so a dead key surfaces immediately. Labels, reordering,
+persistence, keys in the macOS Keychain.
+
+Stream keys are the whole authentication story: no developer account, no app
+review, no API quota, nothing to renew. YouTube and Twitch persistent keys do
+not expire, which is exactly what an unattended around-the-clock stream needs.
 **Gate:** add/edit/remove/reorder survive a restart; keys verifiably absent from
 plaintext on disk; a bad key is rejected on add.
 
-### M8 · YouTube OAuth + platform truth
-System-browser OAuth with a loopback redirect (Google blocks embedded webviews),
-token refresh, broadcast create/transition, `healthStatus` polling. This
-completes the second half of the status design: *we* think we are pushing, and
-*the platform* agrees it is live. Divergence is itself an alert — it is the
-failure behind streaming to nobody for hours, which matters more, not less, when
-nobody is watching the app.
-**Gate:** sign-in populates channel and key; going live transitions the
-broadcast; a forced divergence raises the warning; multiple accounts coexist.
+### M8 · Facebook, TikTok, others
+Facebook persistent stream keys for Pages. TikTok manual key, with a clear
+explanation when an account does not qualify. Twitch, Kick, Rumble, LinkedIn and
+X come free from the custom-RTMP path.
 
-### M9 · Facebook, TikTok, others
-Facebook via persistent stream key first, Graph API optional later. TikTok
-manual key, with a clear explanation when an account does not qualify — RTMP
-access is gated and their live API needs approval, so treat breakage as an
-expected state. Twitch, Kick, Rumble, LinkedIn and X come free from the
-custom-RTMP path.
-**Gate:** a Facebook page goes live from the app and stays up; TikTok goes live
-or explains itself.
+One caveat worth planning around: TikTok issues a fresh key per broadcast, so it
+suits scheduled runs rather than unattended 24/7. YouTube, Facebook and Twitch
+all offer persistent keys.
+**Gate:** a Facebook page goes live from the app and stays up for hours; TikTok
+goes live or explains itself.
 
-## Later
+### M9 · Quality of life
+Menu-bar mini-controller, macOS notifications on problems, post-stream reports,
+scheduled start and stop.
 
-### M10 · Live capture and OBS input
+## Optional, only if wanted later
+
+None of these are needed for the driving use case. They are listed so the
+decision to skip them stays deliberate rather than accidental.
+
+### Platform sign-in (OAuth)
+Would replace pasted keys with a browser sign-in that fetches and refreshes keys
+automatically, and — the part keys cannot give — lets the app read the
+broadcast's health from the platform itself rather than inferring it from the
+upload alone. Without it, "we are pushing bytes successfully" is the only signal
+available, so a broadcast that the platform never took live would look healthy
+from here. M2's reconnect logic and M8's key validation cover most of that gap.
+
+Costs a Google Cloud project and OAuth client for YouTube, and a Meta app review
+for Facebook Pages. Deferred because pasted keys do the job.
+
+### Live capture and OBS input
 AVFoundation camera and microphone, screen capture, TCC permission handling, and
 an OBS → relay path so existing scenes keep working. Moved down the plan
 deliberately: the driving use case is looping files, and camera capture is the
@@ -184,14 +196,13 @@ part that drags in permission prompts and hardware variability.
 **Gate:** permissions prompt and are handled; camera streams; OBS publishes to
 the relay.
 
-### M11 · Quality of life
-Set-once metadata pushed to every account, menu-bar mini-controller, macOS
-notifications on problems, post-stream reports, scheduled start and stop.
-
-### M12 · Unified chat inbox
+### Unified chat inbox
 YouTube live chat and Facebook comments merged into one source-tagged pane.
+Needs the platform APIs, so it rides along with sign-in if that ever happens.
 
-### M13 · Regression + release
+## Wrap
+
+### M10 · Regression + release
 Re-run the entire accumulated checklist, a multi-day soak, optional signing and
 notarisation, versioned `.dmg` on a GitHub release.
 
@@ -224,4 +235,5 @@ monthly cost this project exists to avoid.
   `.dmg` needs an Apple Developer account ($99/yr).
 - **ffmpeg licensing:** bundling ffmpeg carries GPL obligations. Fine for
   personal use; relevant if this is ever distributed publicly.
-- **CSP** is unset while the app loads no remote content. Tighten before M8.
+- **CSP** is unset while the app loads no remote content. Tighten if platform
+  APIs are ever added.

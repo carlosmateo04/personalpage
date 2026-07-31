@@ -129,14 +129,18 @@ Add flow
 
 - [ ] **+ Add destination** opens a platform picker with YouTube, Facebook,
       TikTok, Twitch, and Custom RTMP
-- [ ] YouTube offers **Sign in with Google**, with paste-a-key underneath
-- [ ] Signing in shows a waiting state, then a list of that account's channels
-- [ ] Picking a channel adds it as its own destination with its own controls
-- [ ] The same platform can be connected repeatedly for different accounts
-- [ ] TikTok skips the sign-in step entirely and explains why RTMP access is
-      gated
-- [ ] Custom RTMP accepts an arbitrary server URL and key
+- [ ] Picking a platform goes straight to the key form — no sign-in step in the
+      way
+- [ ] The server URL is prefilled for known platforms
+- [ ] Help text says where to find the key on that platform
 - [ ] The key form refuses to submit until both server and key are filled
+- [ ] Adding creates a destination with its own controls and playlist
+- [ ] The same platform can be connected repeatedly for different accounts
+- [ ] TikTok warns that its keys are per-broadcast, which limits unattended 24/7
+- [ ] TikTok offers no sign-in at all
+- [ ] Custom RTMP accepts an arbitrary server URL and key
+- [ ] Sign-in appears only as an optional extra below the key form, on platforms
+      that support it
 - [ ] **Back** returns to the previous step; closing mid-flow adds nothing
 
 Account settings
@@ -145,6 +149,7 @@ Account settings
 - [ ] OAuth accounts show the provider, the signed-in identity, and that the key
       refreshes automatically
 - [ ] Key accounts show the server and a masked key preview, never the full key
+- [ ] The full key appears nowhere in the rendered page after it is saved
 - [ ] Renaming changes only the local label
 - [ ] Removing asks for confirmation first, and says it does not touch the
       channel on the platform

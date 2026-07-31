@@ -64,11 +64,19 @@ export type Auth =
   | { method: 'oauth'; provider: string; connectedAs: string; needsReauth?: boolean }
   | { method: 'key'; server: string; keyPreview: string }
 
-/** What a platform supports for connecting an account. */
+/**
+ * What a platform supports for connecting an account.
+ *
+ * Pasting a key is the primary path everywhere: it needs no developer account,
+ * no app review, and no API quota. Signing in is offered only where the
+ * platform has a usable API, and only as an optional extra.
+ */
 export type PlatformAuth = {
-  /** Label for the sign-in button, absent when the platform has no usable API. */
+  /** Label for the optional sign-in button, absent where there is no usable API. */
   oauth?: string
-  /** Why sign-in is unavailable or restricted, shown next to the paste-key path. */
+  /** Where to find the key on the platform. */
+  keyHelp: string
+  /** Anything the user should know before relying on this platform. */
   note?: string
   defaultServer: string
 }
@@ -76,22 +84,26 @@ export type PlatformAuth = {
 export const PLATFORM_AUTH: Record<Platform, PlatformAuth> = {
   youtube: {
     oauth: 'Sign in with Google',
+    keyHelp: 'YouTube Studio → Go Live → Stream → “Stream key”. Use the persistent key: it does not expire, which is what makes an around-the-clock stream possible.',
     defaultServer: 'rtmp://a.rtmp.youtube.com/live2',
   },
   facebook: {
     oauth: 'Continue with Facebook',
-    note: 'Signing in needs a Meta app review for Pages. A persistent stream key works right away.',
+    keyHelp: 'Page → Live producer → Streaming software. Turn on “Use a persistent stream key” so the key survives between broadcasts.',
     defaultServer: 'rtmps://live-api-s.facebook.com:443/rtmp',
   },
   tiktok: {
-    note: 'TikTok does not offer sign-in for streaming. RTMP access needs LIVE permission on the account, then paste the key from TikTok Live Studio.',
+    keyHelp: 'TikTok Live Studio → Settings. Requires LIVE permission on the account.',
+    note: 'TikTok issues a fresh key for each broadcast, so a stream that runs for days needs the key re-pasted whenever it restarts. Better suited to scheduled runs than to unattended 24/7.',
     defaultServer: 'rtmp://push-rtmp-l1-va01.tiktokcdn.com/live',
   },
   twitch: {
     oauth: 'Sign in with Twitch',
+    keyHelp: 'Creator Dashboard → Settings → Stream → Primary Stream Key.',
     defaultServer: 'rtmp://live.twitch.tv/app',
   },
   custom: {
+    keyHelp: 'Copy the RTMP server URL and key from the platform’s streaming settings.',
     note: 'Works with Kick, Rumble, LinkedIn, X, or anything else that speaks RTMP.',
     defaultServer: '',
   },

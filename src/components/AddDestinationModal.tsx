@@ -62,16 +62,15 @@ export function AddDestinationModal({
     setServer(PLATFORM_AUTH[platform].defaultServer)
     setLabel('')
     setKey('')
-    const auth = PLATFORM_AUTH[platform]
-    setStep(auth.oauth ? { name: 'method', platform } : { name: 'paste', platform })
+    setStep({ name: 'paste', platform })
   }
 
   const back = () => {
     if (step.name === 'platform') return onClose()
     if (step.name === 'method') return setStep({ name: 'platform' })
-    if (step.name === 'paste' || step.name === 'choose' || step.name === 'signing-in') {
-      const auth = PLATFORM_AUTH[step.platform]
-      return setStep(auth.oauth ? { name: 'method', platform: step.platform } : { name: 'platform' })
+    if (step.name === 'paste') return setStep({ name: 'platform' })
+    if (step.name === 'choose' || step.name === 'signing-in') {
+      return setStep({ name: 'paste', platform: step.platform })
     }
   }
 
@@ -97,9 +96,7 @@ export function AddDestinationModal({
                     <PlatformIcon platform={p} size={30} />
                   </span>
                   <span className="plat-tile-name">{PLATFORM_NAMES[p]}</span>
-                  <span className="plat-tile-sub">
-                    {PLATFORM_AUTH[p].oauth ? 'Sign in or paste a key' : 'Paste a stream key'}
-                  </span>
+                  <span className="plat-tile-sub">Paste a stream key</span>
                 </button>
               ))}
             </div>
@@ -199,6 +196,8 @@ export function AddDestinationModal({
                 })
               }}
             >
+              <p className="key-help">{PLATFORM_AUTH[step.platform].keyHelp}</p>
+
               <label>
                 Name
                 <input
@@ -241,8 +240,28 @@ export function AddDestinationModal({
               </button>
               <p className="oauth-note">
                 The key is tested against the server before it is saved, so a dead key shows up now
-                rather than five seconds into a broadcast.
+                rather than five seconds into a broadcast. It is stored in the macOS Keychain.
               </p>
+
+              {PLATFORM_AUTH[step.platform].oauth && (
+                <>
+                  <div className="method-or">
+                    <span>optional</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setStep({ name: 'signing-in', platform: step.platform })}
+                  >
+                    {PLATFORM_AUTH[step.platform].oauth}
+                  </button>
+                  <p className="oauth-note">
+                    Signing in is not required. It only saves you fetching the key by hand, and lets
+                    the app read the broadcast's health from {PLATFORM_NAMES[step.platform]} rather
+                    than inferring it from the upload alone.
+                  </p>
+                </>
+              )}
             </form>
           )}
         </div>
@@ -275,7 +294,7 @@ function headline(step: Step): string {
     case 'choose':
       return 'Choose what to add'
     case 'paste':
-      return `${PLATFORM_NAMES[step.platform]} stream key`
+      return `Connect ${PLATFORM_NAMES[step.platform]}`
   }
 }
 
@@ -290,6 +309,6 @@ function subhead(step: Step): string {
     case 'choose':
       return 'These are the channels this account can stream to.'
     case 'paste':
-      return 'Copy the server URL and key from the platform’s streaming settings.'
+      return 'Paste the stream key. No developer account, no app review, nothing to set up.'
   }
 }
