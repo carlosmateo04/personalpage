@@ -33,7 +33,8 @@ why priority-based adaptive bitrate (M9) exists.
 
 | Milestone | Scope | State |
 | --- | --- | --- |
-| **M0** | Build pipeline → `.dmg` | ✅ built, awaiting gate |
+| **M0** | Build pipeline → `.dmg` | ✅ passed on hardware |
+| **UI** | Main interface direction (simulated data) | 🟡 awaiting sign-off |
 | M1 | Local relay + synthetic test source | ⬜ |
 | M2 | One destination, real status + error taxonomy | ⬜ |
 | M3 | Fan-out with independent control | ⬜ |
@@ -57,7 +58,16 @@ logic at all — this milestone exists so that Xcode tooling, Rust targets,
 bundle identifiers, and icon packaging fail *once*, against a hello-world,
 rather than confusing every later failure.
 **Gate:** `.dmg` installs and launches; the info panel renders values fetched
-from Rust over IPC.
+from Rust over IPC. — *Passed 2026-07-31 on Apple Silicon.*
+
+### UI direction · Main interface
+Pulled forward, out of milestone order, on the principle that disagreeing about
+the interface is far cheaper to fix now than at M10. One dominant action, big
+targets, minimal chrome: a hero **Go live** button that starts everything, one
+large card per destination with its own start/stop and status, and a persistent
+bandwidth strip. Destinations, telemetry, and problems are simulated; later
+milestones replace the mock data with real processes behind the same surface.
+**Gate:** sign-off on the look and the interaction model.
 
 ### M1 · Local relay + synthetic source
 Bundle MediaMTX and ffmpeg, push a generated test pattern into the relay,

@@ -9,45 +9,77 @@ says otherwise.
 
 ---
 
-## M0 · Build pipeline
+## M0 · Build pipeline — ✅ PASSED 2026-07-31
+
+Confirmed on an Apple Silicon MacBook Pro: `.dmg` installed, app launched,
+status pill read **Bridge OK** with version `0.1.0`, profile `release`,
+os `macos`, arch `aarch64`. The build, universal binary, and typecheck steps
+were confirmed green on the macOS CI runner. Unticked boxes below were not
+exercised individually; re-run the full list at M12.
 
 Environment
 
 - [ ] `./setup.sh` completes with no errors on a clean machine
 - [ ] Re-running `./setup.sh` is harmless (idempotent)
-- [ ] `npm run typecheck` passes
-- [ ] `npm run build` produces `dist/index.html`
+- [x] `npm run typecheck` passes
+- [x] `npm run build` produces `dist/index.html`
 
 Bundle
 
-- [ ] `npm run app:build` completes without errors
-- [ ] A `.dmg` exists in `src-tauri/target/release/bundle/dmg/`
+- [x] `npm run app:build` completes without errors
+- [x] A `.dmg` exists in `src-tauri/target/release/bundle/dmg/`
 - [ ] `npm run app:build:universal` completes, and `lipo -archs` on the binary
       inside the bundle reports both `x86_64` and `arm64`
 
 Install and launch
 
-- [ ] `.dmg` mounts by double-clicking
-- [ ] App drags to `/Applications`
-- [ ] App launches from `/Applications` with no Gatekeeper block
+- [x] `.dmg` mounts by double-clicking
+- [x] App drags to `/Applications`
+- [x] App launches from `/Applications` with no Gatekeeper block
       (locally built binaries carry no quarantine flag)
 - [ ] App icon appears correctly in Finder, Dock, and ⌘-Tab
 - [ ] Window opens centred at roughly 1100×760
-- [ ] Window title reads `StreamBridge`
+- [x] Window title reads `StreamBridge`
 - [ ] Window resizes, and refuses to go below 900×600
 - [ ] ⌘Q quits cleanly, no crash dialog, no orphan process
       (`pgrep -fl StreamBridge` returns nothing after quit)
 
 IPC bridge
 
-- [ ] Status pill reads **Bridge OK**
-- [ ] App version shows `0.1.0`
-- [ ] Build profile shows `release`
-- [ ] Operating system shows `macos`
-- [ ] Architecture matches the machine (`aarch64` on Apple Silicon)
+- [x] Status pill reads **Bridge OK**
+- [x] App version shows `0.1.0`
+- [x] Build profile shows `release`
+- [x] Operating system shows `macos`
+- [x] Architecture matches the machine (`aarch64` on Apple Silicon)
 - [ ] Values are selectable text (they came from Rust, not hardcoded in JS)
 
 Negative check — proves the bridge indicator is real
 
 - [ ] `npm run dev` then open <http://localhost:1420> in Safari or Chrome:
       the pill reads **No bridge** and the error panel explains why
+
+> **Superseded.** The M0 diagnostic panel was replaced by the main interface in
+> the UI direction pass below. IPC is now proven by the version string in the
+> status bar rather than by a dedicated pill. At M12, check that instead.
+
+---
+
+## UI direction · Main interface
+
+The shell everything else plugs into. No backend yet — destinations, telemetry,
+and problems are simulated, and the status bar says so.
+
+- [ ] Hero button fills the top of the window and reads **Go live** when idle
+- [ ] Pressing it turns every destination live; the button turns red and reads
+      **Stop everything**
+- [ ] Pressing it again returns everything to **Ready**
+- [ ] Each destination card starts and stops on its own without disturbing the
+      others
+- [ ] A card mid-connection shows **Starting…** and cannot be pressed again
+- [ ] Live cards show a running timer, upload rate, and dropped-frame count
+- [ ] Bandwidth strip totals the active destinations and drops headroom as more
+      go live; it turns amber past 65% and red past 85%
+- [ ] **Preview a problem** puts TikTok into a failure state with a plain-language
+      cause and an **Enter new key** button
+- [ ] Version number appears in the status bar (this is now the IPC proof)
+- [ ] Window resized narrow: cards reflow to two columns, no horizontal scrolling
