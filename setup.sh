@@ -62,6 +62,36 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   done
 fi
 
+# ---------------------------------------------------------------- ffmpeg ----
+bold "ffmpeg"
+# StreamBridge shells out to ffmpeg and ffprobe rather than bundling them.
+# Using the copy already on the machine keeps the app clear of ffmpeg's GPL
+# distribution obligations, and Homebrew's build is better maintained than
+# anything this script could fetch.
+if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+  ok "$(ffmpeg -version | head -1 | cut -d' ' -f1-3)  ($(command -v ffmpeg))"
+elif command -v brew >/dev/null 2>&1; then
+  warn "not found - installing with Homebrew"
+  brew install ffmpeg
+  ok "$(ffmpeg -version | head -1 | cut -d' ' -f1-3)"
+else
+  warn "ffmpeg is missing and Homebrew is not installed."
+  cat <<'EOF'
+
+  StreamBridge cannot stream without ffmpeg. Install Homebrew first:
+
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+  then re-run ./setup.sh.
+
+  On Apple Silicon, Homebrew installs to /opt/homebrew - if your ~/.zprofile
+  points at /usr/local/bin/brew you will see "no such file" on every new shell.
+  The installer prints the correct line to add.
+
+EOF
+  die "Install ffmpeg, then re-run ./setup.sh."
+fi
+
 # ---------------------------------------------------------------- deps ------
 bold "JavaScript dependencies"
 if [[ -f package-lock.json ]]; then

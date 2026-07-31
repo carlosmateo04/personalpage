@@ -38,7 +38,7 @@ export function DestinationCard({
   const playing = playlist && active ? currentClip(playlist.clips, playlist.loop, d.uptime) : null
 
   return (
-    <article className={`dest dest-${d.status}`}>
+    <article className={`dest dest-${d.status}`} data-id={d.id}>
       <button
         className="dest-head"
         onClick={() => onEditAccount(d.id)}

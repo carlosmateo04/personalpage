@@ -7,7 +7,7 @@ import {
   type LoopMode,
   type VideoClip,
 } from '../types'
-import { SAMPLE_LIBRARY } from '../mockDestinations'
+import { engine } from '../engine'
 
 const LOOP_LABELS: Record<LoopMode, string> = {
   all: 'Loop the whole playlist',
@@ -29,7 +29,8 @@ export function PlaylistModal({
   const initial = d.source.kind === 'playlist' ? d.source : { clips: [], loop: 'all' as LoopMode }
   const [clips, setClips] = useState<VideoClip[]>(initial.clips)
   const [loop, setLoop] = useState<LoopMode>(initial.loop)
-  const [picking, setPicking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
 
   const commit = (nextClips: VideoClip[], nextLoop: LoopMode = loop) => {
     setClips(nextClips)
@@ -46,14 +47,28 @@ export function PlaylistModal({
     commit(next)
   }
 
-  const add = (clip: VideoClip) => {
-    // Same file can legitimately appear twice, so give each entry its own id.
-    commit([...clips, { ...clip, id: `${clip.id}-${clips.length}-${clip.name}` }])
-    setPicking(false)
+  /** Pick a file, probe it, and only then add it — a file that cannot be read is not a playlist entry. */
+  const addFile = async () => {
+    setProblem(null)
+    try {
+      const path = await engine.pickVideo()
+      if (!path) return
+      setBusy(true)
+      const info = await engine.probeVideo(path)
+      commit([
+        ...clips,
+        { ...info, id: `${info.path}#${clips.length}` },
+      ])
+    } catch (e) {
+      setProblem(String(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const total = totalDuration(clips)
   const mixed = mixedResolutions(clips)
+  const first = clips[0]
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -62,8 +77,8 @@ export function PlaylistModal({
           <div>
             <h2>Videos for {d.label}</h2>
             <p>
-              {d.account} &middot; this playlist streams only to this account, independently of
-              every other destination
+              {d.account} &middot; this video streams only to this account, independently of every
+              other destination
             </p>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
@@ -74,14 +89,14 @@ export function PlaylistModal({
         <div className="modal-body">
           {clips.length === 0 ? (
             <p className="empty">
-              No videos yet. Add one or more files and they will play in order, then loop.
+              No video yet. Choose a file and it will loop endlessly on this account.
             </p>
           ) : (
             <ol className="cliplist">
               {clips.map((c, i) => (
                 <li key={c.id} className="clip">
                   <span className="clip-index">{i + 1}</span>
-                  <span className="clip-name" title={c.name}>
+                  <span className="clip-name" title={c.path}>
                     {c.name}
                   </span>
                   <span className="clip-meta">
@@ -111,32 +126,43 @@ export function PlaylistModal({
             </ol>
           )}
 
-          {picking ? (
-            <div className="picker">
-              <p className="picker-head">Choose a file</p>
-              {SAMPLE_LIBRARY.map((c) => (
-                <button key={c.id} className="picker-row" onClick={() => add(c)}>
-                  <span className="clip-name">{c.name}</span>
-                  <span className="clip-meta">
-                    {c.width}×{c.height} &middot; {formatDuration(c.duration)}
-                  </span>
-                </button>
+          <button className="btn-add-clip" onClick={addFile} disabled={busy}>
+            {busy ? 'Reading file…' : '+ Choose a video file'}
+          </button>
+
+          {problem && <p className="warn-note error-note">{problem}</p>}
+
+          {/* What ffprobe actually found in the file that will be streamed. */}
+          {first && (
+            <div className="probe">
+              <p className="probe-head">
+                {first.name} &middot; {first.video_codec.toUpperCase()}
+                {first.audio_codec ? ` + ${first.audio_codec.toUpperCase()}` : ' + no audio'}
+                {' · '}
+                {first.fps.toFixed(first.fps % 1 === 0 ? 0 : 2)} fps
+                {first.bitrate_kbps > 0 && ` · ${(first.bitrate_kbps / 1000).toFixed(1)} Mbps`}
+                {first.keyframe_interval !== null &&
+                  ` · keyframes ${first.keyframe_interval.toFixed(1)}s`}
+              </p>
+              {first.findings.map((f, i) => (
+                <p key={i} className={`finding finding-${f.severity}`}>
+                  <strong>{f.title}.</strong> {f.detail}
+                </p>
               ))}
-              <button className="picker-cancel" onClick={() => setPicking(false)}>
-                Cancel
-              </button>
             </div>
-          ) : (
-            <button className="btn-add-clip" onClick={() => setPicking(true)}>
-              + Add video
-            </button>
+          )}
+
+          {clips.length > 1 && (
+            <p className="warn-note">
+              <strong>One video for now.</strong> Only the first file loops in this build. Playing a
+              list in sequence is M4; the rest are kept so the order is ready when it lands.
+            </p>
           )}
 
           {mixed && (
             <p className="warn-note">
               <strong>Mixed resolutions.</strong> These clips are not all the same size, so they
-              cannot be joined without re-encoding. StreamBridge will normalise them once and cache
-              the result, which costs disk and a one-off wait, but keeps playback seamless.
+              cannot be joined without re-encoding. That gets handled in M4.
             </p>
           )}
         </div>

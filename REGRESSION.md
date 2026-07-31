@@ -154,3 +154,57 @@ Account settings
 - [ ] Removing asks for confirmation first, and says it does not touch the
       channel on the platform
 - [ ] A card whose sign-in expired shows a warning badge instead of the check
+
+---
+
+## M1 · Loop one video to one destination
+
+The first milestone where something real leaves the Mac.
+
+Setup
+
+- [ ] `./setup.sh` finds or installs ffmpeg and reports its version
+- [ ] Status bar shows `ffmpeg <version> (homebrew)` at the bottom right
+- [ ] With ffmpeg removed from PATH, a red banner says so and streaming is
+      refused rather than failing obscurely
+
+Choosing a file
+
+- [ ] **Choose a video file** opens the native macOS picker
+- [ ] Picking a file shows its real codec, resolution, fps, bitrate, and
+      measured keyframe spacing
+- [ ] An H.264 + AAC file reports "Ready to stream as-is"
+- [ ] A file with no audio track is flagged as a blocker
+- [ ] A non-H.264 file (ProRes, HEVC) warns that it needs re-encoding
+- [ ] A file with sparse keyframes warns about join latency
+- [ ] Picking a non-video file reports a readable error, not a crash
+
+Streaming
+
+- [ ] Starting without a video explains what is missing
+- [ ] Starting without a key explains what is missing
+- [ ] With both present, **Start** turns the card to Connecting, then Live once
+      frames flow
+- [ ] Uptime, upload rate, and dropped frames update about once a second and
+      match what YouTube Studio reports
+- [ ] The stream is visible on the platform
+- [ ] **Stop** ends it cleanly, the platform sees the stream end, and no ffmpeg
+      process is left behind (`pgrep -fl ffmpeg` returns nothing)
+- [ ] Quitting the app while streaming does not leave an orphan ffmpeg
+
+The gate
+
+- [ ] One loop runs **for several hours unattended** on a real platform
+- [ ] The video loops back to the start with no visible break for a viewer
+- [ ] Dropped frames stay at or near zero for the whole run
+- [ ] Speed holds at ~1.0x throughout
+- [ ] CPU use stays low, confirming `-c copy` is really in effect and nothing is
+      being re-encoded
+
+Failure handling
+
+- [ ] A deliberately wrong stream key fails with ffmpeg's reason shown
+- [ ] Killing the ffmpeg process externally surfaces "Stream stopped
+      unexpectedly" with a **Start again** button
+- [ ] Pulling the network mid-stream surfaces a failure
+      (automatic recovery is M2, so manual restart is expected here)

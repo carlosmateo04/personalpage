@@ -1372,3 +1372,137 @@ button {
   font-weight: 400;
   color: var(--muted);
 }
+
+/* ---------- banners ---------- */
+
+.banner-bad,
+.banner-warn {
+  flex: none;
+  margin: 0;
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.banner-bad {
+  background: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.35);
+}
+
+.banner-bad strong {
+  color: var(--bad);
+}
+
+.banner-warn {
+  background: rgba(255, 176, 32, 0.1);
+  border: 1px solid rgba(255, 176, 32, 0.35);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.banner-dismiss {
+  margin-left: 8px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------- empty state ---------- */
+
+.empty-state {
+  margin: auto;
+  max-width: 430px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.empty-state h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.btn-hero:disabled {
+  opacity: 0.35;
+  cursor: default;
+  box-shadow: none;
+}
+
+/* ---------- probe results ---------- */
+
+.probe {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px 15px;
+  border-radius: 11px;
+  background: var(--panel-hi);
+  border: 1px solid var(--border);
+}
+
+.probe-head {
+  margin: 0;
+  font-size: 12px;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  color: var(--muted);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.finding {
+  margin: 0;
+  padding-left: 11px;
+  border-left: 2px solid var(--border);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.finding-note {
+  border-left-color: var(--good);
+}
+
+.finding-note strong {
+  color: var(--good);
+}
+
+.finding-warning {
+  border-left-color: var(--warn);
+}
+
+.finding-warning strong {
+  color: var(--warn);
+}
+
+.finding-blocker {
+  border-left-color: var(--bad);
+}
+
+.finding-blocker strong {
+  color: var(--bad);
+}
+
+.error-note {
+  background: rgba(255, 77, 79, 0.08);
+  border-color: rgba(255, 77, 79, 0.3);
+}
+
+.statusbar {
+  gap: 16px;
+}
+
+.statusbar span:last-child {
+  white-space: nowrap;
+}

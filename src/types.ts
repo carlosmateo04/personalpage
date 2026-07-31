@@ -28,16 +28,36 @@ export type Issue = {
   raw?: string
 }
 
-/** A video file queued on an account's playlist. */
+/**
+ * A video file queued on an account's playlist.
+ *
+ * Everything but `id` comes straight from ffprobe, so what the UI shows is
+ * what the encoder will actually see.
+ */
 export type VideoClip = {
   id: string
+  path: string
   name: string
   /** Duration in seconds. */
   duration: number
   width: number
   height: number
-  /** Video codec as probed from the container. */
-  codec: string
+  fps: number
+  video_codec: string
+  audio_codec: string | null
+  bitrate_kbps: number
+  keyframe_interval: number | null
+  /** True when the file streams without re-encoding. */
+  can_copy: boolean
+  findings: Finding[]
+}
+
+export type Severity = 'blocker' | 'warning' | 'note'
+
+export type Finding = {
+  severity: Severity
+  title: string
+  detail: string
 }
 
 export type LoopMode = 'all' | 'one' | 'shuffle'
@@ -62,7 +82,17 @@ export type Source =
  */
 export type Auth =
   | { method: 'oauth'; provider: string; connectedAs: string; needsReauth?: boolean }
-  | { method: 'key'; server: string; keyPreview: string }
+  | {
+      method: 'key'
+      server: string
+      keyPreview: string
+      /**
+       * The actual key, held in memory only. Persisting it belongs to the
+       * Keychain work in M7; until then it is deliberately lost on quit rather
+       * than written somewhere insecure.
+       */
+      secret?: string
+    }
 
 /**
  * What a platform supports for connecting an account.

@@ -7,15 +7,16 @@ bandwidth monitoring.
 
 macOS app, distributed as a `.dmg`.
 
-> **Current state: M0 — build pipeline.** The app builds, installs, launches,
-> and proves the frontend can talk to the Rust backend. It does not stream yet.
-> See [`ROADMAP.md`](./ROADMAP.md) for the milestone plan.
+> **Current state: M1 — one looping video per account.** The app streams for
+> real: pick a video file, paste a stream key, and it loops to the platform
+> indefinitely. Playlists of several files, auto-reconnect, and unattended
+> hardening are still ahead. See [`ROADMAP.md`](./ROADMAP.md).
 
 ---
 
 ## Build it
 
-**Requirements:** macOS 11+, Xcode command-line tools, Node 20+, Rust.
+**Requirements:** macOS 11+, Xcode command-line tools, Node 20+, Rust, ffmpeg.
 `setup.sh` checks all four and installs what it can.
 
 ```bash
@@ -57,6 +58,8 @@ npm install
 | `npm run app:build:universal` | `.dmg` for Intel + Apple Silicon |
 | `npm run typecheck` | TypeScript check, no build |
 | `npm run build` | Frontend only — works on any OS |
+| `npm test` | Frontend state-machine tests |
+| `npm run test:rust` | Rust unit tests |
 | `npm run icons` | Regenerate the icon set from `assets/app-icon.png` |
 
 `npm run dev` alone serves the frontend in a browser at

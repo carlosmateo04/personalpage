@@ -56,8 +56,8 @@ exists.
 | Milestone | Scope | State |
 | --- | --- | --- |
 | **M0** | Build pipeline → `.dmg` | ✅ passed on hardware |
-| **UI** | Main interface direction (simulated data) | 🟡 awaiting sign-off |
-| M1 | Loop one video to one destination | ⬜ |
+| **UI** | Main interface direction | ✅ signed off |
+| **M1** | Loop one video to one destination | 🟡 built, awaiting gate |
 | M2 | Status, error taxonomy, auto-reconnect | ⬜ |
 | M3 | Independent simultaneous loops | ⬜ |
 | M4 | Playlists and normalisation | ⬜ |
@@ -89,7 +89,12 @@ Data is simulated; later milestones replace it behind the same surface.
 ## The core capability
 
 ### M1 · Loop one video to one destination
-Bundle ffmpeg. Loop a single file to a single pasted RTMP key, indefinitely.
+Loop a single file to a single pasted RTMP key, indefinitely.
+
+ffmpeg is resolved from the machine rather than bundled — Homebrew's build is
+better maintained than anything shipped here, and using the local copy keeps the
+app clear of ffmpeg's GPL distribution obligations. The app searches a bundled
+location first anyway, so bundling stays possible later without a rewrite.
 Includes a pre-flight probe of the file, because `-c copy` only works when the
 source is already stream-shaped: H.264/AAC, sane bitrate, and a keyframe
 interval around two seconds. Files that fail the probe get flagged with what to

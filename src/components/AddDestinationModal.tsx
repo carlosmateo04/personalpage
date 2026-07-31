@@ -192,6 +192,7 @@ export function AddDestinationModal({
                     method: 'key',
                     server: server.trim(),
                     keyPreview: preview(key.trim()),
+                    secret: key.trim(),
                   },
                 })
               }}

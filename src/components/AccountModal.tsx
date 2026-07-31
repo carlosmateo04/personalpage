@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { PLATFORM_NAMES, type Destination } from '../types'
+import { PLATFORM_AUTH, PLATFORM_NAMES, type Destination } from '../types'
 import { PlatformIcon } from './PlatformIcon'
 
 /** Settings for an account that is already connected. */
@@ -8,14 +8,18 @@ export function AccountModal({
   onClose,
   onRename,
   onRemove,
+  onSetSecret,
 }: {
   destination: Destination
   onClose: () => void
   onRename: (id: string, label: string) => void
   onRemove: (id: string) => void
+  onSetSecret: (id: string, secret: string) => void
 }) {
   const [label, setLabel] = useState(d.label)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [key, setKey] = useState('')
+  const hasSecret = d.auth.method === 'key' && Boolean(d.auth.secret)
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -78,19 +82,41 @@ export function AccountModal({
               <>
                 <dl className="conn-grid">
                   <div>
-                    <dt>Method</dt>
-                    <dd>Stream key</dd>
-                  </div>
-                  <div>
                     <dt>Server</dt>
                     <dd className="mono">{d.auth.server}</dd>
                   </div>
                   <div>
                     <dt>Key</dt>
-                    <dd className="mono">{d.auth.keyPreview}</dd>
+                    <dd className="mono">{hasSecret ? d.auth.keyPreview : 'Not set'}</dd>
                   </div>
                 </dl>
-                <button className="btn-secondary">Replace key</button>
+
+                <label className="field">
+                  {hasSecret ? 'Replace the key' : 'Paste the stream key'}
+                  <input
+                    type="password"
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    placeholder="Paste from the platform"
+                    spellCheck={false}
+                    autoFocus={!hasSecret}
+                  />
+                  <small>{PLATFORM_AUTH[d.platform].keyHelp}</small>
+                </label>
+                <button
+                  className="btn-primary"
+                  disabled={!key.trim()}
+                  onClick={() => {
+                    onSetSecret(d.id, key.trim())
+                    setKey('')
+                  }}
+                >
+                  Save key
+                </button>
+                <p className="oauth-note">
+                  Held in memory only for now — quitting the app forgets it. Keychain storage is
+                  M7.
+                </p>
               </>
             )}
           </div>

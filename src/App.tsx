@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { AddDestinationCard } from './components/DestinationCard'
 import { PlatformSection } from './components/PlatformSection'
@@ -6,6 +6,8 @@ import { PlaylistModal } from './components/PlaylistModal'
 import { AddDestinationModal, type NewDestination } from './components/AddDestinationModal'
 import { AccountModal } from './components/AccountModal'
 import { BandwidthBar } from './components/BandwidthBar'
+import { engine, useStreamEvents, type Ended, type Progress, type ToolStatus } from './engine'
+import { applyEnded, applyProgress, maskKey, startBlocker } from './reduce'
 import {
   groupByPlatform,
   isActive,
@@ -13,34 +15,44 @@ import {
   type LoopMode,
   type VideoClip,
 } from './types'
-import { MOCK_DESTINATIONS } from './mockDestinations'
 
-/** Mocked uplink capacity until M4 measures it for real. */
-const CAPACITY_KBPS = 25_000
-const TARGET_KBPS = 6_000
+/**
+ * Assumed uplink until M5 measures it. Only used to draw the headroom figure,
+ * never to gate anything.
+ */
+const ASSUMED_UPLINK_KBPS = 25_000
 
 export default function App() {
-  const [destinations, setDestinations] = useState<Destination[]>(MOCK_DESTINATIONS)
+  const [destinations, setDestinations] = useState<Destination[]>([])
   const [history, setHistory] = useState<number[]>(() => Array<number>(48).fill(0))
   const [version, setVersion] = useState('')
+  const [tools, setTools] = useState<ToolStatus | null>(null)
   const [editingSource, setEditingSource] = useState<string | null>(null)
   const [editingAccount, setEditingAccount] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     invoke<{ version: string }>('build_info')
       .then((i) => setVersion(i.version))
       .catch(() => setVersion(''))
+    engine.toolStatus().then(setTools).catch(() => setTools(null))
   }, [])
 
-  useEffect(() => {
-    const pending = timers.current
-    return () => {
-      pending.forEach(clearTimeout)
-      pending.clear()
-    }
+  const patch = useCallback((id: string, change: Partial<Destination>) => {
+    setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, ...change } : d)))
   }, [])
+
+  // Real telemetry from the running ffmpeg processes.
+  const onProgress = useCallback((p: Progress) => {
+    setDestinations((prev) => applyProgress(prev, p))
+  }, [])
+
+  const onEnded = useCallback((e: Ended) => {
+    setDestinations((prev) => applyEnded(prev, e))
+  }, [])
+
+  useStreamEvents(onProgress, onEnded)
 
   const groups = useMemo(() => groupByPlatform(destinations), [destinations])
   const activeCount = destinations.filter((d) => isActive(d.status)).length
@@ -51,66 +63,58 @@ export default function App() {
     [destinations],
   )
 
-  // Simulated telemetry. M2 replaces this with parsed ffmpeg progress.
-  useEffect(() => {
-    const tick = setInterval(() => {
-      setDestinations((prev) =>
-        prev.map((d) => {
-          if (d.status === 'live' || d.status === 'degraded') {
-            const jitter = Math.round((Math.random() - 0.5) * 700)
-            return {
-              ...d,
-              uptime: d.uptime + 1,
-              bitrate: Math.max(1200, TARGET_KBPS + jitter),
-              dropped: d.dropped + (Math.random() < 0.12 ? Math.floor(Math.random() * 3) : 0),
-            }
-          }
-          return d
-        }),
-      )
-    }, 1000)
-    return () => clearInterval(tick)
-  }, [])
-
   useEffect(() => {
     setHistory((h) => [...h.slice(1), usedKbps])
   }, [usedKbps])
 
-  const start = useCallback((id: string) => {
-    setDestinations((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, status: 'connecting', issue: undefined, uptime: 0, dropped: 0 } : d,
-      ),
-    )
-    // Stagger slightly so simultaneous starts do not all flip in the same frame.
-    const t = setTimeout(() => {
-      setDestinations((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, status: 'live', bitrate: TARGET_KBPS } : d)),
-      )
-      timers.current.delete(id)
-    }, 1100 + Math.random() * 900)
-    timers.current.set(id, t)
-  }, [])
+  const start = useCallback(
+    async (id: string) => {
+      const d = destinations.find((x) => x.id === id)
+      if (!d) return
+      const why = startBlocker(d)
+      if (why) {
+        setError(why)
+        return
+      }
+      // Narrowed by `blocker` above.
+      const clip = (d.source as { clips: VideoClip[] }).clips[0]!
+      const auth = d.auth as { server: string; secret?: string }
 
-  const stop = useCallback((id: string) => {
-    const pending = timers.current.get(id)
-    if (pending) {
-      clearTimeout(pending)
-      timers.current.delete(id)
-    }
-    setDestinations((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, status: 'idle', uptime: 0, bitrate: 0, dropped: 0, issue: undefined } : d,
-      ),
-    )
-  }, [])
+      patch(id, { status: 'connecting', issue: undefined, uptime: 0, dropped: 0, bitrate: 0 })
+      try {
+        await engine.startLoop(id, clip.path, auth.server, auth.secret ?? '')
+      } catch (e) {
+        patch(id, {
+          status: 'failed',
+          issue: {
+            title: 'Could not start',
+            detail: String(e),
+            action: { label: 'Try again', kind: 'retry' },
+          },
+        })
+      }
+    },
+    [destinations, patch],
+  )
+
+  const stop = useCallback(
+    async (id: string) => {
+      try {
+        await engine.stopLoop(id)
+      } catch (e) {
+        setError(String(e))
+      }
+      patch(id, { status: 'idle', uptime: 0, bitrate: 0, dropped: 0, issue: undefined })
+    },
+    [patch],
+  )
 
   const toggle = useCallback(
     (id: string) => {
       const d = destinations.find((x) => x.id === id)
       if (!d) return
-      if (isActive(d.status)) stop(id)
-      else start(id)
+      if (isActive(d.status)) void stop(id)
+      else void start(id)
     },
     [destinations, start, stop],
   )
@@ -120,7 +124,13 @@ export default function App() {
     (ids: string[]) => {
       const set = destinations.filter((d) => ids.includes(d.id))
       const running = set.some((d) => isActive(d.status))
-      set.forEach((d) => (running ? isActive(d.status) && stop(d.id) : start(d.id)))
+      set.forEach((d) => {
+        if (running) {
+          if (isActive(d.status)) void stop(d.id)
+        } else if (!isActive(d.status)) {
+          void start(d.id)
+        }
+      })
     },
     [destinations, start, stop],
   )
@@ -166,30 +176,16 @@ export default function App() {
     setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, label } : d)))
   }, [])
 
-  const removeDestination = useCallback(
-    (id: string) => {
-      stop(id)
-      setDestinations((prev) => prev.filter((d) => d.id !== id))
-      setEditingAccount(null)
-    },
-    [stop],
-  )
-
-  /** Forces a realistic failure so the problem UI can be judged before it is wired up. */
-  const previewIssue = useCallback(() => {
+  const setSecret = useCallback((id: string, secret: string) => {
     setDestinations((prev) =>
       prev.map((d) =>
-        d.id === 'yt-curiora'
+        d.id === id && d.auth.method === 'key'
           ? {
               ...d,
-              status: 'failed',
-              bitrate: 0,
-              auth: { method: 'oauth', provider: 'Google', connectedAs: 'carlos@curiora.com', needsReauth: true },
-              issue: {
-                title: 'Sign-in expired',
-                detail: 'Google could not refresh the token for this channel. Sign in again.',
-                action: { label: 'Reconnect account', kind: 'reauth' },
-                raw: 'RTMP handshake failed: NetStream.Publish.BadName (code 403)',
+              auth: {
+                ...d.auth,
+                secret,
+                keyPreview: maskKey(secret),
               },
             }
           : d,
@@ -197,10 +193,20 @@ export default function App() {
     )
   }, [])
 
+  const removeDestination = useCallback(
+    (id: string) => {
+      void stop(id)
+      setDestinations((prev) => prev.filter((d) => d.id !== id))
+      setEditingAccount(null)
+    },
+    [stop],
+  )
+
   const platformCount = groups.length
   const loopingCount = destinations.filter((d) => d.source.kind === 'playlist').length
   const editing = destinations.find((d) => d.id === editingSource) ?? null
   const account = destinations.find((d) => d.id === editingAccount) ?? null
+  const ready = destinations.filter((d) => !startBlocker(d)).length
 
   return (
     <main className="app">
@@ -217,64 +223,99 @@ export default function App() {
         </button>
       </header>
 
+      {tools?.state === 'missing' && (
+        <p className="banner-bad">
+          <strong>ffmpeg not found.</strong> Nothing can stream until it is installed. Run{' '}
+          <code>./setup.sh</code>, or <code>brew install ffmpeg</code>.
+        </p>
+      )}
+
+      {error && (
+        <p className="banner-warn" onClick={() => setError(null)}>
+          {error} <span className="banner-dismiss">Dismiss</span>
+        </p>
+      )}
+
       <section className="stage">
-        <button className={`btn-hero ${anyActive ? 'live' : ''}`} onClick={toggleAll}>
+        <button
+          className={`btn-hero ${anyActive ? 'live' : ''}`}
+          onClick={toggleAll}
+          disabled={!anyActive && ready === 0}
+        >
           <span className="hero-glyph" aria-hidden="true">
             {anyActive ? '■' : '▶'}
           </span>
           <span className="hero-text">{anyActive ? 'Stop everything' : 'Go live everywhere'}</span>
         </button>
         <p className="stage-sub">
-          {anyActive ? (
+          {destinations.length === 0 ? (
+            'No accounts yet'
+          ) : anyActive ? (
             <>
               Live on <strong>{activeCount}</strong> of {destinations.length} accounts
             </>
           ) : (
             <>
               <strong>{destinations.length}</strong> accounts across{' '}
-              <strong>{platformCount}</strong> platforms &middot; {loopingCount} looping videos,{' '}
-              {destinations.length - loopingCount} on the live feed
+              <strong>{platformCount}</strong> platforms &middot; {loopingCount} with video,{' '}
+              <strong>{ready}</strong> ready to stream
             </>
           )}
         </p>
       </section>
 
       <div className="scroller">
-        {groups.map((g) => (
-          <PlatformSection
-            key={g.platform}
-            group={g}
-            onToggle={toggle}
-            onToggleAll={toggleMany}
-            onFix={toggle}
-            onEditSource={setEditingSource}
-            onEditAccount={setEditingAccount}
-          />
-        ))}
-
-        <section className="pgroup">
-          <header className="pgroup-head">
-            <h2 className="pgroup-more">Connect another</h2>
-            <span className="pgroup-count">Same platform again, or a new one</span>
-          </header>
-          <div className="pgroup-grid">
-            <AddDestinationCard onClick={() => setAdding(true)} />
+        {destinations.length === 0 ? (
+          <div className="empty-state">
+            <h2>Nothing connected yet</h2>
+            <p>
+              Add an account, paste its stream key, and choose a video to loop. Each account gets
+              its own video and its own controls, so several can run at once.
+            </p>
+            <button className="btn-primary" onClick={() => setAdding(true)}>
+              Add your first account
+            </button>
           </div>
-        </section>
+        ) : (
+          <>
+            {groups.map((g) => (
+              <PlatformSection
+                key={g.platform}
+                group={g}
+                onToggle={toggle}
+                onToggleAll={toggleMany}
+                onFix={toggle}
+                onEditSource={setEditingSource}
+                onEditAccount={setEditingAccount}
+              />
+            ))}
+
+            <section className="pgroup">
+              <header className="pgroup-head">
+                <h2 className="pgroup-more">Connect another</h2>
+                <span className="pgroup-count">Same platform again, or a new one</span>
+              </header>
+              <div className="pgroup-grid">
+                <AddDestinationCard onClick={() => setAdding(true)} />
+              </div>
+            </section>
+          </>
+        )}
       </div>
 
       <BandwidthBar
         usedKbps={usedKbps}
-        capacityKbps={CAPACITY_KBPS}
+        capacityKbps={ASSUMED_UPLINK_KBPS}
         history={history}
         activeCount={activeCount}
       />
 
       <footer className="statusbar">
-        <span>Preview build{version && ` · v${version}`} · data is simulated</span>
-        <button className="link-btn" onClick={previewIssue}>
-          Preview a problem
-        </button>
+        <span>
+          StreamBridge{version && ` ${version}`}
+          {tools?.state === 'ready' && ` · ffmpeg ${tools.version} (${tools.source})`}
+        </span>
+        <span>M1 · one looping video per account</span>
       </footer>
 
       {adding && (
@@ -287,6 +328,7 @@ export default function App() {
           onClose={() => setEditingAccount(null)}
           onRename={renameDestination}
           onRemove={removeDestination}
+          onSetSecret={setSecret}
         />
       )}
 
