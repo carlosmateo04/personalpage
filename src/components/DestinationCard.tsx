@@ -25,11 +25,13 @@ export function DestinationCard({
   onToggle,
   onFix,
   onEditSource,
+  onEditAccount,
 }: {
   destination: Destination
   onToggle: (id: string) => void
   onFix: (id: string) => void
   onEditSource: (id: string) => void
+  onEditAccount: (id: string) => void
 }) {
   const active = isActive(d.status)
   const playlist = d.source.kind === 'playlist' ? d.source : null
@@ -37,17 +39,33 @@ export function DestinationCard({
 
   return (
     <article className={`dest dest-${d.status}`}>
-      <header className="dest-head">
+      <button
+        className="dest-head"
+        onClick={() => onEditAccount(d.id)}
+        title="Account settings"
+      >
         <span className={`dest-icon plat-${d.platform}`}>
           <PlatformIcon platform={d.platform} />
         </span>
-        <div className="dest-id">
-          <h3>{d.label}</h3>
+        <span className="dest-id">
+          <span className="dest-name">
+            <h3>{d.label}</h3>
+            {d.auth.method === 'oauth' && !d.auth.needsReauth && (
+              <span className="auth-badge" title={`Signed in with ${d.auth.provider}`}>
+                ✓
+              </span>
+            )}
+            {d.auth.method === 'oauth' && d.auth.needsReauth && (
+              <span className="auth-badge warn" title="Sign-in expired">
+                !
+              </span>
+            )}
+          </span>
           <p>
             {PLATFORM_NAMES[d.platform]} &middot; {d.account}
           </p>
-        </div>
-      </header>
+        </span>
+      </button>
 
       <div className="dest-status">
         <span className={`beacon beacon-${d.status}`} aria-hidden="true" />

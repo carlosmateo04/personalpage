@@ -120,3 +120,32 @@ Per-account looping video — the driving use case
       touching any other account
 - [ ] Header under the hero counts how many accounts loop video versus take the
       live feed
+
+---
+
+## Account connection
+
+Add flow
+
+- [ ] **+ Add destination** opens a platform picker with YouTube, Facebook,
+      TikTok, Twitch, and Custom RTMP
+- [ ] YouTube offers **Sign in with Google**, with paste-a-key underneath
+- [ ] Signing in shows a waiting state, then a list of that account's channels
+- [ ] Picking a channel adds it as its own destination with its own controls
+- [ ] The same platform can be connected repeatedly for different accounts
+- [ ] TikTok skips the sign-in step entirely and explains why RTMP access is
+      gated
+- [ ] Custom RTMP accepts an arbitrary server URL and key
+- [ ] The key form refuses to submit until both server and key are filled
+- [ ] **Back** returns to the previous step; closing mid-flow adds nothing
+
+Account settings
+
+- [ ] Clicking a card's name opens that account's settings
+- [ ] OAuth accounts show the provider, the signed-in identity, and that the key
+      refreshes automatically
+- [ ] Key accounts show the server and a masked key preview, never the full key
+- [ ] Renaming changes only the local label
+- [ ] Removing asks for confirmation first, and says it does not touch the
+      channel on the platform
+- [ ] A card whose sign-in expired shows a warning badge instead of the check

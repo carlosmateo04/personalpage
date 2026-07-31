@@ -53,12 +53,57 @@ export type Source =
   | { kind: 'live' }
   | { kind: 'playlist'; clips: VideoClip[]; loop: LoopMode }
 
+/**
+ * How this destination proves it may publish.
+ *
+ * `oauth` means the platform's own sign-in granted a token, and the stream key
+ * is fetched (and refreshed) automatically. `key` means a key was pasted by
+ * hand — always available, and the only route on platforms whose API is gated.
+ */
+export type Auth =
+  | { method: 'oauth'; provider: string; connectedAs: string; needsReauth?: boolean }
+  | { method: 'key'; server: string; keyPreview: string }
+
+/** What a platform supports for connecting an account. */
+export type PlatformAuth = {
+  /** Label for the sign-in button, absent when the platform has no usable API. */
+  oauth?: string
+  /** Why sign-in is unavailable or restricted, shown next to the paste-key path. */
+  note?: string
+  defaultServer: string
+}
+
+export const PLATFORM_AUTH: Record<Platform, PlatformAuth> = {
+  youtube: {
+    oauth: 'Sign in with Google',
+    defaultServer: 'rtmp://a.rtmp.youtube.com/live2',
+  },
+  facebook: {
+    oauth: 'Continue with Facebook',
+    note: 'Signing in needs a Meta app review for Pages. A persistent stream key works right away.',
+    defaultServer: 'rtmps://live-api-s.facebook.com:443/rtmp',
+  },
+  tiktok: {
+    note: 'TikTok does not offer sign-in for streaming. RTMP access needs LIVE permission on the account, then paste the key from TikTok Live Studio.',
+    defaultServer: 'rtmp://push-rtmp-l1-va01.tiktokcdn.com/live',
+  },
+  twitch: {
+    oauth: 'Sign in with Twitch',
+    defaultServer: 'rtmp://live.twitch.tv/app',
+  },
+  custom: {
+    note: 'Works with Kick, Rumble, LinkedIn, X, or anything else that speaks RTMP.',
+    defaultServer: '',
+  },
+}
+
 export type Destination = {
   id: string
   platform: Platform
   /** User-facing label. Multiple accounts on one platform are the normal case. */
   label: string
   account: string
+  auth: Auth
   /** Per-account: one destination can loop videos while another takes the live feed. */
   source: Source
   status: DestinationStatus

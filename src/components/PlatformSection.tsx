@@ -13,12 +13,14 @@ export function PlatformSection({
   onToggleAll,
   onFix,
   onEditSource,
+  onEditAccount,
 }: {
   group: PlatformGroup
   onToggle: (id: string) => void
   onToggleAll: (ids: string[]) => void
   onFix: (id: string) => void
   onEditSource: (id: string) => void
+  onEditAccount: (id: string) => void
 }) {
   const { platform, destinations } = group
   const liveHere = destinations.filter((d) => isActive(d.status)).length
@@ -51,6 +53,7 @@ export function PlatformSection({
             onToggle={onToggle}
             onFix={onFix}
             onEditSource={onEditSource}
+            onEditAccount={onEditAccount}
           />
         ))}
       </div>

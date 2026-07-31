@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { AddDestinationCard } from './components/DestinationCard'
 import { PlatformSection } from './components/PlatformSection'
 import { PlaylistModal } from './components/PlaylistModal'
+import { AddDestinationModal, type NewDestination } from './components/AddDestinationModal'
+import { AccountModal } from './components/AccountModal'
 import { BandwidthBar } from './components/BandwidthBar'
 import {
   groupByPlatform,
@@ -22,6 +24,8 @@ export default function App() {
   const [history, setHistory] = useState<number[]>(() => Array<number>(48).fill(0))
   const [version, setVersion] = useState('')
   const [editingSource, setEditingSource] = useState<string | null>(null)
+  const [editingAccount, setEditingAccount] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
   useEffect(() => {
@@ -139,18 +143,51 @@ export default function App() {
     setEditingSource(null)
   }, [])
 
+  const addDestination = useCallback((next: NewDestination) => {
+    setDestinations((prev) => [
+      ...prev,
+      {
+        id: `d${prev.length}-${next.platform}-${next.label.replace(/\W+/g, '')}`,
+        platform: next.platform,
+        label: next.label,
+        account: next.account,
+        auth: next.auth,
+        source: { kind: 'playlist', clips: [], loop: 'all' },
+        status: 'idle',
+        uptime: 0,
+        bitrate: 0,
+        dropped: 0,
+      },
+    ])
+    setAdding(false)
+  }, [])
+
+  const renameDestination = useCallback((id: string, label: string) => {
+    setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, label } : d)))
+  }, [])
+
+  const removeDestination = useCallback(
+    (id: string) => {
+      stop(id)
+      setDestinations((prev) => prev.filter((d) => d.id !== id))
+      setEditingAccount(null)
+    },
+    [stop],
+  )
+
   /** Forces a realistic failure so the problem UI can be judged before it is wired up. */
   const previewIssue = useCallback(() => {
     setDestinations((prev) =>
       prev.map((d) =>
-        d.id === 'yt-es'
+        d.id === 'yt-curiora'
           ? {
               ...d,
               status: 'failed',
               bitrate: 0,
+              auth: { method: 'oauth', provider: 'Google', connectedAs: 'carlos@curiora.com', needsReauth: true },
               issue: {
-                title: 'Stream key rejected',
-                detail: 'YouTube refused the key for this channel. Sign in again to refresh it.',
+                title: 'Sign-in expired',
+                detail: 'Google could not refresh the token for this channel. Sign in again.',
                 action: { label: 'Reconnect account', kind: 'reauth' },
                 raw: 'RTMP handshake failed: NetStream.Publish.BadName (code 403)',
               },
@@ -163,6 +200,7 @@ export default function App() {
   const platformCount = groups.length
   const loopingCount = destinations.filter((d) => d.source.kind === 'playlist').length
   const editing = destinations.find((d) => d.id === editingSource) ?? null
+  const account = destinations.find((d) => d.id === editingAccount) ?? null
 
   return (
     <main className="app">
@@ -210,6 +248,7 @@ export default function App() {
             onToggleAll={toggleMany}
             onFix={toggle}
             onEditSource={setEditingSource}
+            onEditAccount={setEditingAccount}
           />
         ))}
 
@@ -219,7 +258,7 @@ export default function App() {
             <span className="pgroup-count">Same platform again, or a new one</span>
           </header>
           <div className="pgroup-grid">
-            <AddDestinationCard onClick={() => {}} />
+            <AddDestinationCard onClick={() => setAdding(true)} />
           </div>
         </section>
       </div>
@@ -237,6 +276,19 @@ export default function App() {
           Preview a problem
         </button>
       </footer>
+
+      {adding && (
+        <AddDestinationModal onClose={() => setAdding(false)} onAdd={addDestination} />
+      )}
+
+      {account && (
+        <AccountModal
+          destination={account}
+          onClose={() => setEditingAccount(null)}
+          onRename={renameDestination}
+          onRemove={removeDestination}
+        />
+      )}
 
       {editing && (
         <PlaylistModal

@@ -23,6 +23,7 @@ export const MOCK_DESTINATIONS: Destination[] = [
     platform: 'youtube',
     label: 'Pipo y Lula',
     account: '@pipoylula',
+    auth: { method: 'oauth', provider: 'Google', connectedAs: 'carlos@pipoylula.com' },
     source: {
       kind: 'playlist',
       loop: 'all',
@@ -42,6 +43,7 @@ export const MOCK_DESTINATIONS: Destination[] = [
     platform: 'youtube',
     label: 'Curiora',
     account: '@curiora',
+    auth: { method: 'oauth', provider: 'Google', connectedAs: 'carlos@curiora.com' },
     source: {
       kind: 'playlist',
       loop: 'all',
@@ -57,6 +59,7 @@ export const MOCK_DESTINATIONS: Destination[] = [
     platform: 'facebook',
     label: 'Pipo y Lula',
     account: 'Pipo y Lula',
+    auth: { method: 'key', server: 'rtmps://live-api-s.facebook.com:443/rtmp', keyPreview: 'FB-8821…4f0a' },
     source: { kind: 'playlist', loop: 'all', clips: [clip('p4', 'pipo-lula-mix.mp4', 3600)] },
     status: 'idle',
     uptime: 0,
@@ -68,6 +71,7 @@ export const MOCK_DESTINATIONS: Destination[] = [
     platform: 'facebook',
     label: 'Curiora',
     account: 'Curiora',
+    auth: { method: 'key', server: 'rtmps://live-api-s.facebook.com:443/rtmp', keyPreview: 'FB-2043…9c17' },
     source: { kind: 'playlist', loop: 'all', clips: [clip('c3', 'curiora-compilado.mp4', 2145)] },
     status: 'idle',
     uptime: 0,
@@ -79,6 +83,7 @@ export const MOCK_DESTINATIONS: Destination[] = [
     platform: 'tiktok',
     label: 'Curiora',
     account: '@curiora',
+    auth: { method: 'key', server: 'rtmp://push-rtmp-l1-va01.tiktokcdn.com/live', keyPreview: 'stream-…a71b' },
     source: {
       kind: 'playlist',
       loop: 'all',
@@ -98,6 +103,7 @@ export const MOCK_DESTINATIONS: Destination[] = [
     platform: 'twitch',
     label: 'Directo',
     account: 'carlosmateo',
+    auth: { method: 'oauth', provider: 'Twitch', connectedAs: 'carlosmateo' },
     source: { kind: 'live' },
     status: 'idle',
     uptime: 0,
