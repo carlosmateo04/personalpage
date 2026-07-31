@@ -100,3 +100,23 @@ Multiple accounts — the core capability
       platform header reflects the split ("2 accounts · 1 live")
 - [ ] Bandwidth strip totals every live account and labels the count
       ("6 streams uploading")
+
+Per-account looping video — the driving use case
+
+- [ ] Each account card shows its own source: a playlist chip, or "Live feed"
+- [ ] Two accounts can hold completely different playlists at the same time
+      (Pipo y Lula and Curiora)
+- [ ] Clicking the source chip opens that account's playlist, titled with the
+      account name
+- [ ] Videos can be added, removed, and reordered; the total loop duration
+      updates
+- [ ] The same file can appear twice in one playlist without the entries
+      interfering
+- [ ] Repeat mode offers whole playlist, first video only, and shuffle
+- [ ] While live, the chip shows the file currently playing and its position
+      ("2/3"), with a progress bar underneath
+- [ ] A playlist mixing resolutions raises the normalisation warning
+- [ ] **Use live feed instead** switches that account off playlists without
+      touching any other account
+- [ ] Header under the hero counts how many accounts loop video versus take the
+      live feed

@@ -1,7 +1,11 @@
 # StreamBridge roadmap
 
-Stream to several platforms at once from one machine. One encode, fanned out
-locally to N destinations — no relay service, no monthly fee.
+Run several independent 24/7 live streams from one Mac. Each account loops its
+own video files, or takes a shared live feed — no relay service, no monthly fee.
+
+**The driving use case:** *Pipo y Lula* looping around the clock on its own
+channel, and *Curiora* looping something different on its own channel, both at
+once, from one MacBook. Everything below is ordered to reach that first.
 
 Milestones land one at a time. Each has a **gate**: until it passes on real
 hardware, the next one does not start. Gate criteria accumulate in
@@ -11,21 +15,39 @@ hardware, the next one does not start. Gate criteria accumulate in
 
 ## Architecture
 
+Two source kinds, and they matter differently.
+
+**Looping video files — the primary path.** Each account gets its own process
+reading its own files:
+
 ```
-  capture / OBS  ──▶  local relay  ──┬──▶  publisher #1  ──▶  YouTube
-                     (MediaMTX)      ├──▶  publisher #2  ──▶  Facebook
-                                     └──▶  publisher #3  ──▶  TikTok
+  pipo-y-lula.mp4 ──▶ ffmpeg -stream_loop -1 -re -c copy ──▶ YouTube @pipoylula
+  curiora.mp4     ──▶ ffmpeg -stream_loop -1 -re -c copy ──▶ YouTube @curiora
 ```
 
-One process per destination, all reading from a shared local relay. This is
-deliberate: ffmpeg's `tee` muxer would put every destination in a single
-process, so one platform failing would take down the rest. Separate publishers
-make per-destination start/stop/pause and failure isolation fall out naturally.
+No relay, no shared encoder, no dependency between them. Two brands, two
+processes, two 24/7 streams.
 
-**The cost of local fan-out is upload bandwidth.** N destinations means N full
-copies leaving the machine — three at 6 Mbps needs ~18 Mbps sustained upload.
-That is why the bandwidth dashboard is load-bearing rather than decorative, and
-why priority-based adaptive bitrate (M9) exists.
+The important property is `-c copy`: when the file is already H.264/AAC at
+sensible settings, nothing is re-encoded — ffmpeg only remuxes into RTMP. CPU
+cost is close to nothing, so the number of simultaneous loops a MacBook can run
+is limited by **upload bandwidth, not by the processor**.
+
+**A shared live feed — the secondary path.** When several destinations show the
+same camera or OBS output, that gets encoded once and copied out:
+
+```
+  camera / OBS ──▶ local relay ──┬──▶ publisher ──▶ destination A
+                   (MediaMTX)    └──▶ publisher ──▶ destination B
+```
+
+The relay exists only for this case. Pure file-loop setups never touch it.
+
+**Either way, bandwidth is the ceiling.** Every destination is a full copy
+leaving the machine — six at 6 Mbps needs ~36 Mbps sustained upload, which most
+home connections cannot hold. That is why the bandwidth dashboard is
+load-bearing rather than decorative, and why priority-based adaptive bitrate
+exists.
 
 ---
 
@@ -35,142 +57,152 @@ why priority-based adaptive bitrate (M9) exists.
 | --- | --- | --- |
 | **M0** | Build pipeline → `.dmg` | ✅ passed on hardware |
 | **UI** | Main interface direction (simulated data) | 🟡 awaiting sign-off |
-| M1 | Local relay + synthetic test source | ⬜ |
-| M2 | One destination, real status + error taxonomy | ⬜ |
-| M3 | Fan-out with independent control | ⬜ |
-| M4 | Bandwidth dashboard | ⬜ |
-| M5 | Real inputs (camera / mic / screen, OBS) | ⬜ |
-| M6 | Add-destination UX + Keychain | ⬜ |
-| M7 | YouTube OAuth + platform truth | ⬜ |
-| M8 | Facebook, TikTok, others | ⬜ |
-| M9 | Reconnect + priority + pre-flight | ⬜ |
-| M10 | Quality of life | ⬜ |
-| M11 | Unified chat inbox | ⬜ |
-| M12 | Regression + release | ⬜ |
+| M1 | Loop one video to one destination | ⬜ |
+| M2 | Status, error taxonomy, auto-reconnect | ⬜ |
+| M3 | Independent simultaneous loops | ⬜ |
+| M4 | Playlists and normalisation | ⬜ |
+| M5 | Bandwidth dashboard | ⬜ |
+| M6 | Unattended 24/7 hardening | ⬜ |
+| M7 | Accounts, Keychain, add-destination | ⬜ |
+| M8 | YouTube OAuth + platform truth | ⬜ |
+| M9 | Facebook, TikTok, others | ⬜ |
+| M10 | Live capture and OBS input | ⬜ |
+| M11 | Quality of life | ⬜ |
+| M12 | Unified chat inbox | ⬜ |
+| M13 | Regression + release | ⬜ |
 
 ---
 
 ## Foundation
 
-### M0 · Build pipeline
+### M0 · Build pipeline — ✅ passed 2026-07-31
 Tauri shell, macOS bundle config, `.dmg` target, CI workflow. No streaming
-logic at all — this milestone exists so that Xcode tooling, Rust targets,
-bundle identifiers, and icon packaging fail *once*, against a hello-world,
-rather than confusing every later failure.
-**Gate:** `.dmg` installs and launches; the info panel renders values fetched
-from Rust over IPC. — *Passed 2026-07-31 on Apple Silicon.*
+logic — this milestone existed so Xcode tooling, Rust targets, bundle
+identifiers, and icon packaging failed *once*, against a hello-world.
 
 ### UI direction · Main interface
-Pulled forward, out of milestone order, on the principle that disagreeing about
-the interface is far cheaper to fix now than at M10. One dominant action, big
-targets, minimal chrome: a hero **Go live** button that starts everything, one
-large card per destination with its own start/stop and status, and a persistent
-bandwidth strip. Destinations, telemetry, and problems are simulated; later
-milestones replace the mock data with real processes behind the same surface.
+Pulled forward, out of milestone order: disagreeing about the interface is far
+cheaper to fix now than at M11. One dominant action, big targets, minimal
+chrome. Accounts group by platform, each with its own status and controls, and
+each carries its own source — a looping playlist or the shared live feed.
+Data is simulated; later milestones replace it behind the same surface.
 **Gate:** sign-off on the look and the interaction model.
 
-### M1 · Local relay + synthetic source
-Bundle MediaMTX and ffmpeg, push a generated test pattern into the relay,
-preview it in-app. A test pattern rather than the webcam on purpose: it is
-deterministic and needs no macOS permissions, so streaming logic gets debugged
-without TCC prompts in the way.
-**Gate:** preview visible, 10 minutes clean, bundled binaries survive `.dmg`
-packaging and still execute.
+## The core capability
 
-### M2 · One destination, real status
-One pasted RTMP key. Start/stop. ffmpeg progress parsed into the status state
-machine: `idle → connecting → live | degraded | reconnecting | failed`.
-**Gate:** real key goes live on the platform and stops cleanly; then each
-failure is induced deliberately — wrong key, network off, bad URL — and each
-produces the correct plain-language diagnosis plus a working fix action.
+### M1 · Loop one video to one destination
+Bundle ffmpeg. Loop a single file to a single pasted RTMP key, indefinitely.
+Includes a pre-flight probe of the file, because `-c copy` only works when the
+source is already stream-shaped: H.264/AAC, sane bitrate, and a keyframe
+interval around two seconds. Files that fail the probe get flagged with what to
+change rather than silently producing a stream that stutters or refuses to start.
+**Gate:** one loop live on a real platform for several hours, unattended, with
+the loop point causing no visible break.
 
-## Core architecture
+### M2 · Status, error taxonomy, auto-reconnect
+ffmpeg progress parsed into the status state machine, every failure mapped to
+plain language and one fix action, and per-destination exponential-backoff
+reconnect. Reconnect sits here rather than late in the plan because for a 24/7
+stream it is not a refinement — an unattended stream that cannot recover from a
+thirty-second network blip is not a 24/7 stream.
+**Gate:** each failure induced deliberately — wrong key, network off, bad URL —
+produces the right diagnosis; pulling the network mid-stream results in an
+unaided recovery.
 
-### M3 · Fan-out with independent control — *critical gate*
-N publishers from one relay, each with its own start/stop/pause.
-**Gate:** three destinations live simultaneously; killing one leaves the other
-two untouched; restarting it rejoins. If this fails the architecture is wrong,
-which is why it comes early.
+### M3 · Independent simultaneous loops — *the driving use case*
+Two or more accounts, each looping its own files, running at once with no shared
+state.
+**Gate:** *Pipo y Lula* and *Curiora* both live simultaneously from one Mac;
+killing one process leaves the other completely untouched; restarting it rejoins
+without disturbing its neighbour.
 
-### M4 · Bandwidth dashboard
-Per-output throughput, aggregate, NIC total, headroom probe, rolling graph.
-Critically, network-bound and CPU-bound are distinguished using throughput
-together with ffmpeg's `speed=` — the same visible symptom (dropped frames)
-with opposite fixes.
-**Gate:** figures track Activity Monitor; a deliberately saturated uplink is
-diagnosed as saturation; a deliberately overloaded CPU is *not* misreported as
-a network problem.
+### M4 · Playlists and normalisation
+Several files per account, played in order and looped. Clips that already share
+a codec, resolution, and frame rate concatenate with `-c copy` and stay cheap.
+Clips that do not are normalised once into a cache, with the cost shown up front
+rather than discovered as a stutter mid-stream.
+**Gate:** a multi-clip playlist loops seamlessly for hours; a deliberately
+mismatched clip is detected, normalised, and plays without a break.
 
-### M5 · Real inputs
-AVFoundation camera/mic enumeration, screen capture, TCC permission handling,
-and an OBS → relay input path so existing scenes and overlays keep working.
-**Gate:** permissions prompt and are handled; camera streams; OBS publishes to
-the relay.
+### M5 · Bandwidth dashboard
+Per-destination throughput, aggregate, NIC total, headroom probe, rolling graph.
+Network-bound and CPU-bound are distinguished using throughput together with
+ffmpeg's `speed=` — the same visible symptom with opposite fixes. Less critical
+for `-c copy` loops, which barely touch the CPU, but essential once
+normalisation or a live feed is in play.
+**Gate:** figures track Activity Monitor; a saturated uplink is diagnosed as
+saturation and not as something else.
+
+### M6 · Unattended 24/7 hardening
+What separates "it ran overnight" from "it has been up for three weeks":
+- A power assertion so the Mac does not sleep the streams away
+- A watchdog that restarts a publisher that dies rather than merely reporting it
+- Handling platform-side session limits — some platforms cut or rotate a
+  broadcast after a fixed number of hours, so a genuine 24/7 stream needs to
+  roll over cleanly. Limits differ per platform and get verified per platform,
+  not assumed.
+- Optional launch-at-login and start-streams-on-launch
+**Gate:** 72 hours unattended, display asleep, with a deliberate network drop and
+a deliberate process kill somewhere in the middle, ending green with the
+incidents logged.
 
 ## Accounts and platforms
 
-### M6 · Add-destination UX + Keychain
-`+ Add Destination` → platform picker → sign-in *or* paste-key. Keys validated
-at add time with a short handshake against the endpoint, so a dead key surfaces
-immediately instead of five seconds into a broadcast. Labels, avatars,
-reordering, persistence.
-**Gate:** add/edit/remove/reorder survive a restart; keys live in Keychain and
-are verifiably absent from plaintext on disk; a bad key is rejected on add.
+### M7 · Accounts, Keychain, add-destination
+`+ Add Destination` → platform picker → sign in *or* paste a key, validated at
+add time with a short handshake so a dead key surfaces immediately. Labels,
+avatars, reordering, persistence. Keys in the macOS Keychain.
+**Gate:** add/edit/remove/reorder survive a restart; keys verifiably absent from
+plaintext on disk; a bad key is rejected on add.
 
-### M7 · YouTube OAuth + platform truth
-System-browser OAuth with a loopback redirect (embedded webviews are blocked by
-Google), token refresh, broadcast create/transition, `healthStatus` polling.
-This completes the second half of the status design: *we* think we are pushing,
-and *the platform* agrees it is live. Divergence is itself an alert — it is the
-failure mode behind streaming to nobody for twenty minutes.
+### M8 · YouTube OAuth + platform truth
+System-browser OAuth with a loopback redirect (Google blocks embedded webviews),
+token refresh, broadcast create/transition, `healthStatus` polling. This
+completes the second half of the status design: *we* think we are pushing, and
+*the platform* agrees it is live. Divergence is itself an alert — it is the
+failure behind streaming to nobody for hours, which matters more, not less, when
+nobody is watching the app.
 **Gate:** sign-in populates channel and key; going live transitions the
 broadcast; a forced divergence raises the warning; multiple accounts coexist.
 
-### M8 · Facebook, TikTok, others
-Facebook via persistent stream key first (no app review needed), Graph API
-optional later. TikTok manual key, with a clear explanation when an account
-does not qualify — RTMP access is gated and their live API needs approval, so
-treat breakage as an expected state. Twitch, Kick, Rumble, LinkedIn and X come
-free from the custom-RTMP path.
-**Gate:** Facebook page goes live from the app; TikTok goes live or explains
-itself.
+### M9 · Facebook, TikTok, others
+Facebook via persistent stream key first, Graph API optional later. TikTok
+manual key, with a clear explanation when an account does not qualify — RTMP
+access is gated and their live API needs approval, so treat breakage as an
+expected state. Twitch, Kick, Rumble, LinkedIn and X come free from the
+custom-RTMP path.
+**Gate:** a Facebook page goes live from the app and stays up; TikTok goes live
+or explains itself.
 
-## Resilience
+## Later
 
-### M9 · Reconnect + priority + pre-flight
-Per-destination exponential backoff, destination priority ordering, automatic
-bitrate reduction of the lowest-priority destination under saturation, and a
-pre-flight check that validates every key and measures headroom before going
-live.
-**Gate:** mid-stream network loss → each destination reconnects independently;
-saturation → lowest priority degrades first while the others hold.
+### M10 · Live capture and OBS input
+AVFoundation camera and microphone, screen capture, TCC permission handling, and
+an OBS → relay path so existing scenes keep working. Moved down the plan
+deliberately: the driving use case is looping files, and camera capture is the
+part that drags in permission prompts and hardware variability.
+**Gate:** permissions prompt and are handled; camera streams; OBS publishes to
+the relay.
 
-## Polish
+### M11 · Quality of life
+Set-once metadata pushed to every account, menu-bar mini-controller, macOS
+notifications on problems, post-stream reports, scheduled start and stop.
 
-### M10 · Quality of life
-Always-on local recording, set-once metadata pushed to every platform,
-menu-bar mini-controller, macOS notifications on issues, post-stream report.
-Independently shippable; order negotiable.
-
-### M11 · Unified chat inbox
+### M12 · Unified chat inbox
 YouTube live chat and Facebook comments merged into one source-tagged pane.
-Last because it is the largest single feature and touches nothing critical.
 
-## Wrap
-
-### M12 · Regression + release
-Re-run the entire accumulated checklist, multi-hour soak with three
-destinations, optional signing and notarisation, versioned `.dmg` on a
-GitHub release.
+### M13 · Regression + release
+Re-run the entire accumulated checklist, a multi-day soak, optional signing and
+notarisation, versioned `.dmg` on a GitHub release.
 
 ---
 
 ## Explicitly out of scope
 
-**Scenes, overlays, compositing, plugins.** That is rebuilding OBS and it is
-not winnable. The better move is to accept OBS output as an input (M5), so
-existing scenes keep working and this app owns what OBS lacks: fan-out,
-accounts, per-destination control, and monitoring.
+**Scenes, overlays, compositing, plugins.** That is rebuilding OBS and it is not
+winnable. Better to accept OBS output as an input (M10) so existing scenes keep
+working, and own what OBS lacks: unattended loops, accounts, per-account
+control, and monitoring.
 
 **A cloud relay.** It would solve the bandwidth ceiling by reintroducing the
 monthly cost this project exists to avoid.
@@ -181,10 +213,15 @@ monthly cost this project exists to avoid.
 
 ## Known constraints
 
-- **Upload bandwidth** is the real ceiling — see Architecture above.
+- **Upload bandwidth** is the ceiling, not CPU — see Architecture above.
+- **Source files must be stream-shaped** for `-c copy` to stay free. Wrong
+  keyframe interval or an exotic codec forces a re-encode, which is where the
+  CPU cost reappears. M1 probes for this.
+- **Platform session limits** vary and are verified per platform at M6, not
+  assumed.
+- **The Mac must stay awake.** Handled by a power assertion at M6.
 - **Signing:** locally built apps run without Gatekeeper friction. Sharing the
-  `.dmg` with anyone else needs an Apple Developer account ($99/yr) for
-  signing and notarisation.
+  `.dmg` needs an Apple Developer account ($99/yr).
 - **ffmpeg licensing:** bundling ffmpeg carries GPL obligations. Fine for
   personal use; relevant if this is ever distributed publicly.
-- **CSP** is unset while the app loads no remote content. Tighten before M7.
+- **CSP** is unset while the app loads no remote content. Tighten before M8.

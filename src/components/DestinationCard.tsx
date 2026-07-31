@@ -1,8 +1,11 @@
 import {
+  currentClip,
   formatBitrate,
+  formatDuration,
   formatUptime,
   isActive,
   PLATFORM_NAMES,
+  totalDuration,
   type Destination,
   type DestinationStatus,
 } from '../types'
@@ -21,12 +24,16 @@ export function DestinationCard({
   destination: d,
   onToggle,
   onFix,
+  onEditSource,
 }: {
   destination: Destination
   onToggle: (id: string) => void
   onFix: (id: string) => void
+  onEditSource: (id: string) => void
 }) {
   const active = isActive(d.status)
+  const playlist = d.source.kind === 'playlist' ? d.source : null
+  const playing = playlist && active ? currentClip(playlist.clips, playlist.loop, d.uptime) : null
 
   return (
     <article className={`dest dest-${d.status}`}>
@@ -71,6 +78,56 @@ export function DestinationCard({
             'Not streaming'
           )}
         </p>
+      )}
+
+      <button
+        className={`source-chip ${playlist ? 'is-playlist' : 'is-live'}`}
+        onClick={() => onEditSource(d.id)}
+        title="Change what this account streams"
+      >
+        {playlist ? (
+          playing ? (
+            <>
+              <span className="chip-icon" aria-hidden="true">
+                ▶
+              </span>
+              <span className="chip-main" title={playing.clip.name}>
+                {playing.clip.name}
+              </span>
+              <span className="chip-sub">
+                {playing.index + 1}/{playlist.clips.length}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="chip-icon" aria-hidden="true">
+                ≡
+              </span>
+              <span className="chip-main">
+                {playlist.clips.length} {playlist.clips.length === 1 ? 'video' : 'videos'} on loop
+              </span>
+              <span className="chip-sub">{formatDuration(totalDuration(playlist.clips))}</span>
+            </>
+          )
+        ) : (
+          <>
+            <span className="chip-icon" aria-hidden="true">
+              ◉
+            </span>
+            <span className="chip-main">Live feed</span>
+            <span className="chip-sub">shared</span>
+          </>
+        )}
+      </button>
+
+      {playing && (
+        <div
+          className="clip-progress"
+          aria-hidden="true"
+          title={`${formatDuration(playing.into)} of ${formatDuration(playing.clip.duration)}`}
+        >
+          <span style={{ width: `${(playing.into / playing.clip.duration) * 100}%` }} />
+        </div>
       )}
 
       <button

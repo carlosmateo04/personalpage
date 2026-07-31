@@ -28,12 +28,39 @@ export type Issue = {
   raw?: string
 }
 
+/** A video file queued on an account's playlist. */
+export type VideoClip = {
+  id: string
+  name: string
+  /** Duration in seconds. */
+  duration: number
+  width: number
+  height: number
+  /** Video codec as probed from the container. */
+  codec: string
+}
+
+export type LoopMode = 'all' | 'one' | 'shuffle'
+
+/**
+ * Where a destination's video comes from.
+ *
+ * `live` shares the single capture/OBS feed with every other live destination —
+ * encoded once, copied N times. `playlist` gives this account its own looping
+ * video files, independent of every other destination.
+ */
+export type Source =
+  | { kind: 'live' }
+  | { kind: 'playlist'; clips: VideoClip[]; loop: LoopMode }
+
 export type Destination = {
   id: string
   platform: Platform
   /** User-facing label. Multiple accounts on one platform are the normal case. */
   label: string
   account: string
+  /** Per-account: one destination can loop videos while another takes the live feed. */
+  source: Source
   status: DestinationStatus
   /** Seconds since this destination went live. */
   uptime: number
@@ -42,6 +69,57 @@ export type Destination = {
   /** Frames dropped since going live. */
   dropped: number
   issue?: Issue
+}
+
+export function totalDuration(clips: VideoClip[]): number {
+  return clips.reduce((sum, c) => sum + c.duration, 0)
+}
+
+export function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.round(seconds % 60)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+}
+
+/**
+ * Which clip is on air, derived from elapsed time rather than stored, so the
+ * display cannot drift out of step with the playhead.
+ *
+ * `shuffle` is treated as sequential here; the real player will pick an order
+ * when the playlist starts and follow it.
+ */
+export function currentClip(
+  clips: VideoClip[],
+  loop: LoopMode,
+  elapsed: number,
+): { clip: VideoClip; index: number; into: number } | null {
+  if (clips.length === 0) return null
+  if (loop === 'one') {
+    const first = clips[0]!
+    return { clip: first, index: 0, into: elapsed % first.duration }
+  }
+  const total = totalDuration(clips)
+  if (total === 0) return null
+  let t = elapsed % total
+  for (let i = 0; i < clips.length; i++) {
+    const clip = clips[i]!
+    if (t < clip.duration) return { clip, index: i, into: t }
+    t -= clip.duration
+  }
+  return { clip: clips[0]!, index: 0, into: 0 }
+}
+
+/**
+ * Clips that do not share one resolution cannot be concatenated without
+ * re-encoding. Flagging it up front turns a mid-stream stutter into a decision
+ * made before going live.
+ */
+export function mixedResolutions(clips: VideoClip[]): boolean {
+  if (clips.length < 2) return false
+  const first = clips[0]!
+  return clips.some((c) => c.width !== first.width || c.height !== first.height)
 }
 
 export const PLATFORM_NAMES: Record<Platform, string> = {

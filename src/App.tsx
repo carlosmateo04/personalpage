@@ -2,8 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { AddDestinationCard } from './components/DestinationCard'
 import { PlatformSection } from './components/PlatformSection'
+import { PlaylistModal } from './components/PlaylistModal'
 import { BandwidthBar } from './components/BandwidthBar'
-import { groupByPlatform, isActive, type Destination } from './types'
+import {
+  groupByPlatform,
+  isActive,
+  type Destination,
+  type LoopMode,
+  type VideoClip,
+} from './types'
 import { MOCK_DESTINATIONS } from './mockDestinations'
 
 /** Mocked uplink capacity until M4 measures it for real. */
@@ -14,6 +21,7 @@ export default function App() {
   const [destinations, setDestinations] = useState<Destination[]>(MOCK_DESTINATIONS)
   const [history, setHistory] = useState<number[]>(() => Array<number>(48).fill(0))
   const [version, setVersion] = useState('')
+  const [editingSource, setEditingSource] = useState<string | null>(null)
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
   useEffect(() => {
@@ -118,6 +126,19 @@ export default function App() {
     [destinations, toggleMany],
   )
 
+  const setPlaylist = useCallback((id: string, clips: VideoClip[], loop: LoopMode) => {
+    setDestinations((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, source: { kind: 'playlist', clips, loop } } : d)),
+    )
+  }, [])
+
+  const setLiveSource = useCallback((id: string) => {
+    setDestinations((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, source: { kind: 'live' } } : d)),
+    )
+    setEditingSource(null)
+  }, [])
+
   /** Forces a realistic failure so the problem UI can be judged before it is wired up. */
   const previewIssue = useCallback(() => {
     setDestinations((prev) =>
@@ -140,6 +161,8 @@ export default function App() {
   }, [])
 
   const platformCount = groups.length
+  const loopingCount = destinations.filter((d) => d.source.kind === 'playlist').length
+  const editing = destinations.find((d) => d.id === editingSource) ?? null
 
   return (
     <main className="app">
@@ -171,7 +194,8 @@ export default function App() {
           ) : (
             <>
               <strong>{destinations.length}</strong> accounts across{' '}
-              <strong>{platformCount}</strong> platforms &middot; all ready
+              <strong>{platformCount}</strong> platforms &middot; {loopingCount} looping videos,{' '}
+              {destinations.length - loopingCount} on the live feed
             </>
           )}
         </p>
@@ -185,6 +209,7 @@ export default function App() {
             onToggle={toggle}
             onToggleAll={toggleMany}
             onFix={toggle}
+            onEditSource={setEditingSource}
           />
         ))}
 
@@ -212,6 +237,15 @@ export default function App() {
           Preview a problem
         </button>
       </footer>
+
+      {editing && (
+        <PlaylistModal
+          destination={editing}
+          onClose={() => setEditingSource(null)}
+          onChange={(clips, loop) => setPlaylist(editing.id, clips, loop)}
+          onUseLive={() => setLiveSource(editing.id)}
+        />
+      )}
     </main>
   )
 }
