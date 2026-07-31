@@ -83,3 +83,20 @@ and problems are simulated, and the status bar says so.
       cause and an **Enter new key** button
 - [ ] Version number appears in the status bar (this is now the IPC proof)
 - [ ] Window resized narrow: cards reflow to two columns, no horizontal scrolling
+
+Multiple accounts — the core capability
+
+- [ ] Destinations are grouped by platform, with several accounts visible under
+      the same platform (two YouTube channels, two Facebook identities)
+- [ ] Each account within a platform has its own name, handle, status, and
+      controls
+- [ ] Header under the hero counts accounts *and* platforms
+      ("6 accounts across 4 platforms")
+- [ ] Each platform header shows its account count, and how many are live
+- [ ] **Start all** on a platform header starts only that platform's accounts,
+      leaving the other platforms untouched
+- [ ] The hero button starts every account on every platform at once
+- [ ] One account failing leaves its same-platform sibling live, and the
+      platform header reflects the split ("2 accounts · 1 live")
+- [ ] Bandwidth strip totals every live account and labels the count
+      ("6 streams uploading")

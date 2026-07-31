@@ -123,7 +123,7 @@ button {
 .btn-hero {
   width: 100%;
   max-width: 560px;
-  height: 116px;
+  height: 104px;
   border-radius: 20px;
   display: flex;
   align-items: center;
@@ -131,7 +131,7 @@ button {
   gap: 16px;
   background: linear-gradient(180deg, #4a9eff 0%, #2f7fe0 100%);
   color: #fff;
-  font-size: 30px;
+  font-size: 27px;
   font-weight: 650;
   letter-spacing: -0.02em;
   box-shadow: 0 8px 26px rgba(74, 158, 255, 0.3);
@@ -168,22 +168,108 @@ button {
   font-size: 14px;
 }
 
-/* ---------- destination grid ---------- */
+/* ---------- scrolling body ---------- */
 
-.dest-grid {
+.scroller {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+.scroller::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scroller::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.scroller::-webkit-scrollbar-thumb:hover {
+  background: #34404f;
+}
+
+/* ---------- platform group ---------- */
+
+.pgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pgroup-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+}
+
+.pgroup-head h2 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.pgroup-more {
+  color: var(--muted);
+}
+
+.pgroup-count {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.pgroup-live {
+  color: var(--good);
+  font-weight: 600;
+}
+
+.pgroup-action {
+  margin-left: auto;
+  padding: 5px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.pgroup-action:hover {
+  background: var(--panel-hi);
+  color: var(--text);
+  border-color: #34404f;
+}
+
+.pgroup-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 13px;
   align-content: start;
 }
 
 .dest {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 14px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -212,9 +298,9 @@ button {
 
 .dest-icon {
   flex: none;
-  width: 42px;
-  height: 42px;
-  border-radius: 11px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
   background: var(--panel-hi);
@@ -318,30 +404,18 @@ button {
 /* ---------- metrics ---------- */
 
 .dest-metrics {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 11px 12px;
-  background: var(--panel-hi);
-  border-radius: 10px;
-}
-
-.dest-metrics > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.metric-value {
-  font-size: 15px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.metric-label {
-  font-size: 11px;
+  margin: 0;
+  font-size: 12.5px;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dest-metrics strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* ---------- issue ---------- */
@@ -385,7 +459,7 @@ button {
 
 .btn-dest {
   margin-top: auto;
-  height: 46px;
+  height: 42px;
   border-radius: 11px;
   font-size: 15px;
   font-weight: 600;
@@ -553,11 +627,17 @@ button {
 /* ---------- narrow windows ---------- */
 
 @media (max-width: 900px) {
-  .dest-grid {
+  .pgroup-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 
   .bw-graph {
     display: none;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1180px) {
+  .pgroup-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }

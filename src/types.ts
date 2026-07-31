@@ -57,6 +57,23 @@ export function isActive(status: DestinationStatus): boolean {
   return status === 'connecting' || status === 'live' || status === 'degraded' || status === 'reconnecting'
 }
 
+export type PlatformGroup = { platform: Platform; destinations: Destination[] }
+
+/**
+ * Group destinations by platform, preserving the order platforms first appear.
+ * Several accounts on one platform is the normal case, not an edge case, so the
+ * interface leads with that grouping.
+ */
+export function groupByPlatform(destinations: Destination[]): PlatformGroup[] {
+  const groups: PlatformGroup[] = []
+  for (const d of destinations) {
+    const existing = groups.find((g) => g.platform === d.platform)
+    if (existing) existing.destinations.push(d)
+    else groups.push({ platform: d.platform, destinations: [d] })
+  }
+  return groups
+}
+
 export function formatUptime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)

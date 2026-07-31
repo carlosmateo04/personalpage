@@ -61,16 +61,16 @@ export function DestinationCard({
           )}
         </div>
       ) : (
-        <div className="dest-metrics">
-          <div>
-            <span className="metric-value">{active ? formatBitrate(d.bitrate) : '—'}</span>
-            <span className="metric-label">Upload</span>
-          </div>
-          <div>
-            <span className="metric-value">{active ? d.dropped.toLocaleString() : '—'}</span>
-            <span className="metric-label">Dropped</span>
-          </div>
-        </div>
+        <p className="dest-metrics">
+          {active ? (
+            <>
+              <strong>{formatBitrate(d.bitrate)}</strong> up &middot; {d.dropped.toLocaleString()}{' '}
+              dropped
+            </>
+          ) : (
+            'Not streaming'
+          )}
+        </p>
       )}
 
       <button

@@ -1,48 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { DestinationCard, AddDestinationCard } from './components/DestinationCard'
+import { AddDestinationCard } from './components/DestinationCard'
+import { PlatformSection } from './components/PlatformSection'
 import { BandwidthBar } from './components/BandwidthBar'
-import { isActive, type Destination } from './types'
+import { groupByPlatform, isActive, type Destination } from './types'
+import { MOCK_DESTINATIONS } from './mockDestinations'
 
 /** Mocked uplink capacity until M4 measures it for real. */
 const CAPACITY_KBPS = 25_000
 const TARGET_KBPS = 6_000
 
-const INITIAL: Destination[] = [
-  {
-    id: 'yt',
-    platform: 'youtube',
-    label: 'Main channel',
-    account: '@carlosmateo',
-    status: 'idle',
-    uptime: 0,
-    bitrate: 0,
-    dropped: 0,
-  },
-  {
-    id: 'fb',
-    platform: 'facebook',
-    label: 'Business page',
-    account: 'Carlos Mateo',
-    status: 'idle',
-    uptime: 0,
-    bitrate: 0,
-    dropped: 0,
-  },
-  {
-    id: 'tt',
-    platform: 'tiktok',
-    label: 'TikTok LIVE',
-    account: '@carlosmateo',
-    status: 'idle',
-    uptime: 0,
-    bitrate: 0,
-    dropped: 0,
-  },
-]
-
 export default function App() {
-  const [destinations, setDestinations] = useState<Destination[]>(INITIAL)
+  const [destinations, setDestinations] = useState<Destination[]>(MOCK_DESTINATIONS)
   const [history, setHistory] = useState<number[]>(() => Array<number>(48).fill(0))
   const [version, setVersion] = useState('')
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -53,7 +22,6 @@ export default function App() {
       .catch(() => setVersion(''))
   }, [])
 
-  // Clear any pending connection timers if the component ever unmounts.
   useEffect(() => {
     const pending = timers.current
     return () => {
@@ -62,8 +30,9 @@ export default function App() {
     }
   }, [])
 
-  const liveCount = destinations.filter((d) => isActive(d.status)).length
-  const anyActive = liveCount > 0
+  const groups = useMemo(() => groupByPlatform(destinations), [destinations])
+  const activeCount = destinations.filter((d) => isActive(d.status)).length
+  const anyActive = activeCount > 0
 
   const usedKbps = useMemo(
     () => destinations.reduce((sum, d) => sum + (isActive(d.status) ? d.bitrate : 0), 0),
@@ -101,12 +70,13 @@ export default function App() {
         d.id === id ? { ...d, status: 'connecting', issue: undefined, uptime: 0, dropped: 0 } : d,
       ),
     )
+    // Stagger slightly so simultaneous starts do not all flip in the same frame.
     const t = setTimeout(() => {
       setDestinations((prev) =>
         prev.map((d) => (d.id === id ? { ...d, status: 'live', bitrate: TARGET_KBPS } : d)),
       )
       timers.current.delete(id)
-    }, 1400)
+    }, 1100 + Math.random() * 900)
     timers.current.set(id, t)
   }, [])
 
@@ -133,24 +103,34 @@ export default function App() {
     [destinations, start, stop],
   )
 
-  const toggleAll = useCallback(() => {
-    if (anyActive) destinations.forEach((d) => isActive(d.status) && stop(d.id))
-    else destinations.forEach((d) => start(d.id))
-  }, [anyActive, destinations, start, stop])
+  /** Whole-platform control: if anything in the set is up, stop the set. */
+  const toggleMany = useCallback(
+    (ids: string[]) => {
+      const set = destinations.filter((d) => ids.includes(d.id))
+      const running = set.some((d) => isActive(d.status))
+      set.forEach((d) => (running ? isActive(d.status) && stop(d.id) : start(d.id)))
+    },
+    [destinations, start, stop],
+  )
+
+  const toggleAll = useCallback(
+    () => toggleMany(destinations.map((d) => d.id)),
+    [destinations, toggleMany],
+  )
 
   /** Forces a realistic failure so the problem UI can be judged before it is wired up. */
   const previewIssue = useCallback(() => {
     setDestinations((prev) =>
       prev.map((d) =>
-        d.id === 'tt'
+        d.id === 'yt-es'
           ? {
               ...d,
               status: 'failed',
               bitrate: 0,
               issue: {
                 title: 'Stream key rejected',
-                detail: 'TikTok refused the key. Keys are single-use and expire once a broadcast ends.',
-                action: { label: 'Enter new key', kind: 'reauth' },
+                detail: 'YouTube refused the key for this channel. Sign in again to refresh it.',
+                action: { label: 'Reconnect account', kind: 'reauth' },
                 raw: 'RTMP handshake failed: NetStream.Publish.BadName (code 403)',
               },
             }
@@ -158,6 +138,8 @@ export default function App() {
       ),
     )
   }, [])
+
+  const platformCount = groups.length
 
   return (
     <main className="app">
@@ -179,23 +161,50 @@ export default function App() {
           <span className="hero-glyph" aria-hidden="true">
             {anyActive ? '■' : '▶'}
           </span>
-          <span className="hero-text">{anyActive ? 'Stop everything' : 'Go live'}</span>
+          <span className="hero-text">{anyActive ? 'Stop everything' : 'Go live everywhere'}</span>
         </button>
         <p className="stage-sub">
-          {anyActive
-            ? `Streaming to ${liveCount} of ${destinations.length} destinations`
-            : `${destinations.length} destinations ready`}
+          {anyActive ? (
+            <>
+              Live on <strong>{activeCount}</strong> of {destinations.length} accounts
+            </>
+          ) : (
+            <>
+              <strong>{destinations.length}</strong> accounts across{' '}
+              <strong>{platformCount}</strong> platforms &middot; all ready
+            </>
+          )}
         </p>
       </section>
 
-      <section className="dest-grid">
-        {destinations.map((d) => (
-          <DestinationCard key={d.id} destination={d} onToggle={toggle} onFix={toggle} />
+      <div className="scroller">
+        {groups.map((g) => (
+          <PlatformSection
+            key={g.platform}
+            group={g}
+            onToggle={toggle}
+            onToggleAll={toggleMany}
+            onFix={toggle}
+          />
         ))}
-        <AddDestinationCard onClick={() => {}} />
-      </section>
 
-      <BandwidthBar usedKbps={usedKbps} capacityKbps={CAPACITY_KBPS} history={history} />
+        <section className="pgroup">
+          <header className="pgroup-head">
+            <h2 className="pgroup-more">Connect another</h2>
+            <span className="pgroup-count">Same platform again, or a new one</span>
+          </header>
+          <div className="pgroup-grid">
+            <AddDestinationCard onClick={() => {}} />
+          </div>
+        </section>
+      </div>
+
+      <BandwidthBar
+        usedKbps={usedKbps}
+        capacityKbps={CAPACITY_KBPS}
+        history={history}
+        activeCount={activeCount}
+      />
 
       <footer className="statusbar">
         <span>Preview build{version && ` · v${version}`} · data is simulated</span>
