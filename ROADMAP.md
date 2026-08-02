@@ -302,14 +302,38 @@ Two properties this has to have:
   **Publish now** while streams are live warns with the current headroom before
   starting.
 
+### Connecting an account happens in the app
+
+Two things get confused with each other, and only one of them can live in the
+app. The distinction decides what a person is ever asked to do.
+
+**Registering Caudal with Google** happens once, ever, for the whole
+application, and produces a client id — how Google knows which app is asking.
+No desktop app can perform this: it is a form on Google's console, tied to a
+Google account, and its quota belongs to whoever filled it in. What the app can
+do is stop it being a config file. The setup screen takes the id, says what it
+is for, and opens the right console page.
+
+**Signing in to a channel** happens once per account and is entirely in the
+app. Press Connect, the browser opens Google's consent screen, approving it
+returns to a loopback address the app is already listening on, and the token
+goes to the Keychain — the same place the stream keys live. Repeat per channel.
+No copying, no pasting, no terminal.
+
+Authorization code with PKCE, which is what Google requires of installed apps.
+The client secret ships inside the application and can be read by anyone with a
+copy, so it is not what proves the request is genuine; the proof is that
+whoever redeems the code also knows the verifier behind the challenge, and that
+is generated per attempt and never sent until the exchange.
+
 ### The two real obstacles
 
-**OAuth, which is exactly what pasted stream keys let us avoid.** `youtube.upload`
-is a *sensitive* scope, and an OAuth client left in Testing mode issues refresh
-tokens that **expire every seven days**. An app that needs re-authorising weekly
-is not unattended. The project has to be moved to "In Production", which means
-going through Google's verification. Paperwork rather than code, on a timeline
-nobody here controls.
+**The seven-day token.** An OAuth client left in Testing mode issues refresh
+tokens that **expire every seven days**, because `youtube.upload` is a
+*sensitive* scope. An app that needs re-authorising weekly is not unattended.
+The project has to be moved to "In Production", which means Google's
+verification. Paperwork rather than code, on a timeline nobody here controls —
+and it is the one part of the setup the app cannot absorb.
 
 **Uploads and streams share one uplink.** M5 makes this visible for the first
 time; M11 is the first feature that can saturate the link on its own.

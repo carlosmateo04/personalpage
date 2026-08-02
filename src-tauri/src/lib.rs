@@ -1,5 +1,9 @@
 mod diagnose;
 mod netmeter;
+// Tested and complete, but not yet reachable from the UI: the connect
+// button lands with the uploads tab.
+#[allow(dead_code)]
+mod oauth;
 mod probe;
 mod release;
 mod secrets;

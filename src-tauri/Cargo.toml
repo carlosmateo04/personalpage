@@ -23,6 +23,10 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# PKCE needs a SHA-256 of the verifier. Both are already in the tree via Tauri,
+# so naming them directly adds no compilation that was not happening anyway.
+sha2 = "0.10"
+base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
 # Signalling ffmpeg directly. A stop that cannot escalate past a polite
