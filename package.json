@@ -15,7 +15,7 @@
     "app:dev": "tauri dev",
     "app:build": "tauri build",
     "app:build:universal": "tauri build --target universal-apple-darwin",
-    "icons": "tauri icon assets/app-icon.png"
+    "icons": "python3 tools/icon.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

@@ -100,6 +100,8 @@ assets/app-icon.png      Icon source (1024px)
 setup.sh                 Developer setup
 ROADMAP.md               Milestone plan and architecture
 REGRESSION.md            Accumulating acceptance checklist
+UPDATES.md               Signing keys and how a release is published
+BACKUP.md                What is worth keeping, and where
 ```
 
 ## Verifying M0
