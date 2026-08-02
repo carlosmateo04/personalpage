@@ -80,6 +80,18 @@ export type Progress = {
   reconnects: number
 }
 
+/**
+ * Mirrors `netmeter::NetSample`.
+ *
+ * `up_kbps` is everything leaving the machine, not just this app: the number
+ * that decides whether another destination fits.
+ */
+export type NetSample = {
+  iface: string
+  up_kbps: number
+  measured: boolean
+}
+
 /** Mirrors `stream::Incident`. */
 export type Incident = {
   id: string
@@ -138,6 +150,7 @@ export function useStreamEvents(handlers: {
   onProgress: (p: Progress) => void
   onStatus: (s: StatusEvent) => void
   onIncident: (i: Incident) => void
+  onNetSample: (s: NetSample) => void
 }): void {
   const ref = useRef(handlers)
   ref.current = handlers
@@ -156,6 +169,7 @@ export function useStreamEvents(handlers: {
     attach<Progress>('stream:progress', (h) => h.onProgress)
     attach<StatusEvent>('stream:status', (h) => h.onStatus)
     attach<Incident>('stream:incident', (h) => h.onIncident)
+    attach<NetSample>('net:sample', (h) => h.onNetSample)
 
     return () => {
       cancelled = true

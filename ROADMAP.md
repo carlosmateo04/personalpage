@@ -61,7 +61,7 @@ exists.
 | **M2** | Status, error taxonomy, auto-reconnect | 🟡 built, awaiting gate |
 | M3 | Independent simultaneous loops | ⬜ |
 | M4 | Playlists and normalisation | ⬜ |
-| M5 | Bandwidth dashboard | ⬜ |
+| **M5** | Bandwidth dashboard | 🟡 built, awaiting gate |
 | **M6** | Unattended 24/7 hardening | 🟡 built, awaiting gate |
 | **M7** | Accounts, Keychain, add-destination | 🟡 built, awaiting gate |
 | M8 | Facebook, TikTok, others | ⬜ |
@@ -128,11 +128,25 @@ rather than discovered as a stutter mid-stream.
 mismatched clip is detected, normalised, and plays without a break.
 
 ### M5 · Bandwidth dashboard
-Per-destination throughput, aggregate, NIC total, headroom probe, rolling graph.
+The strip measures the network interface — everything leaving the machine, not
+just what this app is sending — and splits it into our streams and everything
+else. Adding up ffmpeg's reported bitrates answers a different question, and
+gets headroom wrong exactly when it matters: when a backup or a video call is
+competing for the same uplink.
+
 Network-bound and CPU-bound are distinguished using throughput together with
 ffmpeg's `speed=` — the same visible symptom with opposite fixes. Less critical
 for `-c copy` loops, which barely touch the CPU, but essential once
 normalisation or a live feed is in play.
+
+Not built: an active headroom probe. The ceiling comes from what the user
+enters, raised by any total the link is observed to carry, and is labelled with
+its provenance so a default never reads as a measurement. An upload test would
+compete with the very streams it is measuring.
+
+Still out of reach: other devices on the same Wi-Fi. Nothing on this Mac can
+see them without the router.
+
 **Gate:** figures track Activity Monitor; a saturated uplink is diagnosed as
 saturation and not as something else.
 

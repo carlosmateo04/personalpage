@@ -1,4 +1,4 @@
-import type { Progress, StatusEvent } from './engine'
+import type { NetSample, Progress, StatusEvent } from './engine'
 import type { Destination } from './types'
 
 /** Below this multiple of real time, ffmpeg is not keeping up with the clock. */
@@ -102,14 +102,84 @@ export function startBlocker(d: Destination): string | null {
   return null
 }
 
+// ------------------------------------------------------------- bandwidth ---
+
+/**
+ * Assumed uplink when nothing better is known. Deliberately a round number
+ * that looks like a guess, and the UI labels it as one — a headroom figure
+ * derived from a fiction should not look like a measurement.
+ */
+export const DEFAULT_UPLINK_KBPS = 25_000
+
+export type Bandwidth = {
+  /** Everything leaving the machine, measured at the interface. */
+  totalKbps: number
+  /** The part of it this app is responsible for. */
+  streamsKbps: number
+  /** Everything else running on this Mac. Never negative. */
+  otherKbps: number
+  capacityKbps: number
+  freeKbps: number
+  usedPct: number
+  /**
+   * False when the total is only the sum of our own publishers, because the
+   * interface counters could not be read. Then "free" is a guess about a
+   * guess, and the UI has to say so.
+   */
+  measured: boolean
+}
+
+/**
+ * Everything the bandwidth strip shows, derived in one place so the arithmetic
+ * can be tested without a running interface.
+ *
+ * `peakKbps` is the highest total seen this session. It only ever raises the
+ * ceiling: whatever the configured uplink claims, the link demonstrably
+ * carried the peak, so a capacity below it is simply wrong.
+ */
+export function bandwidth(input: {
+  streamsKbps: number
+  sample: NetSample | null
+  uplinkKbps: number | null
+  peakKbps: number
+}): Bandwidth {
+  const { streamsKbps, sample, uplinkKbps, peakKbps } = input
+  const measured = sample?.measured === true
+
+  const totalKbps = measured ? sample!.up_kbps : streamsKbps
+  // ffmpeg reports payload bitrate; the interface counts RTMP, TCP and IP
+  // headers too, so measured is normally the larger of the two. When a sample
+  // lands between two progress updates it can briefly be the smaller one, and
+  // a negative "other apps" figure would be nonsense.
+  const otherKbps = Math.max(0, totalKbps - streamsKbps)
+
+  const capacityKbps = Math.max(uplinkKbps ?? DEFAULT_UPLINK_KBPS, peakKbps, 1)
+  const freeKbps = Math.max(0, capacityKbps - totalKbps)
+  const usedPct = Math.min(100, Math.round((totalKbps / capacityKbps) * 100))
+
+  return { totalKbps, streamsKbps, otherKbps, capacityKbps, freeKbps, usedPct, measured }
+}
+
+/** Settings that are not about any one destination. */
+export type Settings = {
+  /** The uplink the user says they have, in kbps, or null to assume. */
+  uplinkKbps: number | null
+}
+
+export const DEFAULT_SETTINGS: Settings = { uplinkKbps: null }
+
 /**
  * The shape written to disk: everything except anything secret. Stream keys
  * live in the Keychain and are referenced by destination id alone, so a leaked
  * or synced configuration file gives nothing away.
  */
-export function toStored(destinations: Destination[]): unknown {
+export function toStored(
+  destinations: Destination[],
+  settings: Settings = DEFAULT_SETTINGS,
+): unknown {
   return {
     version: 1,
+    settings,
     destinations: destinations.map((d) => ({
       id: d.id,
       platform: d.platform,
@@ -130,6 +200,21 @@ export function toStored(destinations: Destination[]): unknown {
  * whether a key exists — is restored as unknown and filled in afterwards from
  * the backend, so a stale file can never claim a stream is live.
  */
+/**
+ * Read back the non-destination settings. Anything absent or nonsensical
+ * falls back to the default rather than throwing: a configuration file written
+ * by an older build must still open.
+ */
+export function settingsFromStored(json: string): Settings {
+  try {
+    const raw = (JSON.parse(json) as { settings?: Record<string, unknown> }).settings
+    const uplink = Number(raw?.uplinkKbps)
+    return { uplinkKbps: Number.isFinite(uplink) && uplink > 0 ? Math.round(uplink) : null }
+  } catch {
+    return DEFAULT_SETTINGS
+  }
+}
+
 export function fromStored(json: string, idsWithSecrets: string[]): Destination[] {
   const parsed = JSON.parse(json) as {
     destinations?: Array<Record<string, unknown>>

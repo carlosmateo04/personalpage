@@ -1,4 +1,5 @@
 mod diagnose;
+mod netmeter;
 mod probe;
 mod secrets;
 mod store;
@@ -53,6 +54,11 @@ pub fn run() {
                     reaped.len()
                 );
             }
+
+            // Measure the uplink for as long as the app is open, not only while
+            // streaming: knowing what else is using the connection is most
+            // useful *before* deciding to add another destination.
+            netmeter::spawn(handle.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

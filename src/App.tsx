@@ -5,13 +5,14 @@ import { PlatformSection } from './components/PlatformSection'
 import { PlaylistModal } from './components/PlaylistModal'
 import { AddDestinationModal, type NewDestination } from './components/AddDestinationModal'
 import { AccountModal } from './components/AccountModal'
-import { BandwidthBar } from './components/BandwidthBar'
+import { BandwidthBar, type BwSample } from './components/BandwidthBar'
 import { IncidentLog } from './components/IncidentLog'
 import { CheckForUpdates, UpdateBanner } from './components/UpdateBanner'
 import {
   engine,
   useStreamEvents,
   type Incident,
+  type NetSample,
   type Progress,
   type StatusEvent,
   type ToolStatus,
@@ -19,22 +20,28 @@ import {
 import {
   applyProgress,
   applyStatus,
+  bandwidth,
   fromStored,
+  settingsFromStored,
   startBlocker,
   tickRetry,
   toStored,
+  DEFAULT_SETTINGS,
+  type Settings,
 } from './reduce'
 import { groupByPlatform, isActive, type Destination, type LoopMode, type VideoClip } from './types'
 
-/**
- * Assumed uplink until M5 measures it. Only used to draw the headroom figure,
- * never to gate anything.
- */
-const ASSUMED_UPLINK_KBPS = 25_000
+/** Roughly a minute of history in the strip, at one sample a second. */
+const HISTORY_LENGTH = 48
 
 export default function App() {
   const [destinations, setDestinations] = useState<Destination[]>([])
-  const [history, setHistory] = useState<number[]>(() => Array<number>(48).fill(0))
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
+  const [net, setNet] = useState<NetSample | null>(null)
+  const [peakKbps, setPeakKbps] = useState(0)
+  const [history, setHistory] = useState<BwSample[]>(() =>
+    Array.from({ length: HISTORY_LENGTH }, () => ({ total: 0, streams: 0 })),
+  )
   const [version, setVersion] = useState('')
   const [tools, setTools] = useState<ToolStatus | null>(null)
   const [secretStore, setSecretStore] = useState<'keychain' | 'memory' | null>(null)
@@ -70,7 +77,9 @@ export default function App() {
         // trusting the configuration file to remember.
         const ids = (JSON.parse(json).destinations ?? []).map((d: { id: string }) => d.id)
         const withSecrets = await engine.whichHaveSecrets(ids)
-        if (!cancelled) setDestinations(fromStored(json, withSecrets))
+        if (cancelled) return
+        setDestinations(fromStored(json, withSecrets))
+        setSettings(settingsFromStored(json))
       } catch (e) {
         if (!cancelled) setError(`Could not load saved accounts: ${e}`)
       } finally {
@@ -90,11 +99,11 @@ export default function App() {
   const savedRef = useRef('')
   useEffect(() => {
     if (!loaded) return
-    const json = JSON.stringify(toStored(destinations))
+    const json = JSON.stringify(toStored(destinations, settings))
     if (json === savedRef.current) return
     savedRef.current = json
     engine.saveConfig(json).catch((e) => setError(`Could not save accounts: ${e}`))
-  }, [destinations, loaded])
+  }, [destinations, settings, loaded])
 
   // ------------------------------------------------------------- telemetry ---
 
@@ -111,7 +120,27 @@ export default function App() {
     setIncidents((prev) => [...prev.slice(-499), i])
   }, [])
 
-  useStreamEvents({ onProgress, onStatus, onIncident })
+  // Read through a ref so the sample handler never needs re-registering, and
+  // so each second's history entry pairs the measured total with the stream
+  // total as of that same instant.
+  const streamsKbps = useMemo(
+    () => destinations.reduce((sum, d) => sum + (isActive(d.status) ? d.bitrate : 0), 0),
+    [destinations],
+  )
+  const streamsRef = useRef(0)
+  streamsRef.current = streamsKbps
+
+  const onNetSample = useCallback((s: NetSample) => {
+    setNet(s)
+    const mine = streamsRef.current
+    const total = s.measured ? s.up_kbps : mine
+    // The link demonstrably carried this much, so any ceiling below it is
+    // wrong regardless of what the plan claims.
+    setPeakKbps((p) => Math.max(p, total))
+    setHistory((h) => [...h.slice(1), { total, streams: mine }])
+  }, [])
+
+  useStreamEvents({ onProgress, onStatus, onIncident, onNetSample })
 
   // Purely cosmetic countdown between backend events.
   useEffect(() => {
@@ -124,14 +153,17 @@ export default function App() {
   const anyActive = activeCount > 0
   const reconnectingCount = destinations.filter((d) => d.status === 'reconnecting').length
 
-  const usedKbps = useMemo(
-    () => destinations.reduce((sum, d) => sum + (isActive(d.status) ? d.bitrate : 0), 0),
-    [destinations],
+  const bw = useMemo(
+    () => bandwidth({ streamsKbps, sample: net, uplinkKbps: settings.uplinkKbps, peakKbps }),
+    [streamsKbps, net, settings.uplinkKbps, peakKbps],
   )
 
-  useEffect(() => {
-    setHistory((h) => [...h.slice(1), usedKbps])
-  }, [usedKbps])
+  const setUplink = useCallback((uplinkKbps: number | null) => {
+    setSettings((s) => ({ ...s, uplinkKbps }))
+    // A lower ceiling than the session peak would be immediately overridden,
+    // so drop the peak too and let it rebuild from what happens next.
+    setPeakKbps(0)
+  }, [])
 
   // --------------------------------------------------------------- control ---
 
@@ -438,10 +470,11 @@ export default function App() {
       </div>
 
       <BandwidthBar
-        usedKbps={usedKbps}
-        capacityKbps={ASSUMED_UPLINK_KBPS}
+        bw={bw}
         history={history}
+        iface={net?.iface ?? ''}
         activeCount={activeCount}
+        onSetUplink={setUplink}
       />
 
       <footer className="statusbar">

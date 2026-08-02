@@ -3,7 +3,10 @@ import { test } from 'node:test'
 import {
   applyProgress,
   applyStatus,
+  bandwidth,
   fromStored,
+  settingsFromStored,
+  DEFAULT_UPLINK_KBPS,
   startBlocker,
   tickRetry,
   toStored,
@@ -250,4 +253,106 @@ test('a key missing from the Keychain leaves the destination unready', () => {
 test('an empty or unfamiliar configuration does not throw', () => {
   assert.deepEqual(fromStored('{"version":1,"destinations":[]}', []), [])
   assert.deepEqual(fromStored('{}', []), [])
+})
+
+// --------------------------------------------------------------- bandwidth ---
+
+const sample = (up_kbps: number, measured = true) => ({ iface: 'en0', up_kbps, measured })
+
+test('the headline figure is what leaves the machine, not what ffmpeg claims', () => {
+  // Two streams reporting 6 Mbps each, but the interface is carrying 14: a
+  // backup or a video call is using the other 2.
+  const bw = bandwidth({
+    streamsKbps: 12_000,
+    sample: sample(14_000),
+    uplinkKbps: 25_000,
+    peakKbps: 0,
+  })
+  assert.equal(bw.totalKbps, 14_000)
+  assert.equal(bw.streamsKbps, 12_000)
+  assert.equal(bw.otherKbps, 2_000)
+  assert.equal(bw.freeKbps, 11_000)
+  assert.equal(bw.usedPct, 56)
+  assert.equal(bw.measured, true)
+})
+
+test('without interface counters it falls back to the streams and says so', () => {
+  const bw = bandwidth({ streamsKbps: 9_000, sample: null, uplinkKbps: 25_000, peakKbps: 0 })
+  assert.equal(bw.measured, false)
+  assert.equal(bw.totalKbps, 9_000)
+  // Nothing is known about other traffic, so claiming any would be a fiction.
+  assert.equal(bw.otherKbps, 0)
+
+  const explicit = bandwidth({
+    streamsKbps: 9_000,
+    sample: sample(0, false),
+    uplinkKbps: 25_000,
+    peakKbps: 0,
+  })
+  assert.equal(explicit.measured, false)
+  assert.equal(explicit.totalKbps, 9_000)
+})
+
+test('other-app traffic is never negative', () => {
+  // A sample landing between progress updates can read lower than the sum of
+  // the reported bitrates. "Other apps: -400 kbps" would be nonsense.
+  const bw = bandwidth({
+    streamsKbps: 12_000,
+    sample: sample(11_600),
+    uplinkKbps: 25_000,
+    peakKbps: 0,
+  })
+  assert.equal(bw.otherKbps, 0)
+})
+
+test('an observed peak raises a ceiling that was set too low', () => {
+  // The link carried 40 Mbps, so a 25 Mbps ceiling is demonstrably wrong and
+  // would otherwise report 0% free while everything runs fine.
+  const bw = bandwidth({
+    streamsKbps: 30_000,
+    sample: sample(30_000),
+    uplinkKbps: 25_000,
+    peakKbps: 40_000,
+  })
+  assert.equal(bw.capacityKbps, 40_000)
+  assert.equal(bw.freeKbps, 10_000)
+})
+
+test('a configured uplink beats the default assumption', () => {
+  const slow = bandwidth({ streamsKbps: 0, sample: sample(0), uplinkKbps: 6_000, peakKbps: 0 })
+  assert.equal(slow.capacityKbps, 6_000)
+
+  const assumed = bandwidth({ streamsKbps: 0, sample: sample(0), uplinkKbps: null, peakKbps: 0 })
+  assert.equal(assumed.capacityKbps, DEFAULT_UPLINK_KBPS)
+})
+
+test('a saturated link reports no headroom rather than a negative figure', () => {
+  const bw = bandwidth({
+    streamsKbps: 24_000,
+    sample: sample(31_000),
+    uplinkKbps: 25_000,
+    peakKbps: 25_000,
+  })
+  assert.equal(bw.freeKbps, 0)
+  assert.equal(bw.usedPct, 100)
+})
+
+// ----------------------------------------------------------------- settings ---
+
+test('the uplink setting round-trips', () => {
+  const json = JSON.stringify(toStored([dest()], { uplinkKbps: 35_000 }))
+  assert.deepEqual(settingsFromStored(json), { uplinkKbps: 35_000 })
+})
+
+test('a configuration written before settings existed still opens', () => {
+  assert.deepEqual(settingsFromStored('{"version":1,"destinations":[]}'), { uplinkKbps: null })
+  assert.deepEqual(settingsFromStored('{}'), { uplinkKbps: null })
+  assert.deepEqual(settingsFromStored('not json'), { uplinkKbps: null })
+})
+
+test('a nonsensical uplink is discarded rather than believed', () => {
+  // Division by a zero or negative capacity is what makes headroom NaN.
+  assert.deepEqual(settingsFromStored('{"settings":{"uplinkKbps":0}}'), { uplinkKbps: null })
+  assert.deepEqual(settingsFromStored('{"settings":{"uplinkKbps":-5}}'), { uplinkKbps: null })
+  assert.deepEqual(settingsFromStored('{"settings":{"uplinkKbps":"fast"}}'), { uplinkKbps: null })
 })

@@ -531,12 +531,18 @@ button {
 .bw {
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 22px;
+  flex-direction: column;
+  gap: 8px;
   padding: 13px 20px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
+}
+
+.bw-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
 }
 
 .bw-warn {
@@ -586,20 +592,103 @@ button {
   gap: 2px;
 }
 
+/* The bar is the total leaving the machine; the inner block is our share of
+   it, so the visible remainder is everything else competing for the uplink. */
 .bw-bar {
+  position: relative;
   flex: 1;
   min-height: 2px;
   border-radius: 1.5px;
-  background: var(--accent);
-  opacity: 0.55;
-}
-
-.bw-warn .bw-bar {
   background: var(--warn);
+  opacity: 0.5;
 }
 
-.bw-bad .bw-bar {
-  background: var(--bad);
+/* Deliberately the same colour in every state, so it always matches the key
+   below. Saturation is signalled by the border and the headroom figure; if
+   this went red too, the legend would be lying about which block is which. */
+.bw-bar-mine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 1.5px;
+  background: var(--accent);
+}
+
+/* ---------- bandwidth breakdown ---------- */
+
+.bw-breakdown {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.bw-breakdown strong {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bw-key {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.bw-key-mine {
+  background: var(--accent);
+}
+
+.bw-key-other {
+  background: var(--warn);
+  opacity: 0.5;
+}
+
+.bw-key-other + span {
+  margin-right: 4px;
+}
+
+.bw-uplink {
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+.bw-uplink:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.bw-uplink-edit-hint {
+  opacity: 0.55;
+  margin-left: 5px;
+}
+
+.bw-uplink-edit {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bw-uplink-edit input {
+  width: 74px;
+  padding: 2px 7px;
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+}
+
+.bw-note {
+  margin-left: auto;
+  opacity: 0.7;
 }
 
 /* ---------- status bar ---------- */

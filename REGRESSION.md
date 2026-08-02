@@ -77,8 +77,8 @@ and problems are simulated, and the status bar says so.
       others
 - [ ] A card mid-connection shows **Starting…** and cannot be pressed again
 - [ ] Live cards show a running timer, upload rate, and dropped-frame count
-- [ ] Bandwidth strip totals the active destinations and drops headroom as more
-      go live; it turns amber past 65% and red past 85%
+- [ ] Bandwidth strip reports what the interface is sending and drops headroom
+      as more go live; it turns amber past 65% and red past 85%
 - [ ] **Preview a problem** puts TikTok into a failure state with a plain-language
       cause and an **Enter new key** button
 - [ ] Version number appears in the status bar (this is now the IPC proof)
@@ -99,7 +99,6 @@ Multiple accounts — the core capability
 - [ ] One account failing leaves its same-platform sibling live, and the
       platform header reflects the split ("2 accounts · 1 live")
 - [ ] Bandwidth strip totals every live account and labels the count
-      ("6 streams uploading")
 
 Per-account looping video — the driving use case
 
@@ -297,3 +296,43 @@ Quitting
 The property underneath
 
 - [ ] At no point does stopping require a terminal command
+
+---
+
+## M5 · Bandwidth that reflects the machine, not the app
+
+The point of the change: the strip used to add up what ffmpeg *said* it was
+sending. That is blind to everything else on the Mac, so headroom was wrong
+precisely when something else was eating the uplink.
+
+What it measures
+
+- [ ] With nothing streaming, the strip still moves — open a website, and
+      **Other apps** rises while **Streams** stays at 0
+- [ ] Start one account: **Streams** matches the card's own rate, and the total
+      is slightly *higher* (RTMP and TCP headers are real bytes)
+- [ ] The interface name in the corner matches `route -n get default`
+- [ ] Total tracks Activity Monitor → Network → "Data sent/sec" within a few
+      percent over a minute
+- [ ] Upload a large file to Drive or iCloud while streaming: **Other apps**
+      climbs, headroom falls, and the streams' own figure does not move
+
+The ceiling
+
+- [ ] **edit** accepts your plan's upload speed in Mbps and the free figure
+      recomputes against it
+- [ ] The setting survives quitting and reopening the app
+- [ ] Clearing the field returns it to the labelled default
+- [ ] Push past the set ceiling (a big upload plus streams): the ceiling rises
+      to what the link actually carried rather than pinning at 100%
+
+Behaviour under change
+
+- [ ] Unplug Ethernet / switch Wi-Fi networks mid-stream: the graph shows no
+      false spike and no fake dropout, and picks up on the new interface
+- [ ] Connect a VPN: measurement follows the interface carrying the default
+      route
+- [ ] Left running overnight, the graph never shows an impossible spike
+      (counters wrapping must not read as hundreds of Gbps)
+- [ ] Idle for an hour with no streams: CPU use of StreamBridge stays flat
+      (the sampler must not be busy-looping)
