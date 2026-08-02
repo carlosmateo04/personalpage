@@ -67,8 +67,11 @@ jobs:
           p = pathlib.Path('src-tauri/tauri.conf.json')
           c = json.loads(p.read_text())
           c['plugins']['updater']['pubkey'] = os.environ['PUBKEY']
+          # Only a release produces an update artifact — a test build has no
+          # key to sign one with, and nothing should install an unsigned one.
+          c['bundle']['createUpdaterArtifacts'] = True
           p.write_text(json.dumps(c, indent=2) + '\n')
-          print('public key injected')
+          print('public key injected, updater artifacts enabled')
           PY
 
       - name: Build and publish
