@@ -1,6 +1,7 @@
 mod diagnose;
 mod netmeter;
 mod probe;
+mod release;
 mod secrets;
 mod store;
 mod stream;
@@ -71,6 +72,9 @@ pub fn run() {
             stream::stop_all,
             stream::incidents,
             stream::keeping_awake,
+            release::updater_signed,
+            release::latest_release,
+            release::open_release,
             secrets::secret_store,
             secrets::set_secret,
             secrets::get_secret,

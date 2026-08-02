@@ -1,8 +1,27 @@
 # In-app updates
 
-Caudal checks for updates on launch and every six hours. When one is
-available a bar appears at the top; pressing **Update now** downloads it,
-installs it, and restarts the app. No `.dmg`, no dragging to Applications.
+Caudal checks for updates on launch and every six hours, and a bar appears at
+the top when one exists. What the bar can *do* depends on whether the build was
+signed.
+
+| | Signed build | Unsigned build |
+| --- | --- | --- |
+| Tells you a version exists | yes | yes |
+| Downloads it | yes | opens it in your browser |
+| Installs and restarts | yes | you drag it to Applications |
+| Setup needed | the key pair below | none |
+
+**There is no third option, and it is not a matter of accepting some risk.**
+The updater plugin ends its download with
+
+```rust
+verify_signature(&buffer, &self.signature, &self.config.pubkey)?;
+```
+
+No condition, no flag. With no public key the decode fails and the whole
+download is thrown away, so an unsigned build offering an install button would
+fetch an entire release and then refuse it. The fallback in `release.rs` does
+the half that still works rather than pretending.
 
 **Updates are never applied on their own.** Installing restarts the app, which
 ends every running stream — a stream that has been up for three weeks should

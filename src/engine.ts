@@ -92,6 +92,13 @@ export type NetSample = {
   measured: boolean
 }
 
+/** Mirrors `release::Release`. */
+export type Release = {
+  version: string
+  dmg_url: string | null
+  page_url: string
+}
+
 /** Mirrors `stream::Incident`. */
 export type Incident = {
   id: string
@@ -106,6 +113,13 @@ export const engine = {
   runningLoops: () => invoke<string[]>('running_loops'),
   incidents: () => invoke<Incident[]>('incidents'),
   keepingAwake: () => invoke<boolean>('keeping_awake'),
+
+  // Updates. `updaterSigned` decides which of the two paths the UI offers:
+  // the plugin installs and restarts, the fallback can only point at a
+  // download. See `release.rs` for why there is no third option.
+  updaterSigned: () => invoke<boolean>('updater_signed'),
+  latestRelease: () => invoke<Release | null>('latest_release'),
+  openRelease: (url: string) => invoke<void>('open_release', { url }),
 
   /**
    * Start a loop. The stream key is deliberately absent: the backend reads it

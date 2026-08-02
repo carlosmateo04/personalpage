@@ -1,46 +1,72 @@
 import { useCallback, useEffect, useState } from 'react'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
+import { engine, type Release } from '../engine'
 
 type State =
   | { name: 'idle' }
   | { name: 'checking' }
   | { name: 'available'; update: Update }
+  | { name: 'manual'; release: Release }
   | { name: 'downloading'; percent: number }
   | { name: 'ready' }
   | { name: 'failed'; reason: string }
 
+/** Six hours, for a machine that stays open for weeks. */
+const EVERY = 6 * 60 * 60 * 1000
+
 /**
- * In-app updates.
+ * In-app updates, by whichever of the two routes this build can take.
  *
- * Installing restarts the app, which ends every stream, so an update is never
- * applied on its own — a stream that has been up for three weeks should not be
- * interrupted by housekeeping. The check is automatic; the install is not.
+ * **Signed** — the updater plugin downloads, verifies, installs, and restarts.
+ * One button.
+ *
+ * **Unsigned** — the plugin cannot be used at all. It verifies every download
+ * against a public key and the check has no opt-out, so a build without a key
+ * would fetch an entire release and then refuse it. The fallback does the half
+ * that still works: ask GitHub what the newest release is, say so, and open the
+ * `.dmg`. Installing stays manual.
+ *
+ * Either way the update is never applied on its own. Installing restarts the
+ * app, which ends every stream, and a stream that has been up for three weeks
+ * should not be interrupted by housekeeping.
  */
 export function UpdateBanner({ streamsRunning }: { streamsRunning: number }) {
   const [state, setState] = useState<State>({ name: 'idle' })
+  const [signed, setSigned] = useState<boolean | null>(null)
   const [dismissed, setDismissed] = useState(false)
 
-  const look = useCallback(async (manual: boolean) => {
-    setState({ name: 'checking' })
-    try {
-      const update = await check()
-      setState(update ? { name: 'available', update } : { name: 'idle' })
-      if (!update && manual) {
-        setState({ name: 'failed', reason: 'You are on the latest version.' })
-      }
-    } catch (e) {
-      // A failed check is not worth interrupting anyone over unless they asked.
-      setState(manual ? { name: 'failed', reason: String(e) } : { name: 'idle' })
-    }
+  useEffect(() => {
+    engine.updaterSigned().then(setSigned).catch(() => setSigned(false))
   }, [])
 
+  const look = useCallback(
+    async (manual: boolean) => {
+      if (signed === null) return
+      setState({ name: 'checking' })
+      try {
+        if (signed) {
+          const update = await check()
+          if (update) return setState({ name: 'available', update })
+        } else {
+          const release = await engine.latestRelease()
+          if (release) return setState({ name: 'manual', release })
+        }
+        setState(manual ? { name: 'failed', reason: 'You are on the latest version.' } : { name: 'idle' })
+      } catch (e) {
+        // A failed check is not worth interrupting anyone over unless they asked.
+        setState(manual ? { name: 'failed', reason: String(e) } : { name: 'idle' })
+      }
+    },
+    [signed],
+  )
+
   useEffect(() => {
+    if (signed === null) return
     void look(false)
-    // Check again every six hours, for a machine that stays open for weeks.
-    const t = setInterval(() => void look(false), 6 * 60 * 60 * 1000)
+    const t = setInterval(() => void look(false), EVERY)
     return () => clearInterval(t)
-  }, [look])
+  }, [look, signed])
 
   const install = useCallback(async () => {
     if (state.name !== 'available') return
@@ -71,16 +97,15 @@ export function UpdateBanner({ streamsRunning }: { streamsRunning: number }) {
     }
   }, [state])
 
-  if (dismissed && state.name === 'available') return null
+  if (dismissed && (state.name === 'available' || state.name === 'manual')) return null
 
   switch (state.name) {
-    case 'available': {
-      const v = state.update.version
+    case 'available':
       return (
         <div className="update-bar">
           <span className="update-dot" aria-hidden="true" />
           <span className="update-text">
-            <strong>Version {v} is available.</strong>{' '}
+            <strong>Version {state.update.version} is available.</strong>{' '}
             {streamsRunning > 0
               ? `Installing restarts Caudal and will end ${streamsRunning} running ${
                   streamsRunning === 1 ? 'stream' : 'streams'
@@ -95,7 +120,32 @@ export function UpdateBanner({ streamsRunning }: { streamsRunning: number }) {
           </button>
         </div>
       )
-    }
+
+    case 'manual':
+      return (
+        <div className="update-bar">
+          <span className="update-dot" aria-hidden="true" />
+          <span className="update-text">
+            <strong>Version {state.release.version} is available.</strong> This build cannot
+            install it itself — the download opens in your browser, then drag it to Applications.
+          </span>
+          <button className="update-later" onClick={() => setDismissed(true)}>
+            Later
+          </button>
+          {/* Says download, because that is all it does. Labelling it "Update"
+              would promise the one-click install this build cannot perform. */}
+          <button
+            className="update-now"
+            onClick={() =>
+              void engine
+                .openRelease(state.release.dmg_url ?? state.release.page_url)
+                .catch((e) => setState({ name: 'failed', reason: String(e) }))
+            }
+          >
+            Download {state.release.version}
+          </button>
+        </div>
+      )
 
     case 'downloading':
       return (
@@ -139,8 +189,11 @@ export function CheckForUpdates() {
       onClick={async () => {
         setNote('Checking…')
         try {
-          const update = await check()
-          setNote(update ? `Version ${update.version} available` : 'Up to date')
+          const signed = await engine.updaterSigned()
+          const version = signed
+            ? (await check())?.version
+            : (await engine.latestRelease())?.version
+          setNote(version ? `Version ${version} available` : 'Up to date')
         } catch (e) {
           setNote(`Check failed: ${e}`)
         }
