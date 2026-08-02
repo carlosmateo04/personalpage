@@ -156,9 +156,10 @@ Account settings
 
 ---
 
-## M1 · Loop one video to one destination
+## M1 · Loop one video to one destination — ✅ PASSED 2026-08-02
 
-The first milestone where something real leaves the Mac.
+The first milestone where something real leaves the Mac. Confirmed on hardware
+by *Pipo y Lula* and *Curiora* running live to YouTube.
 
 Setup
 
@@ -336,3 +337,26 @@ Behaviour under change
       (counters wrapping must not read as hundreds of Gbps)
 - [ ] Idle for an hour with no streams: CPU use of StreamBridge stays flat
       (the sampler must not be busy-looping)
+
+---
+
+## M3 · Independent simultaneous loops — 🟡 HALF PASSED 2026-08-02
+
+Two accounts, two files, one MacBook.
+
+Passed on hardware
+
+- [x] *Pipo y Lula* and *Curiora* both live on YouTube at the same time
+- [x] Each loops its own file, with no shared state between them
+- [x] Both hold steady rather than fighting for the same uplink
+
+Still owed — isolation, which is what 24/7 rests on
+
+- [ ] Stopping one account leaves the other's timer, bitrate, and dropped-frame
+      count completely undisturbed
+- [ ] `kill -9` on one publisher's ffmpeg: that account reconnects on its own
+      and its neighbour never notices
+- [ ] Pulling the key on one account fails only that one — the other stays live
+- [ ] Adding a third account mid-stream does not interrupt the two already up
+- [ ] After a full day: both still live, `reconnects` accounted for in the
+      activity log, no drift in the uptime counters

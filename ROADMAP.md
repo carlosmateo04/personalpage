@@ -57,9 +57,9 @@ exists.
 | --- | --- | --- |
 | **M0** | Build pipeline → `.dmg` | ✅ passed on hardware |
 | **UI** | Main interface direction | ✅ signed off |
-| **M1** | Loop one video to one destination | 🟡 built, awaiting gate |
+| **M1** | Loop one video to one destination | ✅ passed on hardware |
 | **M2** | Status, error taxonomy, auto-reconnect | 🟡 built, awaiting gate |
-| M3 | Independent simultaneous loops | ⬜ |
+| **M3** | Independent simultaneous loops | ✅ first half passed on hardware |
 | M4 | Playlists and normalisation | ⬜ |
 | **M5** | Bandwidth dashboard | 🟡 built, awaiting gate |
 | **M6** | Unattended 24/7 hardening | 🟡 built, awaiting gate |
@@ -118,6 +118,11 @@ state.
 **Gate:** *Pipo y Lula* and *Curiora* both live simultaneously from one Mac;
 killing one process leaves the other completely untouched; restarting it rejoins
 without disturbing its neighbour.
+
+**2026-08-02 — both channels live and steady from one MacBook, at the same
+time, each looping its own file.** The part the gate still owes: the isolation
+half. Steady side by side is not the same as proof that one cannot take the
+other down, and that is the property 24/7 actually depends on.
 
 ### M4 · Playlists and normalisation
 Several files per account, played in order and looped. Clips that already share
