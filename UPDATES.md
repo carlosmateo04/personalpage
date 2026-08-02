@@ -46,8 +46,9 @@ Works from any folder; it does not need the repository checked out.
 npx --yes -p @tauri-apps/cli tauri signer generate -w ~/.caudal-updater.key
 ```
 
-It asks for a password twice. Press Enter twice for none — the workflow handles
-either.
+It asks for a password twice. **Choose one and keep it** — the private key file
+is otherwise usable by anything that can read it, and this file is a good
+candidate for a backup folder that syncs to a cloud drive.
 
 It writes **two files** and prints neither key:
 
@@ -65,12 +66,18 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 | Name | Value |
 | --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | Output of `cat ~/.caudal-updater.key` |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you chose, or leave the value empty |
-| `TAURI_UPDATER_PUBKEY` | Output of `cat ~/.caudal-updater.key.pub` |
+| `TAURI_SIGNING_PRIVATE_KEY` | `cat ~/.caudal-updater.key \| pbcopy` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you chose |
+| `TAURI_UPDATER_PUBKEY` | `cat ~/.caudal-updater.key.pub \| pbcopy` |
 
-Copy each whole line, with no trailing spaces. Both files hold one base64 line
-and nothing else.
+Pipe through `pbcopy` rather than selecting the text. Both files are one long
+base64 line, and a selection that misses a character produces a key that fails
+only at signing time, in CI, with an error that does not mention the cause.
+
+**If you chose no password, do not create the third secret at all.** GitHub
+will not store an empty value, and an absent secret already reaches the
+workflow as the empty string — which is exactly what a passwordless key
+expects.
 
 ### 3 · Back the private key up
 
