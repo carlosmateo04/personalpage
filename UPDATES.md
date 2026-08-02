@@ -17,22 +17,27 @@ Updates are cryptographically signed so an installed app will only accept a
 build that came from you. That needs a key pair, and the private half has to
 stay private — which means it has to be generated on your machine, not here.
 
-Three commands, once.
+Two commands and three copy-pastes, once.
 
 ### 1 · Generate the key pair
 
+Works from any folder; it does not need the repository checked out.
+
 ```bash
-cd ~/personalpage
-npx tauri signer generate -w ~/.caudal-updater.key
+npx --yes -p @tauri-apps/cli tauri signer generate -w ~/.caudal-updater.key
 ```
 
-It asks for a password (leave it empty if you prefer; the workflow handles
-either). It then prints two things:
+It asks for a password twice. Press Enter twice for none — the workflow handles
+either.
 
-- A **private key** — written to `~/.caudal-updater.key`. Never commit
-  this, never paste it anywhere. Anyone holding it can sign an update that your
-  app will install without question.
-- A **public key** — printed to the terminal. Safe to share.
+It writes **two files** and prints neither key:
+
+| File | What it is |
+| --- | --- |
+| `~/.caudal-updater.key` | The **private** key. Never commit it, never paste it anywhere but the secret below. Anyone holding it can sign an update your app will install without question. |
+| `~/.caudal-updater.key.pub` | The **public** key. Safe to share. |
+
+Both are a single long base64 line.
 
 ### 2 · Add three repository secrets
 
@@ -41,9 +46,12 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 | Name | Value |
 | --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | The contents of `~/.caudal-updater.key` — `cat ~/.caudal-updater.key` and paste all of it |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you chose, or leave empty |
-| `TAURI_UPDATER_PUBKEY` | The public key it printed |
+| `TAURI_SIGNING_PRIVATE_KEY` | Output of `cat ~/.caudal-updater.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you chose, or leave the value empty |
+| `TAURI_UPDATER_PUBKEY` | Output of `cat ~/.caudal-updater.key.pub` |
+
+Copy each whole line, with no trailing spaces. Both files hold one base64 line
+and nothing else.
 
 ### 3 · Back the private key up
 
@@ -57,8 +65,8 @@ password manager.
 
 ```bash
 # bump the version in src-tauri/tauri.conf.json and package.json first
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
 The tag triggers the release workflow, which runs the tests, builds a universal
