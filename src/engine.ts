@@ -104,6 +104,9 @@ export const engine = {
 
   stopLoop: (id: string) => invoke<void>('stop_loop', { id }),
 
+  /** Stop every publisher the backend knows about, whatever the UI thinks. */
+  stopAll: () => invoke<void>('stop_all'),
+
   // Secrets. The frontend can write and test for a key, but never read one.
   secretStore: () => invoke<'keychain' | 'memory'>('secret_store'),
   setSecret: (id: string, key: string) => invoke<void>('set_secret', { id, key }),

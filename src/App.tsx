@@ -204,10 +204,16 @@ export default function App() {
     [destinations, start, stop],
   )
 
-  const toggleAll = useCallback(
-    () => toggleMany(destinations.map((d) => d.id)),
-    [destinations, toggleMany],
-  )
+  const toggleAll = useCallback(() => {
+    if (anyActive) {
+      // Ask the backend to stop everything it is running, rather than everything
+      // this list happens to show. If the two ever disagree, the backend is the
+      // one still uploading.
+      engine.stopAll().catch((e) => setError(String(e)))
+      return
+    }
+    toggleMany(destinations.map((d) => d.id))
+  }, [anyActive, destinations, toggleMany])
 
   // Auto-start runs once, after the first load, for destinations marked for it.
   const autoStarted = useRef(false)

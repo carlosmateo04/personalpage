@@ -20,6 +20,11 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[target.'cfg(unix)'.dependencies]
+# Signalling ffmpeg directly. A stop that cannot escalate past a polite
+# request is not a stop.
+libc = "0.2"
+
 # Stream keys go to the macOS login Keychain. Scoped to macOS so the crate's
 # platform backends are not dragged in anywhere they cannot build.
 [target.'cfg(target_os = "macos")'.dependencies]

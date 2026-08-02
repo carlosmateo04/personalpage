@@ -265,3 +265,35 @@ The gate
 - [ ] **Start automatically when StreamBridge opens** makes the stream start on
       launch, with no clicking
 - [ ] The status bar reads `keys in Keychain`
+
+---
+
+## Stopping — no terminal, ever
+
+The bar: pressing **Stop** on a card ends that stream, on its own, and the
+platform stops waiting for data. Needing a terminal is a bug.
+
+Per-destination
+
+- [ ] **Stop** on one card ends that stream within a couple of seconds
+- [ ] Its ffmpeg is gone: `pgrep -fl ffmpeg` no longer lists it
+- [ ] YouTube Studio leaves "Preparing stream" and reports the stream ended
+- [ ] Other accounts streaming at the same time are completely unaffected
+- [ ] Stopping a destination that is mid-reconnect works too, without waiting
+      out the countdown
+
+Everything at once
+
+- [ ] **Stop everything** ends every publisher, not merely those the UI lists
+- [ ] `pgrep -fl ffmpeg` is empty afterwards
+
+Quitting
+
+- [ ] ⌘Q while streaming: no ffmpeg survives
+- [ ] Force Quit while streaming, then reopen: leftovers from the previous run
+      are killed on launch, and the platform stops receiving data
+- [ ] Killing StreamBridge with `kill -9` and reopening does the same
+
+The property underneath
+
+- [ ] At no point does stopping require a terminal command

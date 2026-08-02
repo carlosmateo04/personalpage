@@ -96,9 +96,86 @@ pub struct Supervisor {
     /// `caffeinate`, held for as long as anything is streaming.
     keep_awake: Mutex<Option<Child>>,
     incidents: Mutex<Vec<Incident>>,
+    /// Publisher pids, mirrored to disk so a force-quit or crash can still be
+    /// cleaned up on the next launch. A stray publisher keeps the platform
+    /// believing the stream is live, which is worse than a missing one.
+    pids: Mutex<HashMap<String, u32>>,
 }
 
 impl Supervisor {
+    fn pid_file(app: &AppHandle) -> Option<std::path::PathBuf> {
+        let dir = app.path().app_config_dir().ok()?;
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir.join("running-pids.json"))
+    }
+
+    fn flush_pids(&self, app: &AppHandle) {
+        let Some(path) = Self::pid_file(app) else {
+            return;
+        };
+        let pids = self.pids.lock().unwrap();
+        if pids.is_empty() {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        if let Ok(json) = serde_json::to_string(&*pids) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    fn remember_pid(&self, app: &AppHandle, id: &str, pid: u32) {
+        self.pids.lock().unwrap().insert(id.to_string(), pid);
+        self.flush_pids(app);
+    }
+
+    fn forget_pid(&self, app: &AppHandle, id: &str) {
+        self.pids.lock().unwrap().remove(id);
+        self.flush_pids(app);
+    }
+
+    /// Kill publishers left behind by a previous run.
+    ///
+    /// A force-quit, a crash, or a power cut cannot run any cleanup, so the
+    /// only chance to tidy up is the next launch. Each pid is verified to still
+    /// be one of our ffmpeg processes first: pids are reused, and killing a
+    /// stranger would be far worse than leaving a stray behind.
+    pub fn reap_orphans(&self, app: &AppHandle) -> Vec<u32> {
+        let Some(path) = Self::pid_file(app) else {
+            return Vec::new();
+        };
+        let Ok(json) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        let previous: HashMap<String, u32> = serde_json::from_str(&json).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+
+        let mut reaped = Vec::new();
+        for pid in previous.into_values() {
+            if !is_our_ffmpeg(pid) {
+                continue;
+            }
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid as i32, SIG_INT);
+            }
+            reaped.push(pid);
+        }
+
+        if !reaped.is_empty() {
+            // Give each a moment to close its RTMP session, then insist.
+            std::thread::sleep(Duration::from_secs(2));
+            for pid in &reaped {
+                if is_our_ffmpeg(*pid) {
+                    #[cfg(unix)]
+                    unsafe {
+                        libc::kill(*pid as i32, libc::SIGKILL);
+                    }
+                }
+            }
+        }
+        reaped
+    }
+
     fn log(&self, app: &AppHandle, id: &str, kind: &str, message: String) {
         let incident = Incident {
             id: id.to_string(),
@@ -183,19 +260,73 @@ impl Supervisor {
         };
         handle.stop.store(true, Ordering::SeqCst);
 
-        // "q" is ffmpeg's own quit command; it closes the RTMP session properly
-        // rather than leaving the platform waiting on a dead socket.
         if let Some(child) = handle.child.lock().unwrap().as_mut() {
+            // "q" is ffmpeg's interactive quit, which only works when it is
+            // actually reading stdin — so it is the hint, not the mechanism.
             if let Some(stdin) = child.stdin.as_mut() {
                 let _ = stdin.write_all(b"q\n");
                 let _ = stdin.flush();
             }
+            // SIGINT is the mechanism: ffmpeg closes the RTMP session cleanly,
+            // so the platform stops waiting for data instead of holding the
+            // ingest open. The session loop escalates from here if needed.
+            signal_child(child, SIG_INT);
         }
 
         let (lock, cv) = &*handle.waker;
         *lock.lock().unwrap() = true;
         cv.notify_all();
     }
+}
+
+/// How long a polite stop gets before the next, firmer signal.
+const STOP_ESCALATE_TERM: Duration = Duration::from_secs(3);
+const STOP_ESCALATE_KILL: Duration = Duration::from_secs(8);
+
+/// Send a signal to a running child.
+///
+/// SIGINT is ffmpeg's clean exit: it writes the trailer and closes the RTMP
+/// session properly, which is what stops the platform waiting for more data.
+/// Everything after it exists because a stop that cannot escalate is only a
+/// request, and a process that ignores it uploads forever.
+#[cfg(unix)]
+fn signal_child(child: &Child, sig: i32) {
+    let pid = child.id() as i32;
+    if pid > 1 {
+        // Safety: `pid` came from a Child we spawned and have not reaped, so
+        // it is either our process or already gone; kill(2) handles both.
+        unsafe {
+            libc::kill(pid, sig);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn signal_child(_child: &Child, _sig: i32) {}
+
+#[cfg(unix)]
+const SIG_INT: i32 = libc::SIGINT;
+#[cfg(unix)]
+const SIG_TERM: i32 = libc::SIGTERM;
+#[cfg(not(unix))]
+const SIG_INT: i32 = 2;
+#[cfg(not(unix))]
+const SIG_TERM: i32 = 15;
+
+/// Is this pid still one of our ffmpeg publishers?
+///
+/// Checked before killing anything left over from a previous run, because pids
+/// are reused and killing an unrelated process would be far worse than leaving
+/// a stray one behind.
+fn is_our_ffmpeg(pid: u32) -> bool {
+    let Ok(out) = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+    else {
+        return false;
+    };
+    let cmd = String::from_utf8_lossy(&out.stdout);
+    cmd.contains("ffmpeg") && cmd.contains("stream_loop")
 }
 
 /// ffmpeg reports values like "1234.5kbits/s", "1.02x", or "N/A".
@@ -420,6 +551,7 @@ pub fn start_loop(
 
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();
+            state.remember_pid(&app, &id, child.id());
             *child_slot.lock().unwrap() = Some(child);
 
             let started = Instant::now();
@@ -483,10 +615,31 @@ pub fn start_loop(
 
             // Poll rather than block, so `stop` can take the child's lock to
             // signal it at any moment.
+            let mut stopping_since: Option<Instant> = None;
+            let mut sent_term = false;
             let exit_code = loop {
                 std::thread::sleep(Duration::from_millis(250));
+
+                if stop.load(Ordering::SeqCst) && stopping_since.is_none() {
+                    stopping_since = Some(Instant::now());
+                }
+
                 let mut slot = child_slot.lock().unwrap();
                 let Some(c) = slot.as_mut() else { break None };
+
+                // Escalate a stop ffmpeg is ignoring. Without this, "stop" is
+                // only a suggestion, and a process that declines it keeps
+                // uploading — which the platform reads as a stream still live.
+                if let Some(since) = stopping_since {
+                    let waited = since.elapsed();
+                    if waited > STOP_ESCALATE_KILL {
+                        let _ = c.kill();
+                    } else if waited > STOP_ESCALATE_TERM && !sent_term {
+                        sent_term = true;
+                        signal_child(c, SIG_TERM);
+                    }
+                }
+
                 match c.try_wait() {
                     Ok(Some(status)) => break status.code(),
                     Ok(None) => continue,
@@ -585,6 +738,7 @@ pub fn start_loop(
             }
         }
 
+        state.forget_pid(&app, &id);
         state.sessions.lock().unwrap().remove(&id);
         state.release_wakelock_if_idle();
     });
@@ -595,6 +749,22 @@ pub fn start_loop(
 #[tauri::command]
 pub fn stop_loop(supervisor: tauri::State<'_, Supervisor>, id: String) -> Result<(), String> {
     supervisor.request_stop(&id);
+    Ok(())
+}
+
+/// Stop every destination at once — the panic button, and what quitting uses.
+#[tauri::command]
+pub fn stop_all(supervisor: tauri::State<'_, Supervisor>) -> Result<(), String> {
+    let ids: Vec<String> = supervisor
+        .sessions
+        .lock()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    for id in ids {
+        supervisor.request_stop(&id);
+    }
     Ok(())
 }
 
@@ -829,5 +999,48 @@ mod policy_tests {
             }
             other => panic!("expected a retry, got {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+
+    /// The guard that stops orphan cleanup from killing a stranger.
+    ///
+    /// pids are reused, so before signalling anything left over from a previous
+    /// run it has to still look like one of ours. Getting this wrong would kill
+    /// an unrelated process on the user's machine.
+    #[test]
+    fn orphan_detection_only_matches_our_own_publishers() {
+        // Our own test process is not an ffmpeg publisher.
+        assert!(!is_our_ffmpeg(std::process::id()));
+
+        // pid 1 is launchd or init — never ours, and catastrophic to signal.
+        assert!(!is_our_ffmpeg(1));
+
+        // A pid that cannot exist.
+        assert!(!is_our_ffmpeg(u32::MAX));
+    }
+
+    /// A plain `sleep` is an ffmpeg-shaped decoy: right kind of process, wrong
+    /// command line. It must not be adopted as ours.
+    #[test]
+    fn an_unrelated_process_is_not_adopted() {
+        let Ok(mut child) = Command::new("sleep").arg("5").stdout(Stdio::null()).spawn() else {
+            return; // no `sleep` available; nothing to assert
+        };
+        assert!(!is_our_ffmpeg(child.id()));
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn escalation_deadlines_are_ordered_and_bounded() {
+        assert!(STOP_ESCALATE_TERM < STOP_ESCALATE_KILL);
+        // A stop must resolve fast enough that quitting the app is not a wait,
+        // but slowly enough that ffmpeg gets to close RTMP properly first.
+        assert!(STOP_ESCALATE_KILL <= Duration::from_secs(10));
+        assert!(STOP_ESCALATE_TERM >= Duration::from_secs(1));
     }
 }

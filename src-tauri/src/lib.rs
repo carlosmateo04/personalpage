@@ -39,6 +39,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(stream::Supervisor::default())
+        .setup(|app| {
+            // A crash or force-quit cannot run cleanup, so the next launch is
+            // the only chance to kill a publisher still uploading to a platform
+            // that believes the stream is live.
+            let handle = app.handle().clone();
+            let reaped = handle.state::<stream::Supervisor>().reap_orphans(&handle);
+            if !reaped.is_empty() {
+                eprintln!(
+                    "StreamBridge: stopped {} publisher(s) left over from a previous run",
+                    reaped.len()
+                );
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             build_info,
             tools::tool_status,
@@ -46,6 +60,7 @@ pub fn run() {
             stream::start_loop,
             stream::stop_loop,
             stream::running_loops,
+            stream::stop_all,
             stream::incidents,
             stream::keeping_awake,
             secrets::secret_store,
