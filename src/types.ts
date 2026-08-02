@@ -24,7 +24,9 @@ export type DestinationStatus =
 export type Issue = {
   title: string
   detail: string
-  action?: { label: string; kind: 'retry' | 'reauth' | 'bitrate' | 'settings' }
+  /** What the user can do. `retryable` problems are already being retried. */
+  action: 'retry' | 'reauth' | 'file' | 'network'
+  retryable: boolean
   raw?: string
 }
 
@@ -85,13 +87,12 @@ export type Auth =
   | {
       method: 'key'
       server: string
-      keyPreview: string
       /**
-       * The actual key, held in memory only. Persisting it belongs to the
-       * Keychain work in M7; until then it is deliberately lost on quit rather
-       * than written somewhere insecure.
+       * Whether a key exists in the Keychain for this destination. The key
+       * itself never reaches the frontend — it is written once and from then on
+       * only the backend reads it.
        */
-      secret?: string
+      hasSecret: boolean
     }
 
 /**
@@ -155,6 +156,14 @@ export type Destination = {
   bitrate: number
   /** Frames dropped since going live. */
   dropped: number
+  /** Reconnection attempt in flight, zero when connected normally. */
+  attempt: number
+  /** Seconds until the next reconnection attempt. */
+  retryIn: number
+  /** Reconnections since this destination was started. */
+  reconnects: number
+  /** Start this destination automatically when the app opens. */
+  autoStart: boolean
   issue?: Issue
 }
 

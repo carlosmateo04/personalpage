@@ -208,3 +208,60 @@ Failure handling
       unexpectedly" with a **Start again** button
 - [ ] Pulling the network mid-stream surfaces a failure
       (automatic recovery is M2, so manual restart is expected here)
+
+---
+
+## M2 · Reconnection and error handling
+
+Automatic recovery — the reason 24/7 is possible at all
+
+- [ ] Pull the Wi-Fi mid-stream: the card turns amber, reads **Reconnecting**,
+      and shows a countdown and attempt number
+- [ ] Put the Wi-Fi back: it returns to **Live** on its own, with no clicking
+- [ ] The card then shows a reconnect count for the session
+- [ ] Leave the network off for ten minutes: it is still retrying when the
+      connection returns, at roughly 30-second intervals
+- [ ] Kill ffmpeg externally (`pkill -f 'stream_loop'`): it comes back by itself
+- [ ] Stop during a reconnect wait: it stops immediately rather than sitting out
+      the countdown
+
+Problems that will not fix themselves
+
+- [ ] A deliberately wrong stream key reads **Stream key rejected**, stays down,
+      and offers **Replace key** — it must *not* retry in a loop
+- [ ] Deleting or renaming the video file mid-stream reads **Video file is
+      missing** and stays down
+- [ ] Retryable problems show no fix button, because recovery is already under
+      way; only permanent ones do
+
+## M6 · Unattended operation
+
+- [ ] While anything is streaming, the header shows **Sleep held off**
+- [ ] `pmset -g assertions` lists an assertion held by `caffeinate`
+- [ ] The Mac does not sleep during an overnight run with the display off
+- [ ] The indicator disappears once the last stream stops
+- [ ] Quitting the app with ⌘Q while streaming leaves no ffmpeg behind
+      (`pgrep -fl ffmpeg` returns nothing)
+- [ ] The activity log records each disconnect and recovery with a timestamp
+- [ ] After an overnight run, the log explains everything that happened
+
+The gate
+
+- [ ] **72 hours unattended**, with a deliberate network drop and a deliberate
+      `pkill` of ffmpeg somewhere in the middle, ending live with both incidents
+      visible in the log
+
+## M7 · Accounts that survive a restart
+
+- [ ] Adding an account and quitting, then reopening: the account is still there
+- [ ] Its video, name, and server survive too
+- [ ] The stream key survives — starting works without re-entering it
+- [ ] Keychain Access shows an entry under `com.streambridge.desktop`
+- [ ] The configuration file contains **no** stream key:
+      `grep -i <part of your key> ~/Library/Application\ Support/com.streambridge.desktop/destinations.json`
+      finds nothing
+- [ ] Removing an account also removes its Keychain entry
+- [ ] A restored account never shows as live; it starts idle
+- [ ] **Start automatically when StreamBridge opens** makes the stream start on
+      launch, with no clicking
+- [ ] The status bar reads `keys in Keychain`

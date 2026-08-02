@@ -9,17 +9,20 @@ export function AccountModal({
   onRename,
   onRemove,
   onSetSecret,
+  onSetAutoStart,
 }: {
   destination: Destination
   onClose: () => void
   onRename: (id: string, label: string) => void
   onRemove: (id: string) => void
   onSetSecret: (id: string, secret: string) => void
+  onSetAutoStart: (id: string, autoStart: boolean) => void
 }) {
   const [label, setLabel] = useState(d.label)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [key, setKey] = useState('')
-  const hasSecret = d.auth.method === 'key' && Boolean(d.auth.secret)
+  const [saved, setSaved] = useState(false)
+  const hasSecret = d.auth.method === 'key' && d.auth.hasSecret
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -52,32 +55,34 @@ export function AccountModal({
             <small>Only affects what you see here, not the channel name on the platform.</small>
           </label>
 
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={d.autoStart}
+              onChange={(e) => onSetAutoStart(d.id, e.target.checked)}
+            />
+            <span>
+              <strong>Start automatically when StreamBridge opens</strong>
+              <small>
+                For a stream meant to run around the clock: launch the app and it goes live without
+                anyone pressing anything.
+              </small>
+            </span>
+          </label>
+
           <div className="conn">
             <p className="conn-title">Connection</p>
             {d.auth.method === 'oauth' ? (
-              <>
-                <dl className="conn-grid">
-                  <div>
-                    <dt>Method</dt>
-                    <dd>Signed in with {d.auth.provider}</dd>
-                  </div>
-                  <div>
-                    <dt>Account</dt>
-                    <dd>{d.auth.connectedAs}</dd>
-                  </div>
-                  <div>
-                    <dt>Stream key</dt>
-                    <dd>Fetched and refreshed automatically</dd>
-                  </div>
-                </dl>
-                {d.auth.needsReauth ? (
-                  <p className="warn-note">
-                    <strong>Sign-in expired.</strong> The token could not be refreshed, so this
-                    account cannot start until you sign in again.
-                  </p>
-                ) : null}
-                <button className="btn-secondary">Sign in again</button>
-              </>
+              <dl className="conn-grid">
+                <div>
+                  <dt>Method</dt>
+                  <dd>Signed in with {d.auth.provider}</dd>
+                </div>
+                <div>
+                  <dt>Account</dt>
+                  <dd>{d.auth.connectedAs}</dd>
+                </div>
+              </dl>
             ) : (
               <>
                 <dl className="conn-grid">
@@ -86,8 +91,8 @@ export function AccountModal({
                     <dd className="mono">{d.auth.server}</dd>
                   </div>
                   <div>
-                    <dt>Key</dt>
-                    <dd className="mono">{hasSecret ? d.auth.keyPreview : 'Not set'}</dd>
+                    <dt>Stream key</dt>
+                    <dd>{hasSecret ? 'Saved in the Keychain' : 'Not set'}</dd>
                   </div>
                 </dl>
 
@@ -96,7 +101,10 @@ export function AccountModal({
                   <input
                     type="password"
                     value={key}
-                    onChange={(e) => setKey(e.target.value)}
+                    onChange={(e) => {
+                      setKey(e.target.value)
+                      setSaved(false)
+                    }}
                     placeholder="Paste from the platform"
                     spellCheck={false}
                     autoFocus={!hasSecret}
@@ -109,13 +117,15 @@ export function AccountModal({
                   onClick={() => {
                     onSetSecret(d.id, key.trim())
                     setKey('')
+                    setSaved(true)
                   }}
                 >
-                  Save key
+                  {saved ? 'Saved ✓' : 'Save key'}
                 </button>
                 <p className="oauth-note">
-                  Held in memory only for now — quitting the app forgets it. Keychain storage is
-                  M7.
+                  Stored in the macOS Keychain, encrypted at rest. It is never written to the
+                  configuration file, and never read back into this window — only the streaming
+                  engine reads it.
                 </p>
               </>
             )}
@@ -125,7 +135,7 @@ export function AccountModal({
         <footer className="modal-foot">
           {confirmRemove ? (
             <>
-              <span className="modal-total">Remove {d.label} and its playlist?</span>
+              <span className="modal-total">Remove {d.label} and forget its key?</span>
               <button className="btn-secondary" onClick={() => setConfirmRemove(false)}>
                 Cancel
               </button>

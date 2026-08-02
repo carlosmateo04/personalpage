@@ -58,12 +58,12 @@ exists.
 | **M0** | Build pipeline → `.dmg` | ✅ passed on hardware |
 | **UI** | Main interface direction | ✅ signed off |
 | **M1** | Loop one video to one destination | 🟡 built, awaiting gate |
-| M2 | Status, error taxonomy, auto-reconnect | ⬜ |
+| **M2** | Status, error taxonomy, auto-reconnect | 🟡 built, awaiting gate |
 | M3 | Independent simultaneous loops | ⬜ |
 | M4 | Playlists and normalisation | ⬜ |
 | M5 | Bandwidth dashboard | ⬜ |
-| M6 | Unattended 24/7 hardening | ⬜ |
-| M7 | Accounts, Keychain, add-destination | ⬜ |
+| **M6** | Unattended 24/7 hardening | 🟡 built, awaiting gate |
+| **M7** | Accounts, Keychain, add-destination | 🟡 built, awaiting gate |
 | M8 | Facebook, TikTok, others | ⬜ |
 | M9 | Quality of life | ⬜ |
 | — | *Optional:* platform sign-in, live capture, chat | ⬜ |

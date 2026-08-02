@@ -20,6 +20,21 @@ const STATUS_TEXT: Record<DestinationStatus, string> = {
   failed: 'Problem',
 }
 
+/** What the fix button should say, given what the backend is already doing. */
+function fixLabel(d: Destination): string {
+  if (!d.issue) return 'Try again'
+  switch (d.issue.action) {
+    case 'reauth':
+      return 'Replace key'
+    case 'file':
+      return 'Choose another file'
+    case 'network':
+      return 'Try now'
+    default:
+      return 'Try again'
+  }
+}
+
 export function DestinationCard({
   destination: d,
   onToggle,
@@ -35,29 +50,23 @@ export function DestinationCard({
 }) {
   const active = isActive(d.status)
   const playlist = d.source.kind === 'playlist' ? d.source : null
-  const playing = playlist && active ? currentClip(playlist.clips, playlist.loop, d.uptime) : null
+  const playing =
+    playlist && (d.status === 'live' || d.status === 'degraded')
+      ? currentClip(playlist.clips, playlist.loop, d.uptime)
+      : null
 
   return (
     <article className={`dest dest-${d.status}`} data-id={d.id}>
-      <button
-        className="dest-head"
-        onClick={() => onEditAccount(d.id)}
-        title="Account settings"
-      >
+      <button className="dest-head" onClick={() => onEditAccount(d.id)} title="Account settings">
         <span className={`dest-icon plat-${d.platform}`}>
           <PlatformIcon platform={d.platform} />
         </span>
         <span className="dest-id">
           <span className="dest-name">
             <h3>{d.label}</h3>
-            {d.auth.method === 'oauth' && !d.auth.needsReauth && (
-              <span className="auth-badge" title={`Signed in with ${d.auth.provider}`}>
-                ✓
-              </span>
-            )}
-            {d.auth.method === 'oauth' && d.auth.needsReauth && (
-              <span className="auth-badge warn" title="Sign-in expired">
-                !
+            {d.autoStart && (
+              <span className="auto-badge" title="Starts automatically when the app opens">
+                auto
               </span>
             )}
           </span>
@@ -70,18 +79,25 @@ export function DestinationCard({
       <div className="dest-status">
         <span className={`beacon beacon-${d.status}`} aria-hidden="true" />
         <span className="dest-status-text">{STATUS_TEXT[d.status]}</span>
-        {d.status === 'live' || d.status === 'degraded' ? (
+        {(d.status === 'live' || d.status === 'degraded') && (
           <span className="dest-uptime">{formatUptime(d.uptime)}</span>
-        ) : null}
+        )}
+        {d.status === 'reconnecting' && (
+          <span className="dest-uptime">
+            {d.retryIn > 0 ? `${d.retryIn}s` : 'now'} &middot; #{d.attempt}
+          </span>
+        )}
       </div>
 
       {d.issue ? (
-        <div className="dest-issue">
+        <div className={`dest-issue ${d.issue.retryable ? 'is-retrying' : ''}`}>
           <p className="issue-title">{d.issue.title}</p>
           <p className="issue-detail">{d.issue.detail}</p>
-          {d.issue.action && (
+          {/* A retryable problem is already being handled; offering a button
+              would invite interfering with a recovery that is under way. */}
+          {!d.issue.retryable && (
             <button className="btn-fix" onClick={() => onFix(d.id)}>
-              {d.issue.action.label}
+              {fixLabel(d)}
             </button>
           )}
         </div>
@@ -91,6 +107,7 @@ export function DestinationCard({
             <>
               <strong>{formatBitrate(d.bitrate)}</strong> up &middot; {d.dropped.toLocaleString()}{' '}
               dropped
+              {d.reconnects > 0 && ` · ${d.reconnects} reconnects`}
             </>
           ) : (
             'Not streaming'
@@ -122,9 +139,13 @@ export function DestinationCard({
                 ≡
               </span>
               <span className="chip-main">
-                {playlist.clips.length} {playlist.clips.length === 1 ? 'video' : 'videos'} on loop
+                {playlist.clips.length === 0
+                  ? 'No video chosen'
+                  : `${playlist.clips.length} ${playlist.clips.length === 1 ? 'video' : 'videos'} on loop`}
               </span>
-              <span className="chip-sub">{formatDuration(totalDuration(playlist.clips))}</span>
+              {playlist.clips.length > 0 && (
+                <span className="chip-sub">{formatDuration(totalDuration(playlist.clips))}</span>
+              )}
             </>
           )
         ) : (
@@ -166,7 +187,7 @@ export function AddDestinationCard({ onClick }: { onClick: () => void }) {
         +
       </span>
       <span className="add-label">Add destination</span>
-      <span className="add-hint">Sign in, or paste a stream key</span>
+      <span className="add-hint">Paste a stream key</span>
     </button>
   )
 }

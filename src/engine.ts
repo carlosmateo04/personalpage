@@ -40,6 +40,32 @@ export type ToolStatus =
     }
   | { state: 'missing'; searched: string[] }
 
+/** Mirrors `diagnose::Action`. */
+export type IssueAction = 'retry' | 'reauth' | 'file' | 'network'
+
+/** Mirrors `diagnose::Issue`. */
+export type Issue = {
+  title: string
+  detail: string
+  action: IssueAction
+  /** Whether the supervisor will keep trying on its own. */
+  retryable: boolean
+  raw: string
+}
+
+/** Mirrors `stream::Phase`. */
+export type Phase = 'connecting' | 'live' | 'reconnecting' | 'failed' | 'stopped'
+
+/** Mirrors `stream::StatusEvent`. */
+export type StatusEvent = {
+  id: string
+  phase: Phase
+  attempt: number
+  retry_in: number
+  issue: Issue | null
+  reconnects: number
+}
+
 /** Mirrors `stream::Progress`. */
 export type Progress = {
   id: string
@@ -51,25 +77,43 @@ export type Progress = {
   dropped: number
   duplicated: number
   speed: number
+  reconnects: number
 }
 
-/** Mirrors `stream::Ended`. */
-export type Ended = {
+/** Mirrors `stream::Incident`. */
+export type Incident = {
   id: string
-  code: number | null
-  deliberate: boolean
-  error: string | null
+  at: number
+  kind: string
+  message: string
 }
 
 export const engine = {
   toolStatus: () => invoke<ToolStatus>('tool_status'),
   probeVideo: (path: string) => invoke<VideoInfo>('probe_video', { path }),
   runningLoops: () => invoke<string[]>('running_loops'),
+  incidents: () => invoke<Incident[]>('incidents'),
+  keepingAwake: () => invoke<boolean>('keeping_awake'),
 
-  startLoop: (id: string, file: string, server: string, key: string) =>
-    invoke<void>('start_loop', { id, file, server, key }),
+  /**
+   * Start a loop. The stream key is deliberately absent: the backend reads it
+   * from the Keychain itself, so it never crosses this boundary.
+   */
+  startLoop: (id: string, file: string, server: string) =>
+    invoke<void>('start_loop', { id, file, server }),
 
   stopLoop: (id: string) => invoke<void>('stop_loop', { id }),
+
+  // Secrets. The frontend can write and test for a key, but never read one.
+  secretStore: () => invoke<'keychain' | 'memory'>('secret_store'),
+  setSecret: (id: string, key: string) => invoke<void>('set_secret', { id, key }),
+  deleteSecret: (id: string) => invoke<void>('delete_secret', { id }),
+  whichHaveSecrets: (ids: string[]) => invoke<string[]>('which_have_secrets', { ids }),
+
+  // Configuration, minus anything secret.
+  saveConfig: (json: string) => invoke<void>('save_config', { json }),
+  loadConfig: () => invoke<string | null>('load_config'),
+  configLocation: () => invoke<string>('config_location'),
 
   /** Native file picker, restricted to containers ffmpeg can stream from. */
   pickVideo: () =>
@@ -83,33 +127,32 @@ export const engine = {
 /**
  * Subscribe to backend stream events for the life of the component.
  *
- * Handlers are held in refs by the caller, so the listeners are registered once
- * rather than being torn down and re-attached whenever a handler identity
- * changes — losing an event during a re-render would desynchronise the UI from
- * a stream that is genuinely running.
+ * Handlers are read through refs so the listeners are registered exactly once.
+ * Re-attaching them on every render would drop events, and a dropped
+ * reconnection event leaves the UI claiming a stream is live when it is not.
  */
-export function useStreamEvents(
-  onProgress: (p: Progress) => void,
-  onEnded: (e: Ended) => void,
-): void {
-  const progressRef = useRef(onProgress)
-  const endedRef = useRef(onEnded)
-  progressRef.current = onProgress
-  endedRef.current = onEnded
+export function useStreamEvents(handlers: {
+  onProgress: (p: Progress) => void
+  onStatus: (s: StatusEvent) => void
+  onIncident: (i: Incident) => void
+}): void {
+  const ref = useRef(handlers)
+  ref.current = handlers
 
   useEffect(() => {
     const unlisten: Array<() => void> = []
     let cancelled = false
 
-    const attach = <T,>(name: string, ref: { current: (payload: T) => void }) => {
-      listen<T>(name, (e) => ref.current(e.payload)).then((fn) => {
+    const attach = <T,>(name: string, pick: (h: typeof handlers) => (payload: T) => void) => {
+      listen<T>(name, (e) => pick(ref.current)(e.payload)).then((fn) => {
         if (cancelled) fn()
         else unlisten.push(fn)
       })
     }
 
-    attach<Progress>('stream:progress', progressRef)
-    attach<Ended>('stream:ended', endedRef)
+    attach<Progress>('stream:progress', (h) => h.onProgress)
+    attach<StatusEvent>('stream:status', (h) => h.onStatus)
+    attach<Incident>('stream:incident', (h) => h.onIncident)
 
     return () => {
       cancelled = true

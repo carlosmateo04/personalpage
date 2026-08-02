@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { AddDestinationCard } from './components/DestinationCard'
 import { PlatformSection } from './components/PlatformSection'
@@ -6,15 +6,24 @@ import { PlaylistModal } from './components/PlaylistModal'
 import { AddDestinationModal, type NewDestination } from './components/AddDestinationModal'
 import { AccountModal } from './components/AccountModal'
 import { BandwidthBar } from './components/BandwidthBar'
-import { engine, useStreamEvents, type Ended, type Progress, type ToolStatus } from './engine'
-import { applyEnded, applyProgress, maskKey, startBlocker } from './reduce'
+import { IncidentLog } from './components/IncidentLog'
 import {
-  groupByPlatform,
-  isActive,
-  type Destination,
-  type LoopMode,
-  type VideoClip,
-} from './types'
+  engine,
+  useStreamEvents,
+  type Incident,
+  type Progress,
+  type StatusEvent,
+  type ToolStatus,
+} from './engine'
+import {
+  applyProgress,
+  applyStatus,
+  fromStored,
+  startBlocker,
+  tickRetry,
+  toStored,
+} from './reduce'
+import { groupByPlatform, isActive, type Destination, type LoopMode, type VideoClip } from './types'
 
 /**
  * Assumed uplink until M5 measures it. Only used to draw the headroom figure,
@@ -27,36 +36,92 @@ export default function App() {
   const [history, setHistory] = useState<number[]>(() => Array<number>(48).fill(0))
   const [version, setVersion] = useState('')
   const [tools, setTools] = useState<ToolStatus | null>(null)
+  const [secretStore, setSecretStore] = useState<'keychain' | 'memory' | null>(null)
+  const [incidents, setIncidents] = useState<Incident[]>([])
+  const [awake, setAwake] = useState(false)
   const [editingSource, setEditingSource] = useState<string | null>(null)
   const [editingAccount, setEditingAccount] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [showLog, setShowLog] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  // ------------------------------------------------------------- startup ---
 
   useEffect(() => {
-    invoke<{ version: string }>('build_info')
-      .then((i) => setVersion(i.version))
-      .catch(() => setVersion(''))
-    engine.toolStatus().then(setTools).catch(() => setTools(null))
+    let cancelled = false
+
+    async function boot() {
+      const [info, toolStatus, store] = await Promise.all([
+        invoke<{ version: string }>('build_info').catch(() => ({ version: '' })),
+        engine.toolStatus().catch(() => null),
+        engine.secretStore().catch(() => null),
+      ])
+      if (cancelled) return
+      setVersion(info.version)
+      setTools(toolStatus)
+      setSecretStore(store)
+
+      try {
+        const json = await engine.loadConfig()
+        if (!json) return
+        // Which keys survive is the Keychain's business, so ask it rather than
+        // trusting the configuration file to remember.
+        const ids = (JSON.parse(json).destinations ?? []).map((d: { id: string }) => d.id)
+        const withSecrets = await engine.whichHaveSecrets(ids)
+        if (!cancelled) setDestinations(fromStored(json, withSecrets))
+      } catch (e) {
+        if (!cancelled) setError(`Could not load saved accounts: ${e}`)
+      } finally {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+
+    void boot()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const patch = useCallback((id: string, change: Partial<Destination>) => {
-    setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, ...change } : d)))
-  }, [])
+  // Persist whenever anything durable changes, but never before the initial
+  // load has finished — writing an empty list over a real one would be worse
+  // than any bug this saves.
+  const savedRef = useRef('')
+  useEffect(() => {
+    if (!loaded) return
+    const json = JSON.stringify(toStored(destinations))
+    if (json === savedRef.current) return
+    savedRef.current = json
+    engine.saveConfig(json).catch((e) => setError(`Could not save accounts: ${e}`))
+  }, [destinations, loaded])
 
-  // Real telemetry from the running ffmpeg processes.
+  // ------------------------------------------------------------- telemetry ---
+
   const onProgress = useCallback((p: Progress) => {
     setDestinations((prev) => applyProgress(prev, p))
   }, [])
 
-  const onEnded = useCallback((e: Ended) => {
-    setDestinations((prev) => applyEnded(prev, e))
+  const onStatus = useCallback((s: StatusEvent) => {
+    setDestinations((prev) => applyStatus(prev, s))
+    engine.keepingAwake().then(setAwake).catch(() => {})
   }, [])
 
-  useStreamEvents(onProgress, onEnded)
+  const onIncident = useCallback((i: Incident) => {
+    setIncidents((prev) => [...prev.slice(-499), i])
+  }, [])
+
+  useStreamEvents({ onProgress, onStatus, onIncident })
+
+  // Purely cosmetic countdown between backend events.
+  useEffect(() => {
+    const t = setInterval(() => setDestinations((prev) => tickRetry(prev)), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   const groups = useMemo(() => groupByPlatform(destinations), [destinations])
   const activeCount = destinations.filter((d) => isActive(d.status)).length
   const anyActive = activeCount > 0
+  const reconnectingCount = destinations.filter((d) => d.status === 'reconnecting').length
 
   const usedKbps = useMemo(
     () => destinations.reduce((sum, d) => sum + (isActive(d.status) ? d.bitrate : 0), 0),
@@ -67,6 +132,12 @@ export default function App() {
     setHistory((h) => [...h.slice(1), usedKbps])
   }, [usedKbps])
 
+  // --------------------------------------------------------------- control ---
+
+  const patch = useCallback((id: string, change: Partial<Destination>) => {
+    setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, ...change } : d)))
+  }, [])
+
   const start = useCallback(
     async (id: string) => {
       const d = destinations.find((x) => x.id === id)
@@ -76,20 +147,20 @@ export default function App() {
         setError(why)
         return
       }
-      // Narrowed by `blocker` above.
       const clip = (d.source as { clips: VideoClip[] }).clips[0]!
-      const auth = d.auth as { server: string; secret?: string }
+      const auth = d.auth as { server: string }
 
       patch(id, { status: 'connecting', issue: undefined, uptime: 0, dropped: 0, bitrate: 0 })
       try {
-        await engine.startLoop(id, clip.path, auth.server, auth.secret ?? '')
+        await engine.startLoop(id, clip.path, auth.server)
       } catch (e) {
         patch(id, {
           status: 'failed',
           issue: {
             title: 'Could not start',
             detail: String(e),
-            action: { label: 'Try again', kind: 'retry' },
+            action: 'retry',
+            retryable: false,
           },
         })
       }
@@ -104,9 +175,8 @@ export default function App() {
       } catch (e) {
         setError(String(e))
       }
-      patch(id, { status: 'idle', uptime: 0, bitrate: 0, dropped: 0, issue: undefined })
     },
-    [patch],
+    [],
   )
 
   const toggle = useCallback(
@@ -119,7 +189,6 @@ export default function App() {
     [destinations, start, stop],
   )
 
-  /** Whole-platform control: if anything in the set is up, stop the set. */
   const toggleMany = useCallback(
     (ids: string[]) => {
       const set = destinations.filter((d) => ids.includes(d.id))
@@ -140,6 +209,20 @@ export default function App() {
     [destinations, toggleMany],
   )
 
+  // Auto-start runs once, after the first load, for destinations marked for it.
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (!loaded || autoStarted.current) return
+    autoStarted.current = true
+    destinations
+      .filter((d) => d.autoStart && !startBlocker(d))
+      .forEach((d) => void start(d.id))
+    // Intentionally not reacting to later changes: this is a launch action.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
+
+  // ------------------------------------------------------------ mutations ---
+
   const setPlaylist = useCallback((id: string, clips: VideoClip[], loop: LoopMode) => {
     setDestinations((prev) =>
       prev.map((d) => (d.id === id ? { ...d, source: { kind: 'playlist', clips, loop } } : d)),
@@ -147,26 +230,39 @@ export default function App() {
   }, [])
 
   const setLiveSource = useCallback((id: string) => {
-    setDestinations((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, source: { kind: 'live' } } : d)),
-    )
+    setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, source: { kind: 'live' } } : d)))
     setEditingSource(null)
   }, [])
 
-  const addDestination = useCallback((next: NewDestination) => {
+  const addDestination = useCallback(async (next: NewDestination) => {
+    const id = `${next.platform}-${next.label.replace(/\W+/g, '')}-${Math.abs(
+      [...`${next.label}${next.server}${next.account}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7),
+    ).toString(36)}`
+
+    try {
+      await engine.setSecret(id, next.key)
+    } catch (e) {
+      setError(`Could not save the stream key: ${e}`)
+      return
+    }
+
     setDestinations((prev) => [
       ...prev,
       {
-        id: `d${prev.length}-${next.platform}-${next.label.replace(/\W+/g, '')}`,
+        id,
         platform: next.platform,
         label: next.label,
         account: next.account,
-        auth: next.auth,
+        auth: { method: 'key', server: next.server, hasSecret: true },
         source: { kind: 'playlist', clips: [], loop: 'all' },
         status: 'idle',
         uptime: 0,
         bitrate: 0,
         dropped: 0,
+        attempt: 0,
+        retryIn: 0,
+        reconnects: 0,
+        autoStart: false,
       },
     ])
     setAdding(false)
@@ -176,34 +272,41 @@ export default function App() {
     setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, label } : d)))
   }, [])
 
-  const setSecret = useCallback((id: string, secret: string) => {
-    setDestinations((prev) =>
-      prev.map((d) =>
-        d.id === id && d.auth.method === 'key'
-          ? {
-              ...d,
-              auth: {
-                ...d.auth,
-                secret,
-                keyPreview: maskKey(secret),
-              },
-            }
-          : d,
-      ),
-    )
+  const setAutoStart = useCallback((id: string, autoStart: boolean) => {
+    setDestinations((prev) => prev.map((d) => (d.id === id ? { ...d, autoStart } : d)))
   }, [])
 
+  const saveSecret = useCallback(
+    async (id: string, key: string) => {
+      try {
+        await engine.setSecret(id, key)
+        setDestinations((prev) =>
+          prev.map((d) =>
+            d.id === id && d.auth.method === 'key'
+              ? { ...d, auth: { ...d.auth, hasSecret: true } }
+              : d,
+          ),
+        )
+      } catch (e) {
+        setError(`Could not save the stream key: ${e}`)
+      }
+    },
+    [],
+  )
+
   const removeDestination = useCallback(
-    (id: string) => {
-      void stop(id)
+    async (id: string) => {
+      await stop(id)
+      await engine.deleteSecret(id).catch(() => {})
       setDestinations((prev) => prev.filter((d) => d.id !== id))
       setEditingAccount(null)
     },
     [stop],
   )
 
+  // ------------------------------------------------------------- rendering ---
+
   const platformCount = groups.length
-  const loopingCount = destinations.filter((d) => d.source.kind === 'playlist').length
   const editing = destinations.find((d) => d.id === editingSource) ?? null
   const account = destinations.find((d) => d.id === editingAccount) ?? null
   const ready = destinations.filter((d) => !startBlocker(d)).length
@@ -218,15 +321,34 @@ export default function App() {
           </span>
           StreamBridge
         </span>
-        <button className="icon-btn" title="Settings" aria-label="Settings">
-          ⚙
-        </button>
+        <span className="topbar-right">
+          {awake && (
+            <span className="chip-awake" title="The Mac is being kept awake while streaming">
+              ☾ Sleep held off
+            </span>
+          )}
+          <button
+            className="icon-btn"
+            title="Activity log"
+            aria-label="Activity log"
+            onClick={() => setShowLog(true)}
+          >
+            ☰
+          </button>
+        </span>
       </header>
 
       {tools?.state === 'missing' && (
         <p className="banner-bad">
           <strong>ffmpeg not found.</strong> Nothing can stream until it is installed. Run{' '}
           <code>./setup.sh</code>, or <code>brew install ffmpeg</code>.
+        </p>
+      )}
+
+      {secretStore === 'memory' && (
+        <p className="banner-warn">
+          <strong>Keys are not being saved.</strong> The Keychain is only available on macOS, so
+          keys entered here last until the app quits.
         </p>
       )}
 
@@ -253,12 +375,15 @@ export default function App() {
           ) : anyActive ? (
             <>
               Live on <strong>{activeCount}</strong> of {destinations.length} accounts
+              {reconnectingCount > 0 && (
+                <span className="sub-warn"> · {reconnectingCount} reconnecting</span>
+              )}
             </>
           ) : (
             <>
               <strong>{destinations.length}</strong> accounts across{' '}
-              <strong>{platformCount}</strong> platforms &middot; {loopingCount} with video,{' '}
-              <strong>{ready}</strong> ready to stream
+              <strong>{platformCount}</strong> platforms &middot; <strong>{ready}</strong> ready to
+              stream
             </>
           )}
         </p>
@@ -314,13 +439,22 @@ export default function App() {
         <span>
           StreamBridge{version && ` ${version}`}
           {tools?.state === 'ready' && ` · ffmpeg ${tools.version} (${tools.source})`}
+          {secretStore === 'keychain' && ' · keys in Keychain'}
         </span>
-        <span>M1 · one looping video per account</span>
+        <button className="link-btn" onClick={() => setShowLog(true)}>
+          {incidents.length > 0 ? `${incidents.length} events` : 'Activity log'}
+        </button>
       </footer>
 
-      {adding && (
-        <AddDestinationModal onClose={() => setAdding(false)} onAdd={addDestination} />
+      {showLog && (
+        <IncidentLog
+          incidents={incidents}
+          destinations={destinations}
+          onClose={() => setShowLog(false)}
+        />
       )}
+
+      {adding && <AddDestinationModal onClose={() => setAdding(false)} onAdd={addDestination} />}
 
       {account && (
         <AccountModal
@@ -328,7 +462,8 @@ export default function App() {
           onClose={() => setEditingAccount(null)}
           onRename={renameDestination}
           onRemove={removeDestination}
-          onSetSecret={setSecret}
+          onSetSecret={saveSecret}
+          onSetAutoStart={setAutoStart}
         />
       )}
 

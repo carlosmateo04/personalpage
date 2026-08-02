@@ -1,10 +1,5 @@
 import { useEffect, useState } from 'react'
-import {
-  PLATFORM_AUTH,
-  PLATFORM_NAMES,
-  type Auth,
-  type Platform,
-} from '../types'
+import { PLATFORM_AUTH, PLATFORM_NAMES, type Platform } from '../types'
 import { PlatformIcon } from './PlatformIcon'
 
 const PLATFORMS: Platform[] = ['youtube', 'facebook', 'tiktok', 'twitch', 'custom']
@@ -34,7 +29,9 @@ export type NewDestination = {
   platform: Platform
   label: string
   account: string
-  auth: Auth
+  server: string
+  /** Handed straight to the Keychain by the caller, never stored in state. */
+  key: string
 }
 
 export function AddDestinationModal({
@@ -154,11 +151,8 @@ export function AddDestinationModal({
                       platform: step.platform,
                       label: c.name,
                       account: c.handle,
-                      auth: {
-                        method: 'oauth',
-                        provider: step.platform === 'youtube' ? 'Google' : PLATFORM_NAMES[step.platform],
-                        connectedAs: c.handle,
-                      },
+                      server: PLATFORM_AUTH[step.platform].defaultServer,
+                      key: '',
                     })
                   }
                 >
@@ -188,12 +182,8 @@ export function AddDestinationModal({
                   platform: step.platform,
                   label: label.trim() || PLATFORM_NAMES[step.platform],
                   account: 'Stream key',
-                  auth: {
-                    method: 'key',
-                    server: server.trim(),
-                    keyPreview: preview(key.trim()),
-                    secret: key.trim(),
-                  },
+                  server: server.trim(),
+                  key: key.trim(),
                 })
               }}
             >
@@ -277,11 +267,6 @@ export function AddDestinationModal({
       </div>
     </div>
   )
-}
-
-function preview(key: string): string {
-  if (key.length <= 8) return key ? `${key.slice(0, 2)}…` : '—'
-  return `${key.slice(0, 4)}…${key.slice(-4)}`
 }
 
 function headline(step: Step): string {

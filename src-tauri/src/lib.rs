@@ -1,8 +1,12 @@
+mod diagnose;
 mod probe;
+mod secrets;
+mod store;
 mod stream;
 mod tools;
 
 use serde::Serialize;
+use tauri::Manager;
 
 #[cfg(debug_assertions)]
 const PROFILE: &str = "debug";
@@ -42,7 +46,25 @@ pub fn run() {
             stream::start_loop,
             stream::stop_loop,
             stream::running_loops,
+            stream::incidents,
+            stream::keeping_awake,
+            secrets::secret_store,
+            secrets::set_secret,
+            secrets::get_secret,
+            secrets::delete_secret,
+            secrets::which_have_secrets,
+            store::save_config,
+            store::load_config,
+            store::config_location,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running StreamBridge");
+        .build(tauri::generate_context!())
+        .expect("error while building StreamBridge")
+        .run(|app, event| {
+            // Quitting must take the streams with it. Left alone, each ffmpeg
+            // would carry on uploading with nothing able to stop it short of
+            // finding the process by hand.
+            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                app.state::<stream::Supervisor>().shutdown();
+            }
+        });
 }
