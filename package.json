@@ -9,7 +9,7 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "test": "node --test --experimental-strip-types src/reduce.test.ts",
+    "test": "node --test --experimental-strip-types src/reduce.test.ts src/upload.test.ts",
     "test:rust": "cd src-tauri && cargo test",
     "tauri": "tauri",
     "app:dev": "tauri dev",
