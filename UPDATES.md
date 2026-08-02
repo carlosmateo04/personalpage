@@ -112,6 +112,10 @@ and changes nothing for anyone running the app.
 ## Notes
 
 - **Versions must increase.** An app on 0.2.0 ignores a release tagged 0.2.0.
+- **Bump both files.** `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
+  each carry the version, tauri-codegen prefers the first, and a test fails if
+  they disagree — because when they did, the app shipped as 0.2.1 while
+  reporting 0.1.0 and offering itself an update it already had.
 - **The first install is still manual.** There is no installed app to update
   from yet.
 - **The app remains unsigned by Apple.** Update signing and Apple notarisation

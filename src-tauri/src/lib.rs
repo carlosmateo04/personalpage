@@ -25,11 +25,22 @@ pub struct BuildInfo {
     profile: String,
 }
 
+/// The version the app actually shipped as.
+///
+/// Deliberately not `CARGO_PKG_VERSION`. tauri-codegen prefers the version in
+/// tauri.conf.json and only falls back to Cargo's, so the two can disagree —
+/// and when they did, this reported 0.1.0 for a bundle labelled 0.2.1. Reading
+/// what Tauri resolved means this figure, the bundle, and the updater's own
+/// comparison can never tell three different stories.
+pub fn version(app: &tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 #[tauri::command]
-fn build_info() -> BuildInfo {
+fn build_info(app: tauri::AppHandle) -> BuildInfo {
     BuildInfo {
         name: env!("CARGO_PKG_NAME").to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: version(&app),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         profile: PROFILE.to_string(),
@@ -94,4 +105,31 @@ pub fn run() {
                 app.state::<stream::Supervisor>().shutdown();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    /// The two version numbers must agree.
+    ///
+    /// They are separate files and nothing forced them to match, so they drifted:
+    /// tauri.conf.json reached 0.2.1 while Cargo.toml sat at 0.1.0, and the app
+    /// shipped as 0.2.1 while reporting 0.1.0 in its own status bar. The update
+    /// check compared against the wrong one, which would have offered an update
+    /// to a copy already running the newest build — for ever, since installing it
+    /// changed nothing.
+    ///
+    /// Cheap to assert, and it fails on the machine of whoever forgot rather than
+    /// in the hands of whoever installed.
+    #[test]
+    fn the_two_declared_versions_agree() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            conf["version"].as_str().unwrap(),
+            env!("CARGO_PKG_VERSION"),
+            "tauri.conf.json and Cargo.toml disagree about the version; \
+             tauri-codegen prefers the former, so Cargo's would be reported \
+             by anything reading CARGO_PKG_VERSION"
+        );
+    }
 }

@@ -178,7 +178,7 @@ pub fn latest_release(app: tauri::AppHandle) -> Result<Option<Release>, String> 
     let Some(release) = parse_release(&String::from_utf8_lossy(&out.stdout)) else {
         return Ok(None);
     };
-    Ok(is_newer(env!("CARGO_PKG_VERSION"), &release.version).then_some(release))
+    Ok(is_newer(&crate::version(&app), &release.version).then_some(release))
 }
 
 /// Hand a release URL to the browser.
