@@ -51,28 +51,53 @@ jobs:
           npm test
           npm run test:rust
 
+      # Signing is optional, and the difference is what installed copies can do
+      # with the result — not whether there is a result. Without a key they can
+      # still notice the release and open its .dmg (see src-tauri/src/release.rs);
+      # with one they install it themselves. Refusing to publish at all would
+      # make the unsigned path untestable, which is the path in use today.
+      #
       # The public key is public, but it lives in a secret so the repository
-      # never implies which key a given build trusts. Without it, the build
-      # still succeeds and simply cannot verify updates.
-      - name: Inject the updater public key
+      # never implies which key a given build trusts.
+      - name: Decide whether this release can be signed
+        id: signing
         env:
           PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         run: |
-          if [ -z "$PUBKEY" ]; then
-            echo "::error::TAURI_UPDATER_PUBKEY is not set. See UPDATES.md — without it the release cannot be verified by installed apps."
-            exit 1
-          fi
-          python3 - <<'PY'
+          if [ -n "$PUBKEY" ]; then
+            echo 'signed=true' >> "$GITHUB_OUTPUT"
+            python3 - <<'PY'
           import json, os, pathlib
           p = pathlib.Path('src-tauri/tauri.conf.json')
           c = json.loads(p.read_text())
           c['plugins']['updater']['pubkey'] = os.environ['PUBKEY']
-          # Only a release produces an update artifact — a test build has no
+          # Only a release produces an update artifact — a branch build has no
           # key to sign one with, and nothing should install an unsigned one.
           c['bundle']['createUpdaterArtifacts'] = True
           p.write_text(json.dumps(c, indent=2) + '\n')
           print('public key injected, updater artifacts enabled')
           PY
+            {
+              echo 'body<<RELEASE_BODY'
+              echo 'Installed copies will offer this update automatically.'
+              echo
+              echo 'First install only: download the `.dmg`, drag to Applications, then'
+              echo '`xattr -dr com.apple.quarantine /Applications/Caudal.app`.'
+              echo 'RELEASE_BODY'
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo 'signed=false' >> "$GITHUB_OUTPUT"
+            echo "::warning::No TAURI_UPDATER_PUBKEY — publishing an unsigned release. Installed copies will notice it and offer the download, but cannot install it themselves. See UPDATES.md."
+            {
+              echo 'body<<RELEASE_BODY'
+              echo 'Installed copies will show a banner offering this download.'
+              echo 'Installing is manual: open the `.dmg`, drag to Applications, then'
+              echo '`xattr -dr com.apple.quarantine /Applications/Caudal.app`.'
+              echo
+              echo 'This release is unsigned, so it cannot install itself. See UPDATES.md.'
+              echo 'RELEASE_BODY'
+            } >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
@@ -84,13 +109,10 @@ jobs:
           args: --target universal-apple-darwin
           tagName: ${{ github.ref_name }}
           releaseName: 'Caudal ${{ github.ref_name }}'
-          releaseBody: |
-            Installed copies will offer this update automatically.
-
-            First install only: download the `.dmg`, drag to Applications, then
-            `xattr -dr com.apple.quarantine /Applications/Caudal.app`.
+          releaseBody: ${{ steps.signing.outputs.body }}
           releaseDraft: false
           prerelease: false
-          # Publishes latest.json alongside the artifacts, which is what
-          # installed apps poll.
-          includeUpdaterJson: true
+          # latest.json is what a signed app polls. There is nothing to put in
+          # it when no updater artifact was produced, so asking for it would
+          # fail the build rather than degrade.
+          includeUpdaterJson: ${{ steps.signing.outputs.signed == 'true' }}
