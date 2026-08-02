@@ -95,6 +95,10 @@ git tag v0.2.2
 git push origin v0.2.2
 ```
 
+Or, where tags cannot be pushed — a sandbox scoped to one branch, for instance —
+run the **Release** workflow from the Actions tab and give it the tag as an
+input. The release creates the tag, so the two routes end in the same place.
+
 The tag triggers the release workflow, which runs the tests, builds a universal
 binary, signs it, and publishes a GitHub Release containing the `.dmg`, the
 update archive, and `latest.json`. Installed apps notice within six hours, or

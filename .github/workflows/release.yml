@@ -2,11 +2,21 @@ name: Release
 
 # Tagging is what publishes an update. Pushing to the branch only produces a
 # test build; releases are deliberate.
+#
+# The manual trigger takes the tag as an input rather than inferring it, because
+# a workflow_dispatch run has no tag to infer — `github.ref_name` would be the
+# branch, and the release would be published under a branch name. It also covers
+# the case where the tag cannot be pushed from where the work is happening.
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to publish, e.g. v0.2.1'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -107,8 +117,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: --target universal-apple-darwin
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Caudal ${{ github.ref_name }}'
+          # Created by the release when it does not already exist, which is
+          # what makes the manual trigger equivalent to pushing the tag.
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: 'Caudal ${{ inputs.tag || github.ref_name }}'
           releaseBody: ${{ steps.signing.outputs.body }}
           releaseDraft: false
           prerelease: false
