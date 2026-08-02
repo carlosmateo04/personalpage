@@ -68,6 +68,7 @@ exists.
 | M9 | Quality of life | ⬜ |
 | — | *Optional:* platform sign-in, live capture, chat | ⬜ |
 | M10 | Regression + release | ⬜ |
+| M11 | Scheduled uploads | ⬜ designed, not built |
 
 ---
 
@@ -80,7 +81,7 @@ identifiers, and icon packaging failed *once*, against a hello-world.
 
 ### UI direction · Main interface
 Pulled forward, out of milestone order: disagreeing about the interface is far
-cheaper to fix now than at M11. One dominant action, big targets, minimal
+cheaper to fix now than at M10. One dominant action, big targets, minimal
 chrome. Accounts group by platform, each with its own status and controls, and
 each carries its own source — a looping playlist or the shared live feed.
 Data is simulated; later milestones replace it behind the same surface.
@@ -232,6 +233,117 @@ notarisation, versioned `.dmg` on a GitHub release.
 
 ---
 
+## M11 · Scheduled uploads — *a second half of the product*
+
+Streaming pushes bytes at an RTMP endpoint and never asks anyone's permission.
+Uploading a file with a title on it is a different act: it needs the platform's
+API, an OAuth identity, and the platform's approval to publish on your behalf.
+Almost every constraint below comes from that one difference.
+
+### Only YouTube, and the reason is the phrase "long form"
+
+| Platform | Long form | Automatic publishing |
+| --- | --- | --- |
+| YouTube | no practical limit | ✅ complete |
+| TikTok | short by nature | ⚠️ drafts only without an audit |
+| Instagram | **Reels cap at 90 seconds** | ❌ does not apply |
+| Facebook Pages | yes | ⚠️ Meta App Review first |
+
+Instagram is excluded by definition, and by a second constraint that would
+matter even for short clips: Meta does not accept an upload. It fetches the file
+from a **public HTTPS URL** you provide, which means hosting every video
+somewhere public first. That is another product.
+
+TikTok's Content Posting API works unaudited only in draft mode — the app pushes
+the file and its metadata to the creator's inbox and a human finishes the post.
+Anything published directly by an unaudited client is forced to `SELF_ONLY`, so
+it exists but nobody can see it. Draft mode is worth having; it is not
+"the app takes care of it".
+
+### What YouTube actually allows
+
+The quota used to be the thing that killed projects like this: `videos.insert`
+cost 1,600 of a 10,000-unit daily budget, so **six uploads a day**. Google cut
+that to ~100 units in December 2025 and gave uploads their own bucket in June
+2026 — roughly **100 uploads a day** on the free tier. It stopped being the
+binding constraint.
+
+Fields the app can fill without a human: title, description, tags, category,
+`defaultLanguage` and `defaultAudioLanguage`, `madeForKids`, and playlist
+membership. Custom thumbnails need the channel phone-verified.
+
+**Scheduling is YouTube's job, not ours.** Upload with
+`privacyStatus: private` plus `publishAt`, and YouTube publishes at the stated
+moment. The Mac does not need to be awake, the app does not need to be running,
+and a laptop asleep at 03:00 does not miss a slot. An in-app scheduler that
+fires the publish itself would be strictly worse and is deliberately rejected.
+
+### Publish now
+
+The calendar schedules; the button overrides. It does two different things
+depending on what the item already is, and the label has to say which — a button
+that reads "Publish now" and then spends eight minutes uploading has lied.
+
+- **Already uploaded and waiting** (private, with a `publishAt` in the future) —
+  one `videos.update` call flips it public and clears the schedule. Genuinely
+  instant, a few units of quota, no re-upload. The common case.
+- **Not uploaded yet** — the file has to go up first. The button says so and
+  estimates from live headroom: *"Upload and publish · about 8 min"*. The
+  estimate comes from the bandwidth meter, which is now measuring the real
+  interface, so it accounts for the streams already running.
+
+Two properties this has to have:
+
+- **Confirm before it fires.** Publishing is outward-facing and effectively
+  irreversible: reverting to private does not un-notify subscribers or un-send
+  it to feeds. One dialogue naming the channel and the title.
+- **Never silently compete with a live stream.** An upload consumes the same
+  uplink as every publisher. Uploads take a configurable rate cap, and
+  **Publish now** while streams are live warns with the current headroom before
+  starting.
+
+### The two real obstacles
+
+**OAuth, which is exactly what pasted stream keys let us avoid.** `youtube.upload`
+is a *sensitive* scope, and an OAuth client left in Testing mode issues refresh
+tokens that **expire every seven days**. An app that needs re-authorising weekly
+is not unattended. The project has to be moved to "In Production", which means
+going through Google's verification. Paperwork rather than code, on a timeline
+nobody here controls.
+
+**Uploads and streams share one uplink.** M5 makes this visible for the first
+time; M11 is the first feature that can saturate the link on its own.
+
+### Metadata: templates, not invention
+
+Per-channel templates — a title pattern, a base description, a tag set, a
+category, a language, a target playlist — defined once and applied on schedule.
+Deterministic, free, and you know what will be published before it is.
+
+Generated metadata is possible and is deliberately scoped as *propose, never
+publish*: a draft you edit before the item is scheduled. Text nobody read going
+out on a real channel under your name is not a feature.
+
+Thumbnails are not generated. Either you supply one or YouTube picks a frame.
+
+### Cost, stated plainly
+
+This roughly doubles the app. Streaming is "spawn ffmpeg, read its stderr".
+Uploading is OAuth token custody, resumable uploads that survive a network drop,
+a job queue that survives quitting the app, quota accounting, and a calendar.
+It reuses ffprobe, the Keychain, the persisted config, the incident log, and the
+supervisor's retry-with-backoff — but it is a second product sharing a window.
+
+**Gate:** a video scheduled for a future date publishes itself with the whole
+template applied, with the Mac asleep at the appointed time; **Publish now** on a
+staged item goes public within seconds and without re-uploading; an upload
+started while both channels are live neither stalls them nor is stalled by them.
+
+**Sequencing:** after M3's isolation half, the rename, and a working updater.
+Starting a second product while the first has unproven gates leaves two halves.
+
+---
+
 ## Explicitly out of scope
 
 **Scenes, overlays, compositing, plugins.** That is rebuilding OBS and it is not
@@ -242,7 +354,8 @@ control, and monitoring.
 **A cloud relay.** It would solve the bandwidth ceiling by reintroducing the
 monthly cost this project exists to avoid.
 
-**Deep TikTok automation.** Access is gated and shifts; manual keys only.
+**Deep TikTok automation.** Access is gated and shifts; manual keys only, and
+uploads only as drafts (see M11).
 
 ---
 
