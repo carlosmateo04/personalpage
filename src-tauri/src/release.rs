@@ -97,22 +97,6 @@ pub fn parse_release(body: &str) -> Option<Release> {
     })
 }
 
-/// A URL safe to hand to `open`.
-///
-/// `open` will launch applications and files, not only web pages, so what
-/// reaches it is restricted to https on GitHub's own hosts. The URL arrives
-/// from a network response; treating it as trusted input would be careless
-/// even when the response comes from somewhere reasonable.
-pub fn is_safe_url(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix("https://") else {
-        return false;
-    };
-    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
-    matches!(host, "github.com" | "objects.githubusercontent.com")
-        || host.ends_with(".github.com")
-        || host.ends_with(".githubusercontent.com")
-}
-
 // ------------------------------------------------------------------ commands --
 
 /// True when the build can verify and install updates by itself.
@@ -179,19 +163,6 @@ pub fn latest_release(app: tauri::AppHandle) -> Result<Option<Release>, String> 
         return Ok(None);
     };
     Ok(is_newer(&crate::version(&app), &release.version).then_some(release))
-}
-
-/// Hand a release URL to the browser.
-#[tauri::command]
-pub fn open_release(url: String) -> Result<(), String> {
-    if !is_safe_url(&url) {
-        return Err("Refusing to open a URL that is not a GitHub download.".into());
-    }
-    Command::new("/usr/bin/open")
-        .arg(&url)
-        .status()
-        .map_err(|e| format!("Could not open the browser: {e}"))?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -289,16 +260,4 @@ mod tests {
         assert!(parse_release("<html>502</html>").is_none());
     }
 
-    #[test]
-    fn only_github_download_urls_reach_open() {
-        assert!(is_safe_url("https://github.com/o/r/releases/download/v1/a.dmg"));
-        assert!(is_safe_url("https://objects.githubusercontent.com/x/y"));
-        // `open` launches applications and local files, so everything else is
-        // refused rather than filtered.
-        assert!(!is_safe_url("file:///Applications/Calculator.app"));
-        assert!(!is_safe_url("http://github.com/o/r"));
-        assert!(!is_safe_url("https://github.com.evil.test/o/r"));
-        assert!(!is_safe_url("https://evil.test/github.com/a.dmg"));
-        assert!(!is_safe_url("/Applications/Calculator.app"));
-    }
 }

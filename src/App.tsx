@@ -7,12 +7,14 @@ import { AddDestinationModal, type NewDestination } from './components/AddDestin
 import { AccountModal } from './components/AccountModal'
 import { BandwidthBar, type BwSample } from './components/BandwidthBar'
 import { BrandMark } from './components/BrandMark'
+import { GoogleSetupModal } from './components/GoogleSetupModal'
 import { IncidentLog } from './components/IncidentLog'
 import { CheckForUpdates, UpdateBanner } from './components/UpdateBanner'
 import {
   engine,
   useStreamEvents,
   type Incident,
+  type GoogleClient,
   type NetSample,
   type Progress,
   type StatusEvent,
@@ -52,6 +54,8 @@ export default function App() {
   const [editingAccount, setEditingAccount] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [showLog, setShowLog] = useState(false)
+  const [googleSetup, setGoogleSetup] = useState(false)
+  const [google, setGoogle] = useState<GoogleClient | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
 
@@ -70,6 +74,7 @@ export default function App() {
       setVersion(info.version)
       setTools(toolStatus)
       setSecretStore(store)
+      engine.googleClientStatus().then(setGoogle).catch(() => {})
 
       try {
         const json = await engine.loadConfig()
@@ -480,8 +485,12 @@ export default function App() {
           Caudal{version && ` ${version}`}
           {tools?.state === 'ready' && ` · ffmpeg ${tools.version} (${tools.source})`}
           {secretStore === 'keychain' && ' · keys in Keychain'}
+          {google?.configured && ' · YouTube connected'}
         </span>
         <span className="statusbar-actions">
+          <button className="link-btn" onClick={() => setGoogleSetup(true)}>
+            {google?.configured ? 'YouTube setup' : 'Connect to YouTube'}
+          </button>
           <CheckForUpdates />
           <button className="link-btn" onClick={() => setShowLog(true)}>
             {incidents.length > 0 ? `${incidents.length} events` : 'Activity log'}
@@ -494,6 +503,16 @@ export default function App() {
           incidents={incidents}
           destinations={destinations}
           onClose={() => setShowLog(false)}
+        />
+      )}
+
+      {googleSetup && (
+        <GoogleSetupModal
+          onClose={() => setGoogleSetup(false)}
+          onSaved={() => {
+            setGoogleSetup(false)
+            engine.googleClientStatus().then(setGoogle).catch(() => {})
+          }}
         />
       )}
 

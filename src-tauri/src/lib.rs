@@ -1,4 +1,6 @@
 mod diagnose;
+mod external;
+mod google;
 mod netmeter;
 // Tested and complete, but not yet reachable from the UI: the connect
 // button lands with the uploads tab.
@@ -89,7 +91,11 @@ pub fn run() {
             stream::keeping_awake,
             release::updater_signed,
             release::latest_release,
-            release::open_release,
+            external::open_external,
+            google::set_google_client,
+            google::google_client_status,
+            google::forget_google_client,
+            google::google_console_urls,
             secrets::secret_store,
             secrets::set_secret,
             secrets::get_secret,

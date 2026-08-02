@@ -71,6 +71,22 @@ mod backend {
     }
 }
 
+/// Direct access for other modules, without going through a command.
+///
+/// The commands are the frontend's door; these are the crate's. Same store,
+/// same guarantees — a value written here is as protected as a stream key.
+pub fn put(key: &str, value: &str) -> Result<(), String> {
+    backend::set(key, value)
+}
+
+pub fn take(key: &str) -> Result<Option<String>, String> {
+    backend::get(key)
+}
+
+pub fn forget(key: &str) -> Result<(), String> {
+    backend::delete(key)
+}
+
 /// Where a given destination's key is stored, so the UI can say so honestly.
 #[tauri::command]
 pub fn secret_store() -> &'static str {

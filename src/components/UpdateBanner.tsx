@@ -138,7 +138,7 @@ export function UpdateBanner({ streamsRunning }: { streamsRunning: number }) {
             className="update-now"
             onClick={() =>
               void engine
-                .openRelease(state.release.dmg_url ?? state.release.page_url)
+                .openExternal(state.release.dmg_url ?? state.release.page_url)
                 .catch((e) => setState({ name: 'failed', reason: String(e) }))
             }
           >

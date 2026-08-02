@@ -99,6 +99,20 @@ export type Release = {
   page_url: string
 }
 
+/** Mirrors `google::ClientStatus`. */
+export type GoogleClient = {
+  configured: boolean
+  preview: string
+}
+
+/** Console pages, supplied by the backend so the UI never hard-codes a URL
+ *  the allowlist would then refuse. */
+export type ConsoleUrls = {
+  enableApi: string
+  consent: string
+  credentials: string
+}
+
 /** Mirrors `stream::Incident`. */
 export type Incident = {
   id: string
@@ -119,7 +133,15 @@ export const engine = {
   // download. See `release.rs` for why there is no third option.
   updaterSigned: () => invoke<boolean>('updater_signed'),
   latestRelease: () => invoke<Release | null>('latest_release'),
-  openRelease: (url: string) => invoke<void>('open_release', { url }),
+  openExternal: (url: string) => invoke<void>('open_external', { url }),
+
+  // Registering the app with Google. Once, for the whole app — distinct from
+  // signing a channel in, which is per account and stays a single button.
+  googleClientStatus: () => invoke<GoogleClient>('google_client_status'),
+  googleConsoleUrls: () => invoke<ConsoleUrls>('google_console_urls'),
+  setGoogleClient: (id: string, secret: string) =>
+    invoke<void>('set_google_client', { id, secret }),
+  forgetGoogleClient: () => invoke<void>('forget_google_client'),
 
   /**
    * Start a loop. The stream key is deliberately absent: the backend reads it
