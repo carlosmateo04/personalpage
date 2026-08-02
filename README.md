@@ -66,6 +66,13 @@ npm install
 <http://localhost:1420>. Useful for UI work, but the Rust backend is absent, so
 the app correctly reports **No bridge** there.
 
+## Updating
+
+From 0.2.0 the app updates itself: a bar appears when a new version is
+available, and pressing **Update now** installs it and restarts. No `.dmg`
+after the first install. Updates never apply on their own — installing ends
+running streams, so it always asks. See [`UPDATES.md`](./UPDATES.md).
+
 ## CI builds
 
 `.github/workflows/build-macos.yml` builds a universal `.dmg` on a macOS

@@ -1648,3 +1648,91 @@ button {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+/* ---------- in-app updates ---------- */
+
+.update-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: rgba(74, 158, 255, 0.1);
+  border: 1px solid rgba(74, 158, 255, 0.35);
+  font-size: 13px;
+}
+
+.update-bar.quiet {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.update-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.2);
+}
+
+.update-dot.busy {
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.update-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+}
+
+.update-progress {
+  flex: none;
+  width: 130px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.update-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+.update-later {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.update-later:hover {
+  color: var(--text);
+}
+
+.update-now {
+  flex: none;
+  padding: 7px 15px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.update-now:hover {
+  filter: brightness(1.08);
+}
+
+.statusbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}

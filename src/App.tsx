@@ -7,6 +7,7 @@ import { AddDestinationModal, type NewDestination } from './components/AddDestin
 import { AccountModal } from './components/AccountModal'
 import { BandwidthBar } from './components/BandwidthBar'
 import { IncidentLog } from './components/IncidentLog'
+import { CheckForUpdates, UpdateBanner } from './components/UpdateBanner'
 import {
   engine,
   useStreamEvents,
@@ -344,6 +345,8 @@ export default function App() {
         </span>
       </header>
 
+      <UpdateBanner streamsRunning={activeCount} />
+
       {tools?.state === 'missing' && (
         <p className="banner-bad">
           <strong>ffmpeg not found.</strong> Nothing can stream until it is installed. Run{' '}
@@ -447,9 +450,12 @@ export default function App() {
           {tools?.state === 'ready' && ` · ffmpeg ${tools.version} (${tools.source})`}
           {secretStore === 'keychain' && ' · keys in Keychain'}
         </span>
-        <button className="link-btn" onClick={() => setShowLog(true)}>
-          {incidents.length > 0 ? `${incidents.length} events` : 'Activity log'}
-        </button>
+        <span className="statusbar-actions">
+          <CheckForUpdates />
+          <button className="link-btn" onClick={() => setShowLog(true)}>
+            {incidents.length > 0 ? `${incidents.length} events` : 'Activity log'}
+          </button>
+        </span>
       </footer>
 
       {showLog && (
