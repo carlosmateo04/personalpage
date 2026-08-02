@@ -39,10 +39,10 @@ Install and launch
       (locally built binaries carry no quarantine flag)
 - [ ] App icon appears correctly in Finder, Dock, and ⌘-Tab
 - [ ] Window opens centred at roughly 1100×760
-- [x] Window title reads `StreamBridge`
+- [x] Window title reads `Caudal`
 - [ ] Window resizes, and refuses to go below 900×600
 - [ ] ⌘Q quits cleanly, no crash dialog, no orphan process
-      (`pgrep -fl StreamBridge` returns nothing after quit)
+      (`pgrep -fl Caudal` returns nothing after quit)
 
 IPC bridge
 
@@ -257,12 +257,14 @@ The gate
 - [ ] Its video, name, and server survive too
 - [ ] The stream key survives — starting works without re-entering it
 - [ ] Keychain Access shows an entry under `com.streambridge.desktop`
+      (the old identifier on purpose — see README; renaming it would orphan
+      every saved key)
 - [ ] The configuration file contains **no** stream key:
       `grep -i <part of your key> ~/Library/Application\ Support/com.streambridge.desktop/destinations.json`
       finds nothing
 - [ ] Removing an account also removes its Keychain entry
 - [ ] A restored account never shows as live; it starts idle
-- [ ] **Start automatically when StreamBridge opens** makes the stream start on
+- [ ] **Start automatically when Caudal opens** makes the stream start on
       launch, with no clicking
 - [ ] The status bar reads `keys in Keychain`
 
@@ -292,7 +294,7 @@ Quitting
 - [ ] ⌘Q while streaming: no ffmpeg survives
 - [ ] Force Quit while streaming, then reopen: leftovers from the previous run
       are killed on launch, and the platform stops receiving data
-- [ ] Killing StreamBridge with `kill -9` and reopening does the same
+- [ ] Killing Caudal with `kill -9` and reopening does the same
 
 The property underneath
 
@@ -335,7 +337,7 @@ Behaviour under change
       route
 - [ ] Left running overnight, the graph never shows an impossible spike
       (counters wrapping must not read as hundreds of Gbps)
-- [ ] Idle for an hour with no streams: CPU use of StreamBridge stays flat
+- [ ] Idle for an hour with no streams: CPU use of Caudal stays flat
       (the sampler must not be busy-looping)
 
 ---

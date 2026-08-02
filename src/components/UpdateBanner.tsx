@@ -82,7 +82,7 @@ export function UpdateBanner({ streamsRunning }: { streamsRunning: number }) {
           <span className="update-text">
             <strong>Version {v} is available.</strong>{' '}
             {streamsRunning > 0
-              ? `Installing restarts StreamBridge and will end ${streamsRunning} running ${
+              ? `Installing restarts Caudal and will end ${streamsRunning} running ${
                   streamsRunning === 1 ? 'stream' : 'streams'
                 }.`
               : 'Takes a few seconds; the app restarts itself.'}

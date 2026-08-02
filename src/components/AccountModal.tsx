@@ -62,7 +62,7 @@ export function AccountModal({
               onChange={(e) => onSetAutoStart(d.id, e.target.checked)}
             />
             <span>
-              <strong>Start automatically when StreamBridge opens</strong>
+              <strong>Start automatically when Caudal opens</strong>
               <small>
                 For a stream meant to run around the clock: launch the app and it goes live without
                 anyone pressing anything.

@@ -8,6 +8,16 @@
 
 #[cfg(target_os = "macos")]
 mod backend {
+    /// Deliberately still the old identifier, and it must stay that way.
+    ///
+    /// The Keychain finds an entry by (service, account). Renaming the app to
+    /// Caudal and renaming this at the same time would point the lookup at a
+    /// service that has never been written to: every saved stream key would
+    /// silently read back as absent, every destination would show as not ready,
+    /// and a 24/7 stream would refuse to start after an update with no error to
+    /// explain why. The string is invisible to the user; losing their keys is
+    /// not. If it is ever changed, it needs a migration that reads from here
+    /// first and is tested on macOS, not a rename.
     const SERVICE: &str = "com.streambridge.desktop";
 
     fn entry(id: &str) -> Result<keyring::Entry, String> {

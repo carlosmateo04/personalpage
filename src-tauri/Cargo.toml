@@ -1,5 +1,5 @@
 [package]
-name = "streambridge"
+name = "caudal"
 version = "0.1.0"
 description = "Multi-platform live streaming from one machine"
 edition = "2021"
@@ -8,7 +8,7 @@ rust-version = "1.77"
 [lib]
 # `staticlib`/`cdylib` keep the door open for mobile targets later; `rlib` is
 # what the thin `main.rs` binary links against on desktop.
-name = "streambridge_lib"
+name = "caudal_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

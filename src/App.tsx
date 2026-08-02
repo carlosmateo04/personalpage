@@ -6,6 +6,7 @@ import { PlaylistModal } from './components/PlaylistModal'
 import { AddDestinationModal, type NewDestination } from './components/AddDestinationModal'
 import { AccountModal } from './components/AccountModal'
 import { BandwidthBar, type BwSample } from './components/BandwidthBar'
+import { BrandMark } from './components/BrandMark'
 import { IncidentLog } from './components/IncidentLog'
 import { CheckForUpdates, UpdateBanner } from './components/UpdateBanner'
 import {
@@ -354,11 +355,8 @@ export default function App() {
     <main className="app">
       <header className="topbar">
         <span className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <span className="bm-dot" />
-            <span className="bm-ring" />
-          </span>
-          StreamBridge
+          <BrandMark />
+          Caudal
         </span>
         <span className="topbar-right">
           {awake && (
@@ -479,7 +477,7 @@ export default function App() {
 
       <footer className="statusbar">
         <span>
-          StreamBridge{version && ` ${version}`}
+          Caudal{version && ` ${version}`}
           {tools?.state === 'ready' && ` · ffmpeg ${tools.version} (${tools.source})`}
           {secretStore === 'keychain' && ' · keys in Keychain'}
         </span>

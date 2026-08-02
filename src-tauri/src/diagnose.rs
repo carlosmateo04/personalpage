@@ -93,7 +93,7 @@ const RULES: &[Rule] = &[
     Rule {
         needles: &["Permission denied"],
         title: "Permission denied",
-        detail: "macOS blocked access to the file. If it lives in Desktop, Documents, or an external drive, grant StreamBridge access in System Settings → Privacy & Security → Files and Folders.",
+        detail: "macOS blocked access to the file. If it lives in Desktop, Documents, or an external drive, grant Caudal access in System Settings → Privacy & Security → Files and Folders.",
         action: Action::File,
         retryable: false,
     },

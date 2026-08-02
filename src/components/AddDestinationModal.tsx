@@ -109,7 +109,7 @@ export function AddDestinationModal({
               </button>
               <p className="oauth-note">
                 Opens your browser to sign in on {PLATFORM_NAMES[step.platform]} directly.
-                StreamBridge never sees your password, and the stream key is fetched and refreshed
+                Caudal never sees your password, and the stream key is fetched and refreshed
                 for you.
               </p>
 
@@ -197,7 +197,7 @@ export function AddDestinationModal({
                   placeholder="Pipo y Lula"
                   autoFocus
                 />
-                <small>What you will call this account inside StreamBridge.</small>
+                <small>What you will call this account inside Caudal.</small>
               </label>
 
               <label>

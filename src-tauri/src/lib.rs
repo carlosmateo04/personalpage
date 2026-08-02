@@ -50,7 +50,7 @@ pub fn run() {
             let reaped = handle.state::<stream::Supervisor>().reap_orphans(&handle);
             if !reaped.is_empty() {
                 eprintln!(
-                    "StreamBridge: stopped {} publisher(s) left over from a previous run",
+                    "Caudal: stopped {} publisher(s) left over from a previous run",
                     reaped.len()
                 );
             }
@@ -81,7 +81,7 @@ pub fn run() {
             store::config_location,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building StreamBridge")
+        .expect("error while building Caudal")
         .run(|app, event| {
             // Quitting must take the streams with it. Left alone, each ffmpeg
             // would carry on uploading with nothing able to stop it short of

@@ -1,4 +1,4 @@
-# StreamBridge roadmap
+# Caudal roadmap
 
 Run several independent 24/7 live streams from one Mac. Each account loops its
 own video files, or takes a shared live feed — no relay service, no monthly fee.

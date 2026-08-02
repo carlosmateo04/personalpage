@@ -1,4 +1,4 @@
-# StreamBridge
+# Caudal
 
 Stream to YouTube, Facebook, TikTok and others simultaneously from one Mac.
 One encode, fanned out locally — no relay service, no monthly fee. Per-platform
@@ -31,10 +31,10 @@ npm run app:build
 The `.dmg` lands in:
 
 ```
-src-tauri/target/release/bundle/dmg/StreamBridge_0.1.0_<arch>.dmg
+src-tauri/target/release/bundle/dmg/Caudal_0.1.0_<arch>.dmg
 ```
 
-Double-click it, drag **StreamBridge** to Applications, launch it.
+Double-click it, drag **Caudal** to Applications, launch it.
 
 Because you built it on your own machine, macOS attaches no quarantine flag —
 no Gatekeeper prompt, no right-click-to-open dance. That only applies to
@@ -82,7 +82,7 @@ Useful if local tooling misbehaves.
 Downloaded builds *are* quarantined and unsigned, so first launch needs one of:
 
 ```bash
-xattr -d com.apple.quarantine /Applications/StreamBridge.app
+xattr -d com.apple.quarantine /Applications/Caudal.app
 ```
 
 …or right-click the app → **Open** → **Open** once.
@@ -111,7 +111,12 @@ produced in Rust and crossed the IPC boundary to get on screen.
 
 ## Notes
 
-- **Bundle identifier** is `com.streambridge.desktop`. Change it in
+- **Bundle identifier** is `com.streambridge.desktop`, deliberately unchanged
+  by the rename to Caudal. It is the key to two things the user cannot afford
+  to lose: the Keychain service holding every stream key, and the support
+  directory holding every saved account. Renaming it without a migration would
+  make both read back empty, with no error to explain why. It is invisible;
+  their keys are not. Change it in
   `src-tauri/tauri.conf.json` before signing under your own Apple account.
 - **Signing** is only needed to share the `.dmg` with other people. Building
   for yourself needs no Apple Developer account.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# StreamBridge — one-time developer setup for macOS.
+# Caudal — one-time developer setup for macOS.
 # Safe to re-run; every step checks before acting.
 set -euo pipefail
 
@@ -8,7 +8,7 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 die()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
-bold "StreamBridge setup"
+bold "Caudal setup"
 echo
 
 # ---------------------------------------------------------------- platform ---
@@ -64,7 +64,7 @@ fi
 
 # ---------------------------------------------------------------- ffmpeg ----
 bold "ffmpeg"
-# StreamBridge shells out to ffmpeg and ffprobe rather than bundling them.
+# Caudal shells out to ffmpeg and ffprobe rather than bundling them.
 # Using the copy already on the machine keeps the app clear of ffmpeg's GPL
 # distribution obligations, and Homebrew's build is better maintained than
 # anything this script could fetch.
@@ -78,7 +78,7 @@ else
   warn "ffmpeg is missing and Homebrew is not installed."
   cat <<'EOF'
 
-  StreamBridge cannot stream without ffmpeg. Install Homebrew first:
+  Caudal cannot stream without ffmpeg. Install Homebrew first:
 
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 

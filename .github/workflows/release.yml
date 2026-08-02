@@ -83,12 +83,12 @@ jobs:
         with:
           args: --target universal-apple-darwin
           tagName: ${{ github.ref_name }}
-          releaseName: 'StreamBridge ${{ github.ref_name }}'
+          releaseName: 'Caudal ${{ github.ref_name }}'
           releaseBody: |
             Installed copies will offer this update automatically.
 
             First install only: download the `.dmg`, drag to Applications, then
-            `xattr -dr com.apple.quarantine /Applications/StreamBridge.app`.
+            `xattr -dr com.apple.quarantine /Applications/Caudal.app`.
           releaseDraft: false
           prerelease: false
           # Publishes latest.json alongside the artifacts, which is what

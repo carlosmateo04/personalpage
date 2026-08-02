@@ -1,6 +1,6 @@
 # In-app updates
 
-StreamBridge checks for updates on launch and every six hours. When one is
+Caudal checks for updates on launch and every six hours. When one is
 available a bar appears at the top; pressing **Update now** downloads it,
 installs it, and restarts the app. No `.dmg`, no dragging to Applications.
 
@@ -23,13 +23,13 @@ Three commands, once.
 
 ```bash
 cd ~/personalpage
-npx tauri signer generate -w ~/.streambridge-updater.key
+npx tauri signer generate -w ~/.caudal-updater.key
 ```
 
 It asks for a password (leave it empty if you prefer; the workflow handles
 either). It then prints two things:
 
-- A **private key** — written to `~/.streambridge-updater.key`. Never commit
+- A **private key** — written to `~/.caudal-updater.key`. Never commit
   this, never paste it anywhere. Anyone holding it can sign an update that your
   app will install without question.
 - A **public key** — printed to the terminal. Safe to share.
@@ -41,7 +41,7 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 | Name | Value |
 | --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | The contents of `~/.streambridge-updater.key` — `cat ~/.streambridge-updater.key` and paste all of it |
+| `TAURI_SIGNING_PRIVATE_KEY` | The contents of `~/.caudal-updater.key` — `cat ~/.caudal-updater.key` and paste all of it |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you chose, or leave empty |
 | `TAURI_UPDATER_PUBKEY` | The public key it printed |
 
