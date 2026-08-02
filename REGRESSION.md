@@ -352,8 +352,8 @@ Passed on hardware
 
 Still owed — isolation, which is what 24/7 rests on
 
-- [ ] Stopping one account leaves the other's timer, bitrate, and dropped-frame
-      count completely undisturbed
+- [x] Stopping one account leaves the other's timer, bitrate, and dropped-frame
+      count completely undisturbed — *confirmed on hardware 2026-08-02*
 - [ ] `kill -9` on one publisher's ffmpeg: that account reconnects on its own
       and its neighbour never notices
 - [ ] Pulling the key on one account fails only that one — the other stays live
