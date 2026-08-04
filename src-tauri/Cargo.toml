@@ -2,7 +2,7 @@
 name = "caudal"
 # Kept in step with tauri.conf.json, which is what actually ships and
 # what tauri-codegen prefers. A test below fails if they drift.
-version = "0.2.1"
+version = "0.2.2"
 description = "Multi-platform live streaming from one machine"
 edition = "2021"
 rust-version = "1.77"
