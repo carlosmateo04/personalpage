@@ -195,7 +195,7 @@ Supply will be extreme: every top streamer has announced launch coverage, the Au
 
 ### Inferences
 - Launch-week supply will come from four overlapping sources: thousands of streamers' own channels, their paid clipper armies (hundreds to 1,000+ accounts per top creator), independent clip channels with years of GTA RP audience, and AI-tool-driven newcomers attracted by SEO guides. A new entrant competes on speed and selection against automated pipelines.
-- The published GTA 6 rate ($0.70 per 1,000, $35 cap) is below the general gaming median ($1.13) and far below N3on's reported $0.40 per 1,000... i.e. $40 per 100,000 = $0.40 per 1,000, so in fact the top streamer rates are also sub-$1 per 1,000. At these rates a clipper needs on the order of 1-2.5 million approved views to earn $1,000, before caps, holds and rejections.
+- The published GTA 6 rate ($0.70 per 1,000, $35 cap) is below the general gaming median ($1.13 per 1,000). N3on's reported $40 per 100,000 views equals $0.40 per 1,000, so top-streamer programmes are also sub-$1 per 1,000. Arithmetic: earning $1,000 takes about 0.9M approved views at $1.13, 1.4M at $0.70 and 2.5M at $0.40, before caps, holds and rejections; the $35 per-clip cap at $0.70 means views beyond 50,000 on a single clip earn nothing.
 - The streamers with the largest GTA audiences (xQc, Adin Ross, N3on on Kick; Kai Cenat on Twitch; IShowSpeed on YouTube) are also the ones with the most developed clipper programmes, so the best-paying sources are the most saturated.
 - Non-English GTA audiences (Arabic, Spanish) are very large by hours watched and appear less served by the English-language clipping-tool ecosystem; this is an inference from the Streams Charts ranking, not a measured gap.
 
