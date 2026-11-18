@@ -1,0 +1,16 @@
+{
+ "clips": {},
+ "runs": [
+  {
+   "at": "2026-11-18T19:43:34Z",
+   "clips": 0,
+   "failed": 0,
+   "mode": "dry_run",
+   "problems": [],
+   "rejected": 0,
+   "run": "20261118-194334"
+  }
+ ],
+ "sources": {},
+ "version": 1
+}
