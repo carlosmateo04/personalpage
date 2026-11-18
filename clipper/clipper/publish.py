@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -155,10 +156,17 @@ class UploadPost:
         from upload_post import UploadPostError
 
         args = upload_args(self.cfg, clip, when)
-        try:
-            resp = self.client.upload_video(video, **args)
-        except UploadPostError as exc:
-            raise PublishError(f"upload failed: {exc}") from exc
+        for attempt in range(1, 4):
+            try:
+                resp = self.client.upload_video(video, **args)
+                break
+            except UploadPostError as exc:
+                # No HTTP status means the connection dropped. The idempotency key
+                # makes a retry safe: the service will not post the clip twice.
+                if exc.status_code is None and attempt < 3:
+                    time.sleep(5 * attempt)
+                    continue
+                raise PublishError(f"upload failed: {exc}") from exc
         return {
             "mode": "live",
             "request_id": resp.get("request_id"),

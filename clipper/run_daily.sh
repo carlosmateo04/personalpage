@@ -8,13 +8,17 @@ python3 -m clipper status || echo "status refresh failed (continuing)"
 python3 -m clipper run
 code=$?
 
-git add state reports
-if ! git diff --cached --quiet; then
-  git commit -q -m "Clipper daily run $(date -u +%Y-%m-%d)"
-  branch="$(git branch --show-current)"
-  for wait in 2 4 8 16; do
-    git push -q -u origin "$branch" && break
-    sleep "$wait"
-  done
+# With --commit the ledger and report are committed and pushed here.
+# Without it, whoever runs this script commits them.
+if [ "${1:-}" = "--commit" ]; then
+  git add state reports
+  if ! git diff --cached --quiet; then
+    git commit -q -m "Clipper daily run $(date -u +%Y-%m-%d)"
+    branch="$(git branch --show-current)"
+    for wait in 2 4 8 16; do
+      git push -q -u origin "$branch" && break
+      sleep "$wait"
+    done
+  fi
 fi
 exit $code

@@ -146,3 +146,23 @@ def test_dry_run_writes_the_outbox_and_sends_nothing(cfg, api, tmp_path):
     outbox = json.loads((cfg.path("out") / "outbox.json").read_text())
     assert len(outbox) == 1 and outbox[0]["clip"] == "c123"
     assert api.calls == []
+
+
+def test_dropped_connection_is_retried_with_the_same_idempotency_key(cfg, api, tmp_path, monkeypatch):
+    from upload_post import UploadPostClient, UploadPostError
+
+    cfg.publish.mode, cfg.publish.profile = "live", "gta6clips"
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"0")
+    real, attempts = UploadPostClient.upload_video, []
+
+    def flaky(self, *a, **kw):
+        attempts.append(kw["idempotency_key"])
+        if len(attempts) < 3:
+            raise UploadPostError("connection reset")  # no status code: the network dropped
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(UploadPostClient, "upload_video", flaky)
+    monkeypatch.setattr(publish.time, "sleep", lambda s: None)
+    result = publish.publisher(cfg).publish(_clip(), video, datetime(2026, 11, 19, 20, 0, tzinfo=timezone.utc))
+    assert result["request_id"] == "req-1" and attempts == ["c123"] * 3

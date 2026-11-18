@@ -28,8 +28,10 @@ python3 -m clipper clip path/to/video.mp4 --count 5
 The full daily run (reads `config.toml`, posts nothing while `publish.mode = "dry_run"`):
 
 ```bash
-./run_daily.sh
+./run_daily.sh --commit
 ```
+
+`--commit` saves the ledger and report to git after the run; leave it off to commit them yourself.
 
 ## Commands
 
