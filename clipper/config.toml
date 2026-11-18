@@ -1,0 +1,68 @@
+# Clipper settings. Anything left out keeps its default (see clipper/config.py).
+# No secrets belong in this file.
+
+[brand]
+name = "GTA 6 Clips"
+game = "GTA 6"
+handle = ""                      # small watermark under the captions, e.g. "@yourchannel"
+
+# ---------------------------------------------------------------------------
+# Where footage comes from. Add one [[sources]] block per source.
+# `permission` records why the footage may be used (campaign name, own gameplay).
+# ---------------------------------------------------------------------------
+[[sources]]
+type = "folder"                  # video files dropped into clipper/inbox/
+path = "inbox"
+creator = ""
+permission = "own footage"
+
+# [[sources]]
+# type = "urls"                  # direct video links, one per line
+# file = "sources/urls.txt"
+# creator = "StreamerName"
+# permission = "Campaign: <name of the campaign you joined>"
+
+# [[sources]]
+# type = "ytdlp"                 # a channel's videos page, a playlist or a single video
+# url = "https://www.twitch.tv/<channel>/videos?filter=archives"
+# creator = "StreamerName"
+# permission = "Campaign: <name of the campaign you joined>"
+# max_items = 1                  # videos fetched per run
+# max_hours = 3                  # only the first hours of a long stream
+
+[moments]
+min_len = 18                     # seconds
+max_len = 45
+max_per_source = 8
+
+[captions]
+mode = "highlight"               # highlight: the spoken word pops in colour; sweep: colour fills across the line
+size = 108
+active_color = "#FFE600"
+max_words = 3
+
+[render]
+layout = "blur"                  # blur: full picture over a blurred background; crop: fill the screen; stack: facecam above gameplay
+zoom = 1.5
+# facecam = [0.02, 0.65, 0.22, 0.30]   # stack layout only: x, y, width, height as shares of the frame
+
+[campaign]
+name = ""                        # the campaign these clips are made for
+paid = false                     # true adds the on-screen disclosure, "#ad" and the platforms' paid label
+disclosure_label = "Paid partnership"
+disclosure_tag = "#ad"
+required_hashtags = []           # hashtags the campaign brief requires
+credit = ""                      # e.g. "Clip from @streamer"
+
+[schedule]
+timezone = "America/New_York"
+slots = ["11:30", "15:00", "19:00", "21:30"]   # one clip is posted in each slot, every day
+max_days_ahead = 3               # extra good clips fill the following days
+
+[publish]
+mode = "dry_run"                 # dry_run: nothing is posted. live: clips are scheduled through Upload-Post
+profile = ""                     # the Upload-Post profile your social accounts are connected to
+platforms = ["tiktok", "instagram", "youtube", "facebook"]
+facebook_page_id = ""
+tiktok_post_mode = "DIRECT_POST" # MEDIA_UPLOAD sends clips to your TikTok drafts instead
+hold_for_review = false          # true: render clips but wait for `approve` before scheduling

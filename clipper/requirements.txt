@@ -1,0 +1,6 @@
+numpy>=2.0
+soundfile>=0.12
+sherpa-onnx>=2.0
+upload-post>=2.20
+requests>=2.25
+yt-dlp
