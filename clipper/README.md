@@ -9,6 +9,22 @@ footage -> transcript -> best moments -> quality checks -> titles + hashtags
         -> vertical render with captions -> posting slots -> report
 ```
 
+## Business model
+
+Highlight moments from gameplay streams, shared as short clips, paid per view by
+a clipping campaign:
+
+1. A streamer or brand funds a campaign and gives clippers permission to clip.
+2. This pipeline cuts the highlights, captions them and posts them four times a
+   day on four platforms. The sound is the footage's own; no voiceover is added.
+3. The daily report lists the post links to submit to the campaign and estimates
+   the payout from the view counts and the campaign's terms (`[campaign]` in
+   `config.toml`: rate per 1,000 views, minimum, cap per post, fee, and which
+   platforms count).
+
+Platform ad revenue (YouTube Partner Program, TikTok Creator Rewards) is not part
+of this model: the platforms do not pay for reposted highlights.
+
 ## Quick start
 
 ```bash
@@ -47,8 +63,8 @@ The full daily run (reads `config.toml`, posts nothing while `publish.mode = "dr
 | `report` | Prints the report |
 
 `plan.json` can be edited between `plan` and `execute`: change a clip's
-`meta.title` or `meta.hook`, set `"drop": true`, or point `"voiceover"` at an
-audio file to mix your own commentary over the clip.
+`meta.title` or `meta.hook`, or set `"drop": true`. Voiceover is optional and
+off: only if you point `"voiceover"` at a recording of your own is it mixed in.
 
 ## How the pieces work
 

@@ -49,10 +49,39 @@ def build(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime |
             lines.append(f"- **{_cell(c.get('title', c['id']))}** (`{c['id']}`)")
             for platform, url in sorted(c["links"].items()):
                 seen = f", {views[platform]:,} views" if platform in views else ""
+                pay = cfg.campaign.payout(platform, views.get(platform, 0))
+                seen += f", about ${pay:.2f}" if pay else ""
                 lines.append(f"  - {platform}: {url}{seen}")
     else:
         lines.append("No live post links yet.")
     lines.append("")
+
+    camp = cfg.campaign
+    if camp.rate_per_1k > 0:
+        def earned(group: list[dict]) -> tuple[int, float]:
+            counted = [(p, v) for c in group for p, v in c.get("views", {}).items() if not camp.counted_platforms or p in camp.counted_platforms]
+            return sum(v for _, v in counted), sum(camp.payout(p, v) for p, v in counted)
+
+        week_views, week_pay = earned(recent)
+        all_views, all_pay = earned(clips)
+        terms = f"${camp.rate_per_1k:.2f} per 1,000 views"
+        terms += f", ${camp.min_payout:.2f} minimum" if camp.min_payout else ""
+        terms += f", ${camp.max_payout:.2f} cap per post" if camp.max_payout else ""
+        terms += f", {camp.fee:.0%} fee" if camp.fee else ""
+        terms += f", counting {', '.join(camp.counted_platforms)}" if camp.counted_platforms else ""
+        lines += [
+            f"## Estimated campaign earnings ({camp.name or 'no campaign named'})",
+            "",
+            f"Terms: {terms}.",
+            "",
+            "| Period | Counted views | Estimated payout |",
+            "|---|---|---|",
+            f"| Last 7 days | {week_views:,} | ${week_pay:,.2f} |",
+            f"| All time | {all_views:,} | ${all_pay:,.2f} |",
+            "",
+            "An estimate from view counts. The campaign pays only for posts it approves.",
+            "",
+        ]
 
     failed = [c for c in clips if c.get("status") == "failed"]
     if failed:

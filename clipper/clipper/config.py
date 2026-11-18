@@ -113,6 +113,23 @@ class Campaign:
     disclosure_tag: str = "#ad"  # first word of every caption when paid
     required_hashtags: list[str] = field(default_factory=list)
     credit: str = ""  # e.g. "Clip from @streamer"
+    # Pay terms from the campaign brief; they drive the earnings estimate in the report.
+    rate_per_1k: float = 0.0  # paid per 1,000 views
+    min_payout: float = 0.0  # a post that earns less than this is paid nothing
+    max_payout: float = 0.0  # cap per post (0 = no cap)
+    fee: float = 0.0  # marketplace fee taken from payouts (0.10 = 10%)
+    counted_platforms: list[str] = field(default_factory=list)  # platforms whose views are paid (empty = all)
+
+    def payout(self, platform: str, views: int) -> float:
+        """Estimated net payout for one post, before the campaign's own review."""
+        if self.rate_per_1k <= 0 or (self.counted_platforms and platform not in self.counted_platforms):
+            return 0.0
+        gross = views / 1000 * self.rate_per_1k
+        if gross < self.min_payout:
+            return 0.0
+        if self.max_payout > 0:
+            gross = min(gross, self.max_payout)
+        return round(gross * (1 - self.fee), 2)
 
 
 @dataclass
@@ -240,6 +257,10 @@ def validate(cfg: Config) -> None:
         hh, _, mm = slot.partition(":")
         if not (hh.isdigit() and mm.isdigit() and 0 <= int(hh) < 24 and 0 <= int(mm) < 60):
             raise ConfigError(f"schedule.slots: {slot!r} is not HH:MM")
+    if not 0 <= cfg.campaign.fee < 1:
+        raise ConfigError("campaign.fee must be a share between 0 and 1 (0.10 = 10%)")
+    if cfg.publish.mode == "live" and cfg.campaign.paid and not cfg.campaign.name:
+        raise ConfigError("campaign.paid is true but campaign.name is empty: name the campaign you joined before going live")
     for s in cfg.sources:
         if s.type not in ("folder", "urls", "ytdlp"):
             raise ConfigError(f"sources: unknown type {s.type!r}")

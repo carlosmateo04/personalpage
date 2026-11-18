@@ -1,5 +1,12 @@
 # Clipper settings. Anything left out keeps its default (see clipper/config.py).
 # No secrets belong in this file.
+#
+# The business model these settings implement:
+#   1. Highlight moments are cut from gameplay streams you have permission to clip.
+#   2. Each becomes a short vertical clip with karaoke captions. The sound is the
+#      footage's own; no voiceover is added.
+#   3. Clips are posted to TikTok, Instagram, YouTube and Facebook several times a day.
+#   4. A clipping campaign pays per 1,000 views on the posts you submit to it.
 
 [brand]
 name = "GTA 6 Clips"
@@ -47,12 +54,20 @@ zoom = 1.5
 # facecam = [0.02, 0.65, 0.22, 0.30]   # stack layout only: x, y, width, height as shares of the frame
 
 [campaign]
-name = ""                        # the campaign these clips are made for
-paid = false                     # true adds the on-screen disclosure, "#ad" and the platforms' paid label
+name = ""                        # the campaign you joined; required before going live
+paid = true                      # adds the on-screen disclosure, "#ad" and the platforms' paid label
 disclosure_label = "Paid partnership"
 disclosure_tag = "#ad"
 required_hashtags = []           # hashtags the campaign brief requires
 credit = ""                      # e.g. "Clip from @streamer"
+# Pay terms, used for the earnings estimate in the daily report. These are the
+# terms of the GTA 6 listing seen on Content Rewards on 14-17 Nov 2026 (not
+# verified). Replace them with the brief of the campaign you join.
+rate_per_1k = 0.70               # dollars per 1,000 views
+min_payout = 2.00                # a post that earns less is paid nothing
+max_payout = 35.00               # cap per post
+fee = 0.10                       # marketplace fee
+counted_platforms = ["tiktok", "instagram"]   # platforms whose views the campaign pays for
 
 [schedule]
 timezone = "America/New_York"

@@ -112,3 +112,46 @@ def test_metadata_discloses_paid_clips(cfg):
     cfg.campaign.paid = False
     plain = metadata.build(cfg, cand, "clip1", "StreamerX")
     assert plain["label"] == "" and "#ad" not in plain["tiktok"]["title"]
+
+
+def test_payout_follows_the_campaign_terms(cfg):
+    c = cfg.campaign
+    c.rate_per_1k, c.min_payout, c.max_payout, c.fee, c.counted_platforms = 0.70, 2.0, 35.0, 0.10, ["tiktok", "instagram"]
+    assert c.payout("tiktok", 2_000) == 0.0  # $1.40 is under the $2 minimum
+    assert c.payout("tiktok", 10_000) == 6.30  # $7.00 less the 10% fee
+    assert c.payout("instagram", 500_000) == 31.50  # capped at $35, less the fee
+    assert c.payout("youtube", 500_000) == 0.0  # not a counted platform
+    c.rate_per_1k = 0.0
+    assert c.payout("tiktok", 10_000) == 0.0
+
+
+def test_report_estimates_earnings(cfg, ledger):
+    from clipper import report
+
+    c = cfg.campaign
+    c.name, c.rate_per_1k, c.min_payout, c.max_payout, c.fee, c.counted_platforms = "StreamerX", 0.70, 2.0, 35.0, 0.10, ["tiktok", "instagram"]
+    now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
+    ledger.clips["a"] = {
+        "id": "a", "title": "No way", "status": "posted", "slot": "2026-11-19T15:00:00-05:00",
+        "links": {"tiktok": "https://t/1", "youtube": "https://y/1"}, "views": {"tiktok": 10_000, "youtube": 90_000},
+    }
+    text = report.build(cfg, ledger, None, now)
+    assert "tiktok: https://t/1, 10,000 views, about $6.30" in text
+    assert "youtube: https://y/1, 90,000 views" in text and "90,000 views, about" not in text
+    assert "| Last 7 days | 10,000 | $6.30 |" in text
+    c.rate_per_1k = 0.0
+    assert "Estimated campaign earnings" not in report.build(cfg, ledger, None, now)
+
+
+def test_paid_campaign_must_be_named_before_going_live(cfg):
+    import pytest
+
+    from clipper import config
+
+    cfg.campaign.paid, cfg.publish.mode = True, "live"
+    with pytest.raises(config.ConfigError, match="campaign.name"):
+        config.validate(cfg)
+    cfg.campaign.name = "StreamerX"
+    config.validate(cfg)
+    cfg.campaign.name, cfg.publish.mode = "", "dry_run"
+    config.validate(cfg)  # fine while nothing is posted
