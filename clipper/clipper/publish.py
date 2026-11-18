@@ -60,6 +60,8 @@ def upload_args(cfg: Config, clip: dict, when: datetime) -> dict[str, Any]:
         args["categoryId"] = cfg.seo.youtube_category
         args["privacyStatus"] = pub.youtube_privacy
         args["selfDeclaredMadeForKids"] = False
+        if meta.get("playlist"):
+            args["youtube_playlist_id"] = meta["playlist"]
     if cfg.campaign.paid:
         args["paid_partnership"] = True
     return args

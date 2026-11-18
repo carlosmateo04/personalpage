@@ -32,11 +32,11 @@ def build(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime |
     upcoming = [c for c in clips if c.get("status") in ("scheduled", "held") and datetime.fromisoformat(c["slot"]) >= now]
     lines += ["## Scheduled", ""]
     if upcoming:
-        lines += ["| When | Clip | Title | Source | Status |", "|---|---|---|---|---|"]
+        lines += ["| When | Section | Title | Credit | Status |", "|---|---|---|---|---|"]
         for c in upcoming:
             when = datetime.fromisoformat(c["slot"]).astimezone(tz).strftime("%a %d %b %H:%M")
             status = c["status"] + (" (dry run)" if c.get("publish", {}).get("mode") == "dry_run" else "")
-            lines.append(f"| {when} | `{c['id']}` | {_cell(c.get('title', ''))} | {_cell(c.get('source_name', ''))} | {status} |")
+            lines.append(f"| {when} | {c.get('section', '')} | {_cell(c.get('title', ''))} | {_cell(c.get('creator', '') or '-')} | {status} |")
     else:
         lines.append("Nothing scheduled.")
     lines.append("")
@@ -82,6 +82,22 @@ def build(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime |
             "An estimate from view counts. The campaign pays only for posts it approves.",
             "",
         ]
+
+    def fresh(src: dict) -> bool:
+        stamp = src.get("processed")
+        return bool(stamp) and now - datetime.fromisoformat(stamp.replace("Z", "+00:00")) < timedelta(hours=24)
+
+    used = [src for src in ledger.sources.values() if src.get("status") in ("done", "planned") and fresh(src)]
+    if used:
+        lines += ["## Footage used in the last 24 hours", "", "| Video | From | Basis for use |", "|---|---|---|"]
+        for src in used:
+            lines.append(f"| {_cell(src.get('name', ''))} | {_cell(src.get('creator') or '-')} | {_cell(src.get('permission') or 'none on file')} |")
+        lines.append("")
+    missed = [src for src in ledger.sources.values() if src.get("status") in ("blocked", "failed") and fresh(src)]
+    if missed:
+        lines += ["## Not fetched", ""]
+        lines += [f"- {_cell(src.get('name', ''))}: {_cell(src.get('reason', src['status']))}" for src in missed[:15]]
+        lines.append("")
 
     failed = [c for c in clips if c.get("status") == "failed"]
     if failed:

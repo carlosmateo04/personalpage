@@ -87,8 +87,26 @@ def _wrap(text: str, width: int, max_lines: int = 3) -> str:
     return r"\N".join(lines[:max_lines])
 
 
-def build(cfg: Config, words: list[Word], clip_len: float, hook: str = "", label: str = "") -> str:
-    """The complete ASS file for one clip. `words` must be timed relative to the clip start."""
+def _inline(hex_color: str) -> str:
+    """#RRGGBB as an inline ASS colour (&HBBGGRR&)."""
+    return "&H" + ass_color(hex_color)[4:] + "&"
+
+
+def _readable_on(hex_color: str) -> str:
+    """Black or white, whichever reads better on the given background."""
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    return "#000000" if 0.299 * r + 0.587 * g + 0.114 * b > 150 else "#FFFFFF"
+
+
+def build(cfg: Config, words: list[Word], clip_len: float, hook: str = "", label: str = "",
+          badge: str = "", badge_color: str = "#FF2E93", credit: str = "") -> str:
+    """The complete ASS file for one clip. `words` must be timed relative to the clip start.
+
+    badge: the section name shown top-left; label: the paid-partnership notice shown
+    top-right; hook: a headline shown for the first seconds; credit: who the footage
+    is from, shown under the captions for the whole clip.
+    """
     c, r = cfg.captions, cfg.render
     W, H = r.width, r.height
     base, active, outline = ass_color(c.color), ass_color(c.active_color), ass_color(c.outline_color)
@@ -98,6 +116,7 @@ def build(cfg: Config, words: list[Word], clip_len: float, hook: str = "", label
         f"Style: Sweep,{c.font},{c.size},{active},{base},{outline},&H80000000,0,0,0,0,100,100,0,0,1,{c.outline},{c.shadow},5,40,40,0,1",
         f"Style: Hook,{c.font},{int(c.size * 0.62)},&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,3,14,0,5,40,40,0,1",
         f"Style: Label,{c.font},{int(c.size * 0.36)},&H00FFFFFF,&H00FFFFFF,&H60000000,&H60000000,0,0,0,0,100,100,0,0,3,10,0,7,40,40,0,1",
+        f"Style: Badge,{c.font},{int(c.size * 0.42)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,12,0,7,40,40,0,1",
         f"Style: Handle,{c.font},{int(c.size * 0.4)},&H50FFFFFF,&H50FFFFFF,&H50000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,5,40,40,0,1",
     ]
     x, y = W // 2, int(H * c.y)
@@ -108,13 +127,19 @@ def build(cfg: Config, words: list[Word], clip_len: float, hook: str = "", label
         if end - start >= 0.03:
             events.append(f"Dialogue: {layer},{ass_time(start)},{ass_time(end)},{style},,0,0,0,,{text}")
 
+    top = int(H * 0.078)
+    if badge:
+        fill, ink = _inline(badge_color), _inline(_readable_on(badge_color))
+        event(0, clip_len, "Badge", rf"{{\an7\pos({int(W * 0.045)},{top})\3c{fill}\4c{fill}\c{ink}}}{badge}", 2)
     if label:
-        event(0, clip_len, "Label", rf"{{\an7\pos({int(W * 0.045)},{int(H * 0.078)})}}{label}", 2)
+        side = rf"\an9\pos({int(W * 0.955)},{top})" if badge else rf"\an7\pos({int(W * 0.045)},{top})"
+        event(0, clip_len, "Label", rf"{{{side}}}{label}", 2)
     if hook:
         text = hook.upper() if c.uppercase else hook
         event(0, min(r.hook_seconds, clip_len), "Hook", rf"{{\an5\pos({x},{int(H * 0.138)})\fad(120,200)}}{_wrap(text, 24)}", 2)
-    if cfg.brand.handle:
-        event(0, clip_len, "Handle", rf"{{\an5\pos({x},{min(H - 60, y + int(c.size * 1.9))})}}{cfg.brand.handle}", 1)
+    footer = "  \u2022  ".join(t for t in (re.sub(r"[{}\\]", "", credit), cfg.brand.handle) if t)
+    if footer:
+        event(0, clip_len, "Handle", rf"{{\an5\pos({x},{min(H - 60, y + int(c.size * 1.9))})}}{footer}", 1)
 
     for ch in chunks(words, c, clip_len):
         shown = [display(w.w, c) for w in ch.words]

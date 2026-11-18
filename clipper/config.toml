@@ -1,46 +1,163 @@
 # Clipper settings. Anything left out keeps its default (see clipper/config.py).
 # No secrets belong in this file.
 #
-# The business model these settings implement:
-#   1. Highlight moments are cut from gameplay streams you have permission to clip.
-#   2. Each becomes a short vertical clip with karaoke captions. The sound is the
-#      footage's own; no voiceover is added.
-#   3. Clips are posted to TikTok, Instagram, YouTube and Facebook several times a day.
-#   4. A clipping campaign pays per 1,000 views on the posts you submit to it.
+# The model these settings implement:
+#   1. GTA 6 videos and clips are found online (Twitch channels, YouTube searches).
+#   2. The highlights are cut out and sorted into sections: new findings, tricks,
+#      glitches and wild moments.
+#   3. Each becomes a short vertical clip with karaoke captions, a section badge
+#      and a credit to the channel it came from. The sound is the footage's own.
+#   4. Clips are posted to TikTok, Instagram, YouTube and Facebook four times a day,
+#      taking the sections in turn.
 
 [brand]
 name = "GTA 6 Clips"
 game = "GTA 6"
-handle = ""                      # small watermark under the captions, e.g. "@yourchannel"
+handle = ""                      # your own handle, shown next to the credit, e.g. "@yourchannel"
 
 # ---------------------------------------------------------------------------
-# Where footage comes from. Add one [[sources]] block per source.
-# `permission` records why the footage may be used (campaign name, own gameplay).
+# Sections. A clip goes to the section whose cue words appear in its title and
+# in what is said; with no clear signal it goes to "moments".
 # ---------------------------------------------------------------------------
+[[sections]]
+name = "findings"
+label = "NEW FINDING"
+color = "#FFE600"
+cues = ["easter egg", "secret", "hidden", "i found", "we found", "found a", "discovered", "did you know", "detail",
+        "nobody noticed", "reference", "never seen", "mystery", "bigfoot", "ufo", "alien", "ghost"]
+hashtags = ["#gta6secrets", "#gta6eastereggs"]
+youtube_playlist_id = ""         # optional: a playlist on your channel for this section
+
+[[sections]]
+name = "tricks"
+label = "TRICK"
+color = "#00E0FF"
+cues = ["how to", "trick", "tip", "pro tip", "fastest way", "easy way", "easiest way", "unlock", "cheat", "shortcut",
+        "all you have to do", "you just need", "money fast", "best way"]
+hashtags = ["#gta6tips", "#gta6tricks"]
+youtube_playlist_id = ""
+
+[[sections]]
+name = "glitches"
+label = "GLITCH"
+color = "#7CFF4F"
+cues = ["glitch", "glitched", "bug", "bugged", "broken", "clipped through", "fell through", "under the map",
+        "out of bounds", "launched", "physics"]
+hashtags = ["#gta6glitch", "#gta6bugs"]
+youtube_playlist_id = ""
+
+[[sections]]
+name = "moments"                 # the catch-all
+label = "WILD MOMENT"
+color = "#FF2E93"
+cues = []
+hashtags = ["#gta6funny", "#gta6moments"]
+youtube_playlist_id = ""
+
+# ---------------------------------------------------------------------------
+# Where footage comes from. One [[sources]] block per source.
+#   permission  on what basis the footage is used (the creator's clip policy, a
+#               campaign you joined, your own footage). Empty means none on file;
+#               the daily report lists these.
+#   section     where its clips go unless their content clearly says otherwise.
+# ---------------------------------------------------------------------------
+
+# Twitch: each channel's most-viewed clips of the last 24 hours, GTA 6 only.
+# These are already highlights picked by viewers, so they are used whole.
 [[sources]]
-type = "folder"                  # video files dropped into clipper/inbox/
+type = "ytdlp"
+url = "https://www.twitch.tv/kaicenat/clips?filter=clips&range=24hr"
+category = "Grand Theft Auto VI"
+min_views = 300
+max_items = 2
+look_at = 10
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.twitch.tv/xqc/clips?filter=clips&range=24hr"
+category = "Grand Theft Auto VI"
+min_views = 300
+max_items = 2
+look_at = 10
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.twitch.tv/jynxzi/clips?filter=clips&range=24hr"
+category = "Grand Theft Auto VI"
+min_views = 150
+max_items = 2
+look_at = 10
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.twitch.tv/agent00/clips?filter=clips&range=24hr"
+category = "Grand Theft Auto VI"
+min_views = 100
+max_items = 2
+look_at = 10
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.twitch.tv/summit1g/clips?filter=clips&range=24hr"
+category = "Grand Theft Auto VI"
+min_views = 300
+max_items = 1
+look_at = 10
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.twitch.tv/caseoh_/clips?filter=clips&range=24hr"
+category = "Grand Theft Auto VI"
+min_views = 300
+max_items = 1
+look_at = 10
+
+# YouTube: this week's videos found by search (the "sp" part of the address is
+# YouTube's "uploaded this week" filter), cut down to their best passages.
+# YouTube currently refuses automated downloads from cloud machines, so these
+# produce nothing here; they work when the run happens on a home connection.
+[[sources]]
+type = "ytdlp"
+url = "https://www.youtube.com/results?search_query=gta+6+easter+eggs+secrets&sp=EgIIAw%253D%253D"
+section = "findings"
+min_views = 2000
+min_minutes = 1
+max_minutes = 25
+max_items = 1
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.youtube.com/results?search_query=gta+6+tips+and+tricks&sp=EgIIAw%253D%253D"
+section = "tricks"
+min_views = 2000
+min_minutes = 1
+max_minutes = 25
+max_items = 1
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.youtube.com/results?search_query=gta+6+glitches&sp=EgIIAw%253D%253D"
+section = "glitches"
+min_views = 2000
+min_minutes = 1
+max_minutes = 25
+max_items = 1
+
+# Your own recordings: drop video files into clipper/inbox/.
+[[sources]]
+type = "folder"
 path = "inbox"
-creator = ""
 permission = "own footage"
 
-# [[sources]]
-# type = "urls"                  # direct video links, one per line
-# file = "sources/urls.txt"
-# creator = "StreamerName"
-# permission = "Campaign: <name of the campaign you joined>"
-
-# [[sources]]
-# type = "ytdlp"                 # a channel's videos page, a playlist or a single video
-# url = "https://www.twitch.tv/<channel>/videos?filter=archives"
-# creator = "StreamerName"
-# permission = "Campaign: <name of the campaign you joined>"
-# max_items = 1                  # videos fetched per run
-# max_hours = 3                  # only the first hours of a long stream
+[rights]
+block_channels = ["Rockstar Games", "Take-Two Interactive"]   # never taken from
+credit_format = "Credit: {creator}"                           # on the clip and in every caption
 
 [moments]
-min_len = 18                     # seconds
+min_len = 18                     # seconds, for passages cut from long videos
 max_len = 45
-max_per_source = 8
+max_per_source = 3
+whole_clip_max = 62              # videos up to this length are used whole
 
 [captions]
 mode = "highlight"               # highlight: the spoken word pops in colour; sweep: colour fills across the line
@@ -54,20 +171,10 @@ zoom = 1.5
 # facecam = [0.02, 0.65, 0.22, 0.30]   # stack layout only: x, y, width, height as shares of the frame
 
 [campaign]
-name = ""                        # the campaign you joined; required before going live
-paid = true                      # adds the on-screen disclosure, "#ad" and the platforms' paid label
-disclosure_label = "Paid partnership"
-disclosure_tag = "#ad"
-required_hashtags = []           # hashtags the campaign brief requires
-credit = ""                      # e.g. "Clip from @streamer"
-# Pay terms, used for the earnings estimate in the daily report. These are the
-# terms of the GTA 6 listing seen on Content Rewards on 14-17 Nov 2026 (not
-# verified). Replace them with the brief of the campaign you join.
-rate_per_1k = 0.70               # dollars per 1,000 views
-min_payout = 2.00                # a post that earns less is paid nothing
-max_payout = 35.00               # cap per post
-fee = 0.10                       # marketplace fee
-counted_platforms = ["tiktok", "instagram"]   # platforms whose views the campaign pays for
+name = ""                        # fill in only if you join a paid clipping campaign
+paid = false                     # true adds the on-screen disclosure, "#ad" and the platforms' paid label
+required_hashtags = []
+rate_per_1k = 0.0                # the campaign's pay per 1,000 views; 0 hides the earnings estimate
 
 [schedule]
 timezone = "America/New_York"

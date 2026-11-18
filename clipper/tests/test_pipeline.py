@@ -20,7 +20,7 @@ NOW = datetime(2026, 11, 18, 15, 0, tzinfo=timezone.utc)
 def footage(cfg):
     """A 70 s video: a real speech sample repeated quietly, with three loud repeats in the middle."""
     speech, rate = sf.read(str(SAMPLE), dtype="float32")
-    track = np.zeros(rate * 70, dtype=np.float32)
+    track = np.random.default_rng(5).normal(0, 0.003, rate * 70).astype(np.float32)  # a quiet game-audio bed
     for at, gain in ((2, 0.08), (12, 0.08), (24, 1.0), (32, 1.0), (40, 1.0), (52, 0.08), (61, 0.08)):
         track[at * rate : at * rate + len(speech)] += speech * gain
     wav = cfg.root / "track.wav"
@@ -95,3 +95,35 @@ def test_hold_for_review_then_approve_with_voiceover(cfg, ledger, footage):
     assert ledger.clips[cid]["status"] == "scheduled"
     assert (cfg.path("out") / plan["run"] / f"{cid}.mp4").stat().st_size != before  # re-rendered with the voiceover
     assert len(json.loads((cfg.path("out") / "outbox.json").read_text())) == 1
+
+
+def test_short_clip_is_used_whole_with_its_own_title_and_credit(cfg, ledger):
+    """A 20 s clip (like a Twitch clip) skips the moment finder and keeps its title, channel and section."""
+    from clipper import intake
+
+    speech, rate = sf.read(str(SAMPLE), dtype="float32")
+    track = np.zeros(rate * 20, dtype=np.float32)
+    track[2 * rate : 2 * rate + len(speech)] += speech
+    wav = cfg.root / "short.wav"
+    sf.write(wav, track, rate)
+    video = cfg.root / "short.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=20", "-i", str(wav),
+         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(video)], check=True)
+    item = intake.Item(video, "ytest", "car falls through the map glitch", "StreamerA", "", "https://site/clip/1",
+                       title="car falls through the map glitch", views=5000)
+    quiet = lambda m: None
+    original = intake.collect
+    intake.collect = lambda *a, **k: [item]
+    try:
+        plan = pipeline.plan(cfg, ledger, NOW, quiet)
+    finally:
+        intake.collect = original
+    clip = plan["clips"][0]
+    assert (clip["start"], round(clip["end"])) == (0.0, 20) and clip["section"] == "glitches"
+    assert clip["meta"]["title"].startswith("Car falls through the map glitch") or "Car falls through the map glitch" in clip["meta"]["title"]
+    assert clip["meta"]["credit"] == "Credit: StreamerA" and clip["meta"]["badge"] == "GLITCH"
+    summary = pipeline.execute(cfg, ledger, now=NOW, log=quiet)
+    assert summary["clips"] == 1 and ledger.clips[clip["id"]]["section"] == "glitches"
+    text = report.build(cfg, ledger, summary, NOW)
+    assert "| glitches |" in text and "StreamerA" in text

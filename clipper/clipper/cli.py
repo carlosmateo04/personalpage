@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import config, media, pipeline, publish, report, transcribe
+from . import config, media, pipeline, publish, report, sections, transcribe
 from .captions import build as build_captions
 from .metadata import build as build_meta
 from .transcribe import Word
@@ -26,7 +26,8 @@ def cmd_doctor(cfg, args) -> int:
     line(transcribe.models_present(cfg), f"speech models in {cfg.models_dir}")
     line(any(cfg.fonts_dir.glob("*.ttf")), f"caption font in {cfg.fonts_dir}")
     for s in cfg.sources:
-        print(f"     source: {s.type} {s.path or s.file or s.url} (creator: {s.creator or '-'}, permission: {s.permission or '-'})")
+        print(f"     source: {s.type} {s.path or s.file or s.url} (section: {s.section or 'auto'}, permission: {s.permission or 'none on file'})")
+    print(f"     sections: {', '.join(sec.name for sec in cfg.sections)}")
     print(f"     posting slots: {', '.join(cfg.schedule.slots)} {cfg.schedule.timezone}")
     print(f"     campaign: {cfg.campaign.name or '-'} (paid: {cfg.campaign.paid})")
     try:
@@ -40,15 +41,17 @@ def cmd_clip(cfg, args) -> int:
     """One-off: turn a video file into finished clips, without the ledger or posting."""
     src = Path(args.video).resolve()
     sid = media.file_id(src)
-    cands, _ = pipeline.analyse(cfg, src, sid)
+    cands, _, _ = pipeline.analyse(cfg, src, sid)
     out_dir = Path(args.out).resolve() if args.out else cfg.path("out") / "manual" / src.stem
     for n, cand in enumerate(cands[: args.count], 1):
         clip_id = f"{src.stem}-{n:02d}"
-        meta = build_meta(cfg, cand, clip_id, args.creator)
+        section = sections.classify(cfg, cand.text, "", args.section)
+        meta = build_meta(cfg, cand, clip_id, args.creator, section)
         rel = [Word(w.w, round(w.s - cand.start, 3), round(w.e - cand.start, 3)) for w in cand.words]
         ass = cfg.path("work") / "captions" / f"{clip_id}.ass"
         ass.parent.mkdir(parents=True, exist_ok=True)
-        ass.write_text(build_captions(cfg, rel, cand.duration, hook=meta["hook"], label=meta["label"]))
+        ass.write_text(build_captions(cfg, rel, cand.duration, hook=meta["hook"], label=meta["label"],
+                                      badge=meta["badge"], badge_color=meta["badge_color"], credit=meta["credit"]))
         from .render import render
 
         out = render(cfg, src, cand.start, cand.end, ass, out_dir / f"{clip_id}.mp4")
@@ -114,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("video")
     p.add_argument("--count", type=int, default=5)
     p.add_argument("--creator", default="")
+    p.add_argument("--section", default="")
     p.add_argument("--out")
     p.set_defaults(fn=cmd_clip)
     sub.add_parser("plan", help="collect footage and plan today's clips").set_defaults(fn=cmd_plan)

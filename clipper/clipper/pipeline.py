@@ -4,13 +4,14 @@ plan     collect footage, transcribe, find moments, apply the quality gates,
          write titles, assign posting slots  ->  out/<run>/plan.json
 execute  render every planned clip and hand it to the publisher
 
-plan.json is the review surface: before `execute`, a title or hook can be
-edited, a clip dropped ("drop": true) or a voiceover attached ("voiceover": path).
+plan.json is the review surface: before `execute`, a title, hook or section can
+be edited, a clip dropped ("drop": true) or a voiceover attached ("voiceover": path).
 """
 
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from . import captions, gates, intake, media, metadata, moments, publish, render, schedule, transcribe
+from . import captions, gates, intake, media, metadata, moments, publish, render, schedule, sections, transcribe
 from .config import Config
 from .state import Ledger, now_iso
 from .transcribe import Word
@@ -34,25 +35,45 @@ def ledger_of(cfg: Config) -> Ledger:
     return Ledger(cfg.path("state") / "ledger.json")
 
 
-def analyse(cfg: Config, path: Path, source_id: str, chat: list[float] | None = None) -> tuple[list[moments.Candidate], float]:
-    """Transcribe one video and return its clip candidates and duration."""
+def analyse(cfg: Config, path: Path, source_id: str, chat: list[float] | None = None, views: int = 0) -> tuple[list[moments.Candidate], float, bool]:
+    """Transcribe one video. Returns its clip candidates, its duration, and whether it is used whole.
+
+    A short video (a Twitch clip, say) is already somebody's highlight, so it becomes
+    one candidate covering all of it. A long video goes through the moment finder.
+    """
     info = media.probe(path)
     if not info.has_audio:
         raise media.MediaError(f"{path.name}: no audio track")
     work = cfg.path("work")
     wav = media.extract_audio(path, work / "audio" / f"{source_id}.wav")
     words = transcribe.transcribe(cfg, wav, work / "transcripts" / f"{source_id}.json")
-    return moments.find(cfg.moments, wav, words, info.duration, chat), info.duration
+    if info.duration <= cfg.moments.whole_clip_max:
+        score = round(math.log10(views + 10), 3)  # more-watched clips rank higher
+        return [moments.Candidate(0.0, round(info.duration, 2), round(info.duration / 2, 2), score, words)], info.duration, True
+    found = moments.find(cfg.moments, wav, words, info.duration, chat, cues=sections.all_cues(cfg))
+    return found, info.duration, False
+
+
+def _by_turns(pool: list[dict]) -> list[dict]:
+    """Best clip of each section in turn, so a day's posts cover different sections."""
+    groups: dict[str, list[dict]] = {}
+    for entry in sorted(pool, key=lambda e: -e["cand"].score):
+        groups.setdefault(entry["section"].name, []).append(entry)
+    order = sorted(groups, key=lambda name: -groups[name][0]["cand"].score)
+    out: list[dict] = []
+    while any(groups.values()):
+        out.extend(groups[name].pop(0) for name in order if groups[name])
+    return out
 
 
 def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _log) -> dict:
     now = now or datetime.now(timezone.utc)
     run_id = now.strftime("%Y%m%d-%H%M%S")
     run_dir = cfg.path("out") / run_id
-    pool: list[tuple[moments.Candidate, intake.Item]] = []
+    pool: list[dict] = []
     rejected: list[dict] = []
     problems: list[str] = []
-    seen: list[tuple[str, intake.Item]] = []
+    seen: list[tuple[str, str]] = []
     # Clips planned by a run that never finished are forgotten; their footage is analysed again.
     for stale in [k for k, c in ledger.clips.items() if c.get("status") == "planned"]:
         del ledger.clips[stale]
@@ -60,50 +81,55 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
     for item in intake.collect(cfg, ledger, log):
         log(f"analysing {item.name}")
         try:
-            cands, duration = analyse(cfg, item.path, item.source_id, intake.load_chat(item.chat_file))
+            cands, duration, whole = analyse(cfg, item.path, item.source_id, intake.load_chat(item.chat_file), item.views)
         except (media.MediaError, transcribe.TranscribeError) as exc:
             problems.append(f"{item.name}: {exc}")
-            ledger.sources[item.source_id] = {"name": item.name, "origin": item.origin, "status": "failed", "error": str(exc)[:300], "processed": now_iso()}
+            ledger.sources[item.source_id] = {"name": item.name, "origin": item.origin, "status": "failed", "reason": str(exc)[:300], "processed": now_iso()}
             continue
         kept = 0
         for cand in cands:
-            reasons = gates.check(cfg, cand, item.source_id, ledger)
+            reasons = gates.check(cfg, cand, item.source_id, ledger, whole)
             if not reasons and kept >= cfg.moments.max_per_source:
                 reasons = ["over the per-video limit"]
             text = gates.normalise(cand.text)
-            if not reasons and any(i.source_id != item.source_id and SequenceMatcher(None, text, t).ratio() > cfg.gates.max_text_similarity for t, i in seen):
+            if not reasons and any(sid != item.source_id and SequenceMatcher(None, text, t).ratio() > cfg.gates.max_text_similarity for t, sid in seen):
                 reasons = ["same moment as another clip in this run"]
             if reasons:
                 rejected.append({"source": item.name, "start": cand.start, "end": cand.end, "score": cand.score, "reasons": reasons})
                 continue
             kept += 1
-            seen.append((text, item))
-            pool.append((cand, item))
+            seen.append((text, item.source_id))
+            section = sections.classify(cfg, cand.text, item.title, item.section)
+            pool.append({"cand": cand, "item": item, "section": section, "whole": whole})
         ledger.sources[item.source_id] = {
             "name": item.name, "origin": item.origin, "creator": item.creator, "permission": item.permission,
             "duration": round(duration, 1), "candidates": len(cands), "kept": kept, "status": "planned", "processed": now_iso(),
         }
         log(f"  {len(cands)} moment(s) found, {kept} passed the checks")
 
-    pool.sort(key=lambda p: -p[0].score)
+    pool = _by_turns(pool)
     slots = schedule.next_slots(cfg.schedule, now, ledger.taken_slots(), len(pool))
     clips: list[dict] = []
-    for (cand, item), slot in zip(pool, slots):
+    for entry, slot in zip(pool, slots):
+        cand, item, section = entry["cand"], entry["item"], entry["section"]
         clip_id = "c" + media.text_id(f"{item.source_id}:{cand.start:.1f}")[:10]
         clip = {
             "id": clip_id, "source_id": item.source_id, "source_name": item.name, "source_path": str(item.path),
-            "creator": item.creator, "start": cand.start, "end": cand.end, "peak": cand.peak, "score": cand.score,
+            "origin": item.origin, "creator": item.creator, "permission": item.permission, "section": section.name,
+            "start": cand.start, "end": cand.end, "peak": cand.peak, "score": cand.score,
             "text": cand.text, "words": [asdict(w) for w in cand.words],
-            "meta": metadata.build(cfg, cand, clip_id, item.creator),
+            "meta": metadata.build(cfg, cand, clip_id, item.creator, section, item.title if entry["whole"] else "", item.origin),
             "slot": slot.isoformat(), "voiceover": "", "drop": False,
         }
         clips.append(clip)
         ledger.clips[clip_id] = {
             "id": clip_id, "source_id": item.source_id, "source_name": item.name, "creator": item.creator,
+            "origin": item.origin, "section": section.name,
             "start": cand.start, "end": cand.end, "score": cand.score, "text": gates.normalise(cand.text),
             "title": clip["meta"]["title"], "slot": clip["slot"], "status": "planned", "run": run_id, "created": now_iso(),
         }
-    for cand, item in pool[len(slots):]:
+    for entry in pool[len(slots):]:
+        cand, item = entry["cand"], entry["item"]
         rejected.append({"source": item.name, "start": cand.start, "end": cand.end, "score": cand.score, "reasons": ["no free posting slot in the scheduling window"]})
 
     result = {"run": run_id, "created": now_iso(), "clips": clips, "rejected": rejected, "problems": problems}
@@ -121,10 +147,15 @@ def latest_plan(cfg: Config) -> Path | None:
 
 def render_clip(cfg: Config, clip: dict, run_dir: Path) -> Path:
     start, end = clip["start"], clip["end"]
+    meta = clip["meta"]
+    section = cfg.section(clip.get("section") or meta.get("section", ""))  # the section may have been changed in plan.json
     rel = [Word(w["w"], round(w["s"] - start, 3), round(w["e"] - start, 3)) for w in clip["words"]]
     ass = cfg.path("work") / "captions" / f"{clip['id']}.ass"
     ass.parent.mkdir(parents=True, exist_ok=True)
-    ass.write_text(captions.build(cfg, rel, end - start, hook=clip["meta"].get("hook", ""), label=clip["meta"].get("label", "")))
+    ass.write_text(captions.build(
+        cfg, rel, end - start, hook=meta.get("hook", ""), label=meta.get("label", ""),
+        badge=section.label, badge_color=section.color, credit=meta.get("credit", ""),
+    ))
     voice = Path(clip["voiceover"]) if clip.get("voiceover") else None
     if voice and not voice.exists():
         raise media.MediaError(f"voiceover {voice} not found")
@@ -163,6 +194,10 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
         if rec is None or rec.get("status") not in ("planned", "failed"):
             continue
         rec["title"] = clip["meta"]["title"]
+        rec["section"] = cfg.section(clip.get("section", "")).name
+        if clip.get("section") != clip["meta"].get("section"):
+            sec = cfg.section(clip.get("section", ""))
+            clip["meta"].update(section=sec.name, badge=sec.label, badge_color=sec.color, playlist=sec.youtube_playlist_id)
         if clip.get("drop"):
             rec["status"] = "dropped"
             ledger.save()

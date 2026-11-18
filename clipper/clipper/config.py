@@ -6,7 +6,7 @@ import os
 import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import Any, get_args, get_origin, get_type_hints
 
 ROOT = Path(__file__).resolve().parent.parent  # the clipper/ project directory
 
@@ -33,12 +33,52 @@ class Source:
     type: str = "folder"  # folder | urls | ytdlp
     path: str = ""  # folder: directory of video files
     file: str = ""  # urls: text file with one direct video link per line
-    url: str = ""  # ytdlp: channel, playlist or video page
-    creator: str = ""  # who is in the footage; used in titles and credits
-    permission: str = ""  # why this footage may be used (campaign name, own footage, ...)
-    max_items: int = 2  # per run
+    url: str = ""  # ytdlp: a channel's clips or videos page, a playlist, a video, or a search ("ytsearch10:gta 6 glitches")
+    creator: str = ""  # who is in the footage; left empty, the channel name is used
+    permission: str = ""  # on what basis this footage is used (campaign, the creator's clip policy, own footage); empty = none on file
+    section: str = ""  # section these clips go to unless their content says otherwise
+    max_items: int = 2  # videos taken per run
+    look_at: int = 15  # how many listed videos are considered
+    min_views: int = 0  # skip videos with fewer views
+    min_minutes: float = 0.0
+    max_minutes: float = 0.0  # 0 = no limit
+    category: str = ""  # only videos whose game/category contains this text
     max_hours: float = 3.0  # only the first N hours of a long video are fetched
     chat_file: str = ""  # optional chat log (JSON list of {"t": seconds}) for a folder source
+
+
+@dataclass
+class Section:
+    name: str = "moments"
+    label: str = "HIGHLIGHT"  # badge shown on the clip
+    color: str = "#FF2E93"
+    cues: list[str] = field(default_factory=list)  # words and phrases that mark this kind of clip
+    hashtags: list[str] = field(default_factory=list)
+    youtube_playlist_id: str = ""
+
+
+def default_sections() -> list[Section]:
+    return [
+        Section("findings", "NEW FINDING", "#FFE600",
+                ["easter egg", "secret", "hidden", "i found", "we found", "found a", "discovered", "did you know", "detail",
+                 "nobody noticed", "reference", "never seen", "mystery", "bigfoot", "ufo", "alien", "ghost"],
+                ["#gta6secrets", "#gta6eastereggs"]),
+        Section("tricks", "TRICK", "#00E0FF",
+                ["how to", "trick", "tip", "pro tip", "fastest way", "easy way", "easiest way", "unlock", "cheat", "shortcut",
+                 "all you have to do", "you just need", "money fast", "best way"],
+                ["#gta6tips", "#gta6tricks"]),
+        Section("glitches", "GLITCH", "#7CFF4F",
+                ["glitch", "glitched", "bug", "bugged", "broken", "clipped through", "fell through", "under the map",
+                 "out of bounds", "launched", "physics"],
+                ["#gta6glitch", "#gta6bugs"]),
+        Section("moments", "WILD MOMENT", "#FF2E93", [], ["#gta6funny", "#gta6moments"]),
+    ]
+
+
+@dataclass
+class Rights:
+    block_channels: list[str] = field(default_factory=lambda: ["Rockstar Games", "Take-Two Interactive"])  # never taken from
+    credit_format: str = "Credit: {creator}"  # shown on the clip and in every caption
 
 
 @dataclass
@@ -55,7 +95,8 @@ class Moments:
     max_len: float = 45.0
     lead_in: float = 1.5  # seconds of context kept before the excitement starts
     min_gap: float = 20.0  # seconds between two clips from the same source
-    min_score: float = 1.0
+    min_score: float = 1.5
+    whole_clip_max: float = 62.0  # videos up to this length (for example Twitch clips) are used whole
     w_loud: float = 1.0
     w_rate: float = 0.5
     w_words: float = 1.0
@@ -167,9 +208,10 @@ class Publish:
 @dataclass
 class Gates:
     min_words: int = 12
+    min_words_whole: int = 4  # for short clips that are used whole
     min_speech_share: float = 0.25
     max_overlap: float = 0.3
-    max_text_similarity: float = 0.8
+    max_text_similarity: float = 0.6
     banned_terms: list[str] = field(
         default_factory=lambda: ["stake", "casino", "roobet", "gambling", "slots", "rainbet", "polymarket", "election"]
     )
@@ -180,6 +222,8 @@ class Config:
     brand: Brand = field(default_factory=Brand)
     paths: Paths = field(default_factory=Paths)
     sources: list[Source] = field(default_factory=lambda: [Source(type="folder", path="inbox")])
+    sections: list[Section] = field(default_factory=default_sections)
+    rights: Rights = field(default_factory=Rights)
     transcribe: Transcribe = field(default_factory=Transcribe)
     moments: Moments = field(default_factory=Moments)
     captions: Captions = field(default_factory=Captions)
@@ -195,6 +239,13 @@ class Config:
         """Absolute path of one of the working directories."""
         p = Path(getattr(self.paths, name))
         return p if p.is_absolute() else self.root / p
+
+    def section(self, name: str) -> Section:
+        """The named section, or the catch-all (the one called "moments", else the last)."""
+        for sec in self.sections:
+            if sec.name == name:
+                return sec
+        return next((sec for sec in self.sections if sec.name == "moments"), self.sections[-1])
 
     @property
     def models_dir(self) -> Path:
@@ -220,8 +271,11 @@ def _fill(cls: type, data: dict[str, Any], where: str) -> Any:
     kwargs = {}
     for name, value in data.items():
         kind = hints[name]
+        inner = get_args(kind)
         if is_dataclass(kind):
             kwargs[name] = _fill(kind, value, name)
+        elif get_origin(kind) is list and inner and is_dataclass(inner[0]):
+            kwargs[name] = [_fill(inner[0], v, name) for v in value]
         else:
             kwargs[name] = value
     return cls(**kwargs)
@@ -234,10 +288,7 @@ def load(path: str | Path | None = None) -> Config:
     if path.exists():
         with path.open("rb") as fh:
             data = tomllib.load(fh)
-    sources = data.pop("sources", None)
     cfg = _fill(Config, data, "config")
-    if sources is not None:
-        cfg.sources = [_fill(Source, s, "sources") for s in sources]
     validate(cfg)
     return cfg
 
@@ -264,5 +315,13 @@ def validate(cfg: Config) -> None:
     for s in cfg.sources:
         if s.type not in ("folder", "urls", "ytdlp"):
             raise ConfigError(f"sources: unknown type {s.type!r}")
-        if s.type != "folder" and not s.permission:
-            raise ConfigError(f"sources: a {s.type} source needs `permission` (why this footage may be used)")
+        if s.type == "ytdlp" and not s.url:
+            raise ConfigError("sources: a ytdlp source needs `url`")
+    if not cfg.sections:
+        raise ConfigError("at least one [[sections]] entry is needed")
+    names = [sec.name for sec in cfg.sections]
+    if len(set(names)) != len(names):
+        raise ConfigError("sections: names must be unique")
+    for src in cfg.sources:
+        if src.section and src.section not in names:
+            raise ConfigError(f"sources: unknown section {src.section!r}")

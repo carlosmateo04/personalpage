@@ -60,11 +60,91 @@ def test_ytdlp_source_fetches_and_trims(cfg, ledger, web):
     assert intake.collect(cfg, ledger, lambda m: None) == []
 
 
-def test_non_folder_sources_must_state_permission():
+def test_source_settings_are_checked():
     cfg = config.Config()
-    cfg.sources = [config.Source(type="ytdlp", url="https://example.com/v")]
-    with pytest.raises(config.ConfigError, match="permission"):
+    cfg.sources = [config.Source(type="ytdlp")]
+    with pytest.raises(config.ConfigError, match="url"):
         config.validate(cfg)
+    cfg.sources = [config.Source(type="ytdlp", url="https://example.com/v", section="nope")]
+    with pytest.raises(config.ConfigError, match="unknown section"):
+        config.validate(cfg)
+    cfg.sources = [config.Source(type="ytdlp", url="https://example.com/v", section="glitches")]
+    config.validate(cfg)
+
+
+class FakeSite:
+    """Stands in for yt-dlp: a listing of four videos with their details."""
+
+    def __init__(self, tmp_path):
+        self.tmp, self.calls, self.bot_check = tmp_path, [], False
+        self.videos = {
+            "a": {"title": "bus glitch", "view_count": 9000, "duration": 30, "channel": "StreamerA", "categories": ["Grand Theft Auto VI"]},
+            "b": {"title": "just chatting", "view_count": 8000, "duration": 30, "channel": "StreamerA", "categories": ["Just Chatting"]},
+            "c": {"title": "few views", "view_count": 10, "duration": 30, "channel": "StreamerA", "categories": ["Grand Theft Auto VI"]},
+            "d": {"title": "official trailer", "view_count": 7000, "duration": 30, "channel": "Rockstar Games", "categories": ["Grand Theft Auto VI"],
+                  "license": "Creative Commons Attribution license (reuse allowed)"},
+        }
+
+    def __call__(self, args, timeout=0):
+        import json as j
+        import subprocess as sp
+
+        self.calls.append(args)
+        url = args[-1]
+        if "--flat-playlist" in args:
+            entries = [{"id": k, "url": f"https://site/{k}", "title": v["title"], "view_count": v["view_count"], "duration": v["duration"]} for k, v in self.videos.items()]
+            return sp.CompletedProcess(args, 0, j.dumps({"_type": "playlist", "entries": entries}), "")
+        key = url.rsplit("/", 1)[1]
+        if self.bot_check:
+            return sp.CompletedProcess(args, 1, "", "ERROR: Sign in to confirm you\u2019re not a bot.")
+        if "--skip-download" in args:
+            return sp.CompletedProcess(args, 0, j.dumps({**self.videos[key], "id": key, "webpage_url": url}), "")
+        out = self.tmp / f"{key}.mp4"
+        out.write_bytes(b"video")
+        return sp.CompletedProcess(args, 0, f"{out}\n", "")
+
+
+def test_listed_videos_are_filtered_before_download(cfg, ledger, tmp_path, monkeypatch):
+    site = FakeSite(tmp_path)
+    monkeypatch.setattr(intake, "_yt", site)
+    monkeypatch.setattr(intake, "PAUSE", 0)
+    cfg.sources = [config.Source(type="ytdlp", url="https://site/clips", category="Grand Theft Auto VI", min_views=1000, max_items=5, section="glitches")]
+    items = intake.collect(cfg, ledger, lambda m: None)
+    assert [(i.title, i.creator, i.views, i.section) for i in items] == [("bus glitch", "StreamerA", 9000, "glitches")]
+    assert items[0].permission == "" and items[0].origin == "https://site/a"
+    downloads = [c[-1] for c in site.calls if "--print" in c]
+    assert downloads == ["https://site/a"]  # only the one that passed every filter was downloaded
+    reasons = {v["name"]: v["reason"] for v in ledger.sources.values()}
+    assert reasons == {"just chatting": "not Grand Theft Auto VI (Just Chatting)", "official trailer": "blocked channel Rockstar Games"}
+    ledger.sources[items[0].source_id] = {"status": "done"}
+    site.calls.clear()
+    assert intake.collect(cfg, ledger, lambda m: None) == []
+    assert not any("--skip-download" in c for c in site.calls)  # nothing is looked up twice
+
+
+def test_reuse_licence_is_recorded_as_the_basis(cfg, ledger, tmp_path, monkeypatch):
+    site = FakeSite(tmp_path)
+    site.videos = {"d": {**site.videos["d"], "channel": "SomeCreator"}}
+    monkeypatch.setattr(intake, "_yt", site)
+    cfg.sources = [config.Source(type="ytdlp", url="https://site/search")]
+    items = intake.collect(cfg, ledger, lambda m: None)
+    assert items[0].permission.startswith("Creative Commons")
+
+
+def test_bot_check_stops_the_source_and_is_retried_later(cfg, ledger, tmp_path, monkeypatch):
+    site = FakeSite(tmp_path)
+    site.bot_check = True
+    monkeypatch.setattr(intake, "_yt", site)
+    monkeypatch.setattr(intake, "PAUSE", 0)
+    cfg.sources = [config.Source(type="ytdlp", url="https://site/clips", max_items=5)]
+    logs = []
+    assert intake.collect(cfg, ledger, logs.append) == []
+    assert sum("--skip-download" in c for c in site.calls) == 1  # asked once, then left alone
+    assert [v["status"] for v in ledger.sources.values()] == ["blocked"]
+    assert any("bot check" in line for line in logs)
+    site.bot_check = False
+    later = intake.collect(cfg, ledger, logs.append)  # blocked videos are tried again on a later run
+    assert sorted(i.title for i in later) == ["bus glitch", "few views", "just chatting"]  # all but the blocked channel
 
 
 def test_chat_log_formats(tmp_path):
@@ -72,3 +152,36 @@ def test_chat_log_formats(tmp_path):
     f.write_text('[1.5, {"t": 2}, {"content_offset_seconds": 3.25}, {"text": "no time"}]')
     assert intake.load_chat(f) == [1.5, 2.0, 3.25]
     assert intake.load_chat(tmp_path / "none.json") is None
+
+
+def test_short_videos_are_fetched_whole_and_long_ones_trimmed():
+    src = config.Source(type="ytdlp", url="https://site/x", max_hours=1)
+    assert "--download-sections" not in intake.fetch_args(src, "https://site/x", __import__("pathlib").Path("/tmp"), duration=30)
+    long = intake.fetch_args(src, "https://site/x", __import__("pathlib").Path("/tmp"), duration=7200)
+    assert long[long.index("--download-sections") + 1] == "*0-3600"
+    assert "--download-sections" in intake.fetch_args(src, "https://site/x", __import__("pathlib").Path("/tmp"))  # unknown length: play safe
+
+
+def test_failed_fetches_are_retried_then_given_up(cfg, ledger, tmp_path, monkeypatch):
+    import subprocess as sp
+
+    site = FakeSite(tmp_path)
+    real = site.__call__
+
+    def broken(args, timeout=0):
+        if "--print" in args:  # every download fails
+            site.calls.append(args)
+            return sp.CompletedProcess(args, 1, "", "ERROR: ffmpeg exited with code 251")
+        return real(args, timeout)
+
+    monkeypatch.setattr(intake, "_yt", broken)
+    monkeypatch.setattr(intake, "PAUSE", 0)
+    cfg.sources = [config.Source(type="ytdlp", url="https://site/clips", max_items=5)]
+    logs = []
+    for run in range(1, 4):
+        site.calls.clear()
+        assert intake.collect(cfg, ledger, logs.append) == []
+        assert sum("--print" in c for c in site.calls) == 2  # stops after two failures in a row
+        statuses = sorted((v["status"], v["tries"]) for v in ledger.sources.values() if "tries" in v)
+        assert statuses == [("failed" if run == 3 else "blocked", run)] * 2
+    assert any("two fetches in a row failed" in line for line in logs)

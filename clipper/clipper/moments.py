@@ -88,20 +88,27 @@ def loudness_db(wav: Path) -> np.ndarray:
     return 20 * np.log10(rms)
 
 
-def score_track(cfg: Moments, wav: Path, words: list[Word], chat_times: list[float] | None = None) -> np.ndarray:
+def _density(hits: np.ndarray, sigma: float) -> np.ndarray:
+    """Hits within a few seconds of each moment: one hit counts 1 at its own time and fades with distance."""
+    radius = int(sigma * 3)
+    kernel = np.exp(-0.5 * (np.arange(-radius, radius + 1) / sigma) ** 2)
+    return np.convolve(hits, kernel, mode="same")
+
+
+def score_track(cfg: Moments, wav: Path, words: list[Word], chat_times: list[float] | None = None, cues: list[str] | None = None) -> np.ndarray:
     db = loudness_db(wav)
     n = len(db)
     loud = np.clip(_robust_z(db, int(180 / HOP)), 0, 4)
 
     rate = np.zeros(n)
     hype = np.zeros(n)
-    patterns = [re.compile(r"\b" + re.escape(h) + r"\b") for h in cfg.hype_words]
+    patterns = [re.compile(r"\b" + re.escape(h.lower()) + r"\b") for h in [*cfg.hype_words, *(cues or [])]]
     for i, w in enumerate(words):
         b = min(n - 1, int(w.s / HOP))
         rate[b] += 1
         if w.w.endswith("!") or w.w.endswith("?"):
             hype[b] += 1.0
-        context = " ".join(x.w for x in words[i : i + 3]).lower()
+        context = " ".join(x.w for x in words[i : i + 5]).lower()
         context = re.sub(r"[^a-z' ]", "", context)
         for p in patterns:
             if p.match(context):
@@ -114,7 +121,7 @@ def score_track(cfg: Moments, wav: Path, words: list[Word], chat_times: list[flo
     else:
         rate_z = np.zeros(n)
 
-    score = cfg.w_loud * _smooth(loud, 2 / HOP) + cfg.w_rate * rate_z + cfg.w_words * _smooth(hype, 3 / HOP) * 2
+    score = cfg.w_loud * _smooth(loud, 2 / HOP) + cfg.w_rate * rate_z + cfg.w_words * np.clip(_density(hype, 4 / HOP), 0, 4)
 
     if chat_times:
         chat = np.zeros(n)
@@ -184,11 +191,11 @@ def _window(cfg: Moments, i: int, score: np.ndarray, sents: list[Sentence], word
     return round(start, 2), round(end, 2)
 
 
-def find(cfg: Moments, wav: Path, words: list[Word], total: float, chat_times: list[float] | None = None, limit: int = 24) -> list[Candidate]:
+def find(cfg: Moments, wav: Path, words: list[Word], total: float, chat_times: list[float] | None = None, limit: int = 24, cues: list[str] | None = None) -> list[Candidate]:
     """Best non-overlapping clip candidates, strongest first."""
     if not words:
         return []
-    score = score_track(cfg, wav, words, chat_times)
+    score = score_track(cfg, wav, words, chat_times, cues)
     sents = sentences(words)
     picked: list[Candidate] = []
     for i in _peaks(score, int(8 / HOP)):

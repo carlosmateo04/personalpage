@@ -9,21 +9,28 @@ footage -> transcript -> best moments -> quality checks -> titles + hashtags
         -> vertical render with captions -> posting slots -> report
 ```
 
-## Business model
+## The model
 
-Highlight moments from gameplay streams, shared as short clips, paid per view by
-a clipping campaign:
+GTA 6 videos and clips are found online, the highlights are cut out, sorted into
+sections and posted as short vertical clips:
 
-1. A streamer or brand funds a campaign and gives clippers permission to clip.
-2. This pipeline cuts the highlights, captions them and posts them four times a
-   day on four platforms. The sound is the footage's own; no voiceover is added.
-3. The daily report lists the post links to submit to the campaign and estimates
-   the payout from the view counts and the campaign's terms (`[campaign]` in
-   `config.toml`: rate per 1,000 views, minimum, cap per post, fee, and which
-   platforms count).
+1. **Grab.** Each run lists the sources in `config.toml`: a Twitch channel's
+   most-viewed clips of the last 24 hours, a YouTube search, a channel's videos,
+   or files in `inbox/`. Videos are filtered by views, length and game before
+   anything is downloaded.
+2. **Cut.** A short clip (up to 62 s, such as a Twitch clip) is used whole. A long
+   video goes through the moment finder, which reacts to loudness, fast talking,
+   hype words and the sections' cue words.
+3. **Sort.** Every clip is filed under a section: new findings, tricks, glitches
+   or wild moments. It gets that section's badge, hashtags and playlist.
+4. **Credit.** The channel the footage came from is named on the clip and in
+   every caption, with a link to the original in the YouTube description.
+5. **Post.** Four clips a day on four platforms, the sections taking turns.
 
-Platform ad revenue (YouTube Partner Program, TikTok Creator Rewards) is not part
-of this model: the platforms do not pay for reposted highlights.
+Clips are other people's footage unless a source says otherwise. `permission`
+on a source records the basis for using it; the daily report lists footage used
+with none on file. Each platform decides for itself whether reposted clips are
+recommended or paid for.
 
 ## Quick start
 
@@ -98,14 +105,18 @@ off: only if you point `"voiceover"` at a recording of your own is it mixed in.
 
 | Type | Use |
 |---|---|
+| `ytdlp` | Anything yt-dlp can list: a Twitch channel's top clips, a channel's videos, a playlist, one video, or a YouTube search link |
 | `folder` | Video files dropped into `inbox/` |
 | `urls` | Direct video links, one per line in `sources/urls.txt` |
-| `ytdlp` | A channel's videos page, a playlist or a single video, fetched with yt-dlp |
 
-Every `urls` and `ytdlp` source must state `permission`: the campaign or other
-reason the footage may be used. Only clip footage you own or have been given
-permission to clip. YouTube's terms prohibit downloading without permission and
-its downloads are unreliable from cloud servers.
+Per source: `category` (only this game), `min_views`, `min_minutes` /
+`max_minutes`, `max_items` (videos taken per run), `section` (where its clips
+go by default) and `permission`.
+
+YouTube refuses automated downloads from cloud machines ("confirm you're not a
+bot"). The run records those videos as not fetched and moves on; it does not
+try to get around the check. YouTube sources work when the run happens on a
+home connection. Twitch works from cloud machines.
 
 ## Going live
 
@@ -133,9 +144,12 @@ down the requests this code sends; the stand-in's responses are assumptions.
 
 - Uploading through a real Upload-Post account, and the exact shape of its
   status and analytics responses (links and views are extracted defensively).
-- yt-dlp against Twitch, Kick or YouTube (tested only against a local server).
-- Moment finding on real GTA 6 stream footage; the thresholds in `[moments]`
-  were tuned on synthetic test footage and will need adjusting.
+- Downloading from YouTube (refused by its bot check from this machine) and
+  from Kick (not tried). Twitch clips were listed, downloaded and clipped live.
+- The moment finder on long real videos; so far only whole Twitch clips have
+  gone through on real footage.
+- Section sorting on real findings, tricks and glitch videos: launch-day Twitch
+  clips all landed in "moments".
 
 ## Font
 

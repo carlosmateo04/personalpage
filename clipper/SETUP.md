@@ -27,16 +27,16 @@ For a different name:
 
 Bio (all platforms):
 
-> Daily GTA 6 clips from streams. Unofficial fan channel, not affiliated with
-> Rockstar Games or Take-Two. Clips posted with creator permission. Paid
-> partnerships are labelled.
+> Daily GTA 6 clips: new findings, tricks, glitches and wild moments. Unofficial
+> fan channel, not affiliated with Rockstar Games or Take-Two. Every clip credits
+> its creator. Creators: message us to have a clip removed.
 
 YouTube channel description:
 
-> The best GTA 6 moments from streamers, clipped daily: chases, fails, glitches
-> and reactions. Unofficial fan channel, not affiliated with Rockstar Games or
-> Take-Two Interactive. Clips are posted with the creator's permission; paid
-> partnerships are disclosed on every video.
+> The best GTA 6 clips, sorted daily: new findings, tricks, glitches and wild
+> moments. Unofficial fan channel, not affiliated with Rockstar Games or Take-Two
+> Interactive. Every clip credits the creator it came from. Creators: message us
+> and we will remove any clip of yours.
 
 ## 2. Posting service (about 15 minutes)
 
@@ -46,22 +46,21 @@ YouTube channel description:
 3. Create an API key. Do not paste it into chat: tell Claude "the key is ready"
    and enter it in the secure form that opens.
 
-## 3. Footage you are allowed to clip
+## 3. Choose whose footage to clip
 
-Pick one:
+`config.toml` starts with six Twitch channels (their most-viewed GTA 6 clips of
+the day) and three YouTube searches. Edit the `[[sources]]` list to add or
+remove channels.
 
-- **A paid clipping campaign.** Join through contentrewards.com or vyro.com only
-  (never pay to join). Send Claude the brief: which streamer, where the footage
-  is, the required hashtags and disclosure wording, and the view rules.
-- **Your own gameplay.** Record it and drop the files into `clipper/inbox/`, or
-  give a link to your own channel.
-
-Payout marketplaces also ask for identity verification before they pay.
+No permission is on file for any of the starter channels. Clips credit the
+channel, but credit is not permission: a creator can have a clip taken down,
+and repeated takedowns close an account. For each channel you keep, check its
+clip policy (channel panels, Discord) and write it in `permission`, or join its
+clipping campaign.
 
 ## 4. Tell Claude to go live
 
-Claude then fills in `config.toml` (profile, campaign, sources), asks you to
-approve the network hosts the footage needs, runs `doctor`, and switches
-`publish.mode` to `live`. From then on the daily run needs nothing from you
-except submitting each day's post links to the campaign (they are listed in
-`reports/latest.md`).
+Claude then fills in the posting profile in `config.toml`, runs `doctor`, and
+switches `publish.mode` to `live`. From then on the daily run grabs, cuts, sorts
+and schedules the clips by itself. `reports/latest.md` shows what went out and
+what was not fetched.
