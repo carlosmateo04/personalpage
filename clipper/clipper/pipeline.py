@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from . import captions, gates, intake, media, metadata, moments, presenter, publish, render, schedule, sections, transcribe
+from . import captions, gates, intake, media, metadata, moments, presenter, publish, render, report, schedule, sections, transcribe
 from .config import Config
 from .state import Ledger, now_iso
 from .transcribe import Word
@@ -247,6 +247,7 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
         try:
             video = render_clip(cfg, clip, run_dir)
             rec["file"], rec["meta"] = str(video), clip["meta"]
+            video.with_suffix(".txt").write_text(report.post_kit(cfg, clip, rec["slot"]))  # the text to post with it
             if cfg.publish.hold_for_review:
                 rec["status"] = "held"
                 log(f"  {rec['id']} rendered and held for review")

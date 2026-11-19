@@ -123,8 +123,9 @@ off: only if you point `"voiceover"` at a recording of your own is it mixed in.
   clips fill the next `max_days_ahead` days.
 - **Ledger** (`state/ledger.json`): what was processed and posted. It is
   committed after every run so nothing is clipped or posted twice.
-- **Report** (`reports/latest.md`): what is scheduled, what failed, and the post
-  links to submit to the campaign.
+- **Report** (`reports/latest.md`): what is scheduled, what failed, and what
+  was left out. Next to every finished clip in `out/<run>/` is a `.txt` with its
+  title, captions and hashtags for each platform, ready to paste.
 
 ## Footage sources
 

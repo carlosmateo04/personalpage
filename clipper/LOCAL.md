@@ -67,8 +67,9 @@ Review `out/<newest run>/plan.json` (see below), then:
 python -m clipper execute
 ```
 
-While `publish.mode = "dry_run"` in `config.toml` nothing is posted; the finished
-clips are in `out/<run>/` for you to watch.
+While `publish.mode = "dry_run"` in `config.toml` nothing is posted. The finished
+clips are in `out/<run>/`: each `.mp4` has a `.txt` next to it with the title,
+caption and hashtags for TikTok, Instagram, Facebook and YouTube, ready to paste.
 
 ## Letting Claude do it
 
@@ -100,9 +101,10 @@ Claude desktop app, or `claude` in a terminal there) and say:
      show. Do not invent details.
 4. Run `python -m clipper execute`.
 5. Commit `clipper/state` and `clipper/reports` and push to the branch.
-6. Report: how many clips were made, their sections and titles, what was
-   dropped and why, and anything in `clipper/reports/latest.md` under "Not
-   fetched", "Left out: not gameplay-only" or "Failed clips".
+6. Report: where the finished clips and their `.txt` files are, how many clips
+   were made, their sections and titles, what was dropped and why, and anything
+   in `clipper/reports/latest.md` under "Not fetched", "Left out: not
+   gameplay-only" or "Failed clips".
 
 Do not change `publish.mode`, the sources, the sections or the filters, and do
 not try to get around a site's bot check. If YouTube refuses this computer as

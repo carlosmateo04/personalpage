@@ -53,6 +53,11 @@ def test_run_makes_schedules_and_never_repeats(cfg, ledger, footage):
     text = report.build(cfg, ledger, summary, NOW)
     assert clip["meta"]["title"] in text and "DRY RUN" in text
 
+    kit = (cfg.path("out") / plan["run"] / f"{clip['id']}.txt").read_text()  # the text to post alongside the video
+    assert "=== TikTok ===" in kit and clip["meta"]["tiktok"]["title"] in kit
+    assert f"Title: {clip['meta']['youtube']['title']}" in kit and "POST AT   Wed 18 Nov 2026, 11:30 EST" in kit
+    assert "no permission on file" not in kit  # this footage came from the local folder
+
     again = pipeline.plan(cfg, ledger, NOW, quiet)  # same footage, next run
     assert again["clips"] == [] and again["rejected"] == []
 

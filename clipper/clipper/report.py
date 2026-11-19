@@ -14,6 +14,31 @@ def _cell(text: str) -> str:
     return str(text).replace("|", "/").replace("\n", " ")
 
 
+def post_kit(cfg: Config, clip: dict, slot: str) -> str:
+    """Everything needed to post one clip by hand: the text for each platform, ready to paste."""
+    meta = clip["meta"]
+    when = datetime.fromisoformat(slot).astimezone(ZoneInfo(cfg.schedule.timezone)).strftime("%a %d %b %Y, %H:%M %Z")
+    yt = meta["youtube"]
+    lines = [
+        f"CLIP      {clip['id']}.mp4  ({clip['end'] - clip['start']:.0f} s, section: {clip.get('section') or meta.get('section', '')})",
+        f"POST AT   {when}",
+        f"FOOTAGE   {clip.get('creator') or 'unknown'}  {clip.get('origin', '')}",
+        f"BASIS     {clip.get('permission') or 'no permission on file'}",
+        "",
+        "=== TikTok ===", meta["tiktok"]["title"], "",
+        "=== Instagram Reels ===", meta["instagram"]["title"], "",
+        "=== Facebook Reels ===", meta["facebook"]["title"], "",
+        "=== YouTube Shorts ===",
+        f"Title: {yt['title']}",
+        "Description:", yt["description"],
+        f"Tags: {', '.join(yt['tags'])}",
+        "",
+    ]
+    if meta.get("label"):
+        lines += [f"Paid partnership: switch on each platform's paid-content label ({meta['label']}).", ""]
+    return "\n".join(lines)
+
+
 def build(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     tz = ZoneInfo(cfg.schedule.timezone)
