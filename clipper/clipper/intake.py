@@ -13,6 +13,7 @@ downloaded. Whatever is already in the ledger is skipped.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -125,7 +126,8 @@ def runtime_args() -> list[str]:
 def _yt(args: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
     """Run yt-dlp. Kept in one place so tests can replace it."""
     cmd = [sys.executable, "-m", "yt_dlp", "--no-warnings", *runtime_args(), *args]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    env = {**os.environ, "PYTHONUTF8": "1"}  # titles with emoji or accents arrive intact on Windows too
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
 
 
 def _json(text: str) -> dict:

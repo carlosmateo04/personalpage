@@ -17,7 +17,7 @@ class MediaError(RuntimeError):
 
 def run(cmd: list[str], what: str = "") -> str:
     """Run a command; on failure raise with the tail of its error output."""
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-12:])
         raise MediaError(f"{what or cmd[0]} failed (exit {proc.returncode}):\n{tail}")

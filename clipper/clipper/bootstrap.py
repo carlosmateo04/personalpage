@@ -54,7 +54,10 @@ def models_dir() -> Path:
 
 
 def missing_modules() -> list[str]:
-    return [package for name, package in MODULES.items() if importlib.util.find_spec(name) is None]
+    wanted = dict(MODULES)
+    if os.name == "nt":
+        wanted["tzdata"] = "tzdata"  # Windows has no time-zone database of its own
+    return [package for name, package in wanted.items() if importlib.util.find_spec(name) is None]
 
 
 def fetch(url: str, dest: Path, tries: int = 8) -> None:

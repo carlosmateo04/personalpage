@@ -3,7 +3,8 @@
 YouTube refuses video downloads from cloud machines, so the daily run has to
 happen on a home internet connection. Everything else is the same.
 
-It has been run on Linux only. macOS should behave the same; Windows is untested.
+It has been run on Linux only. macOS should behave the same. Windows is untested;
+the known Windows differences (text encoding, time zones, file paths) are handled.
 
 ## What the computer needs
 
@@ -13,7 +14,59 @@ It has been run on Linux only. macOS should behave the same; Windows is untested
   (macOS: `brew install deno`; Windows: `winget install DenoLand.Deno`; Linux: `curl -fsSL https://deno.land/install.sh | sh`)
 - git, and about 2 GB of free disk space
 
-## One-time setup
+## One-time setup on Windows (PowerShell)
+
+Install the tools, then close PowerShell and open it again so it finds them:
+
+```bash
+winget install -e --id Python.Python.3.12
+```
+
+```bash
+winget install -e --id Git.Git
+```
+
+```bash
+winget install -e --id Gyan.FFmpeg
+```
+
+```bash
+winget install -e --id DenoLand.Deno
+```
+
+Download the project and set it up:
+
+```bash
+git clone https://github.com/carlosmateo04/personalpage.git
+```
+
+```bash
+cd personalpage
+```
+
+```bash
+git checkout claude/quirky-ramanujan-pk7f77
+```
+
+```bash
+cd clipper
+```
+
+```bash
+py -m venv .venv
+```
+
+```bash
+.venv\Scripts\python -m clipper setup --install
+```
+
+```bash
+.venv\Scripts\python -m clipper doctor
+```
+
+On Windows, use `.venv\Scripts\python` wherever the steps below say `python`.
+
+## One-time setup on macOS or Linux
 
 ```bash
 git clone https://github.com/carlosmateo04/personalpage.git
@@ -24,19 +77,7 @@ cd personalpage && git checkout claude/quirky-ramanujan-pk7f77 && cd clipper
 ```
 
 ```bash
-python3 -m venv .venv
-```
-
-Activate it (macOS and Linux):
-
-```bash
-source .venv/bin/activate
-```
-
-Activate it (Windows):
-
-```bash
-.venv\Scripts\activate
+python3 -m venv .venv && source .venv/bin/activate
 ```
 
 Install the packages and download the speech model (about 480 MB):
