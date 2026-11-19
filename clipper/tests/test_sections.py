@@ -49,7 +49,10 @@ def test_short_clips_used_whole_have_their_own_limits(cfg, ledger):
     assert gates.check(cfg, short, "s", ledger, whole=True) == []
     assert any("too short" in r for r in gates.check(cfg, short, "s", ledger))  # as a cut from a long video it would not pass
     mute = moments.Candidate(0.0, 12.0, 6.0, 3.0, speak("bro"))
+    assert gates.check(cfg, mute, "s", ledger, whole=True) == []
+    cfg.filters.require_speech = True
     assert any("too little speech" in r for r in gates.check(cfg, mute, "s", ledger, whole=True))
+    cfg.filters.require_speech = False
     long = moments.Candidate(0.0, 90.0, 45.0, 3.0, speak("wtf is gta bro look at that"))
     assert any("too long" in r for r in gates.check(cfg, long, "s", ledger, whole=True))
 
@@ -90,6 +93,6 @@ def test_titles_keep_names_as_written_and_do_not_repeat_the_game(cfg):
         meta = metadata.build(cfg, cand, clip_id, "xQc", section, "xQc plays gta6 for the first time", "")
         assert "xQc plays gta6 for the first time" in meta["title"] and "XQc" not in meta["title"]
         assert "(GTA 6)" not in meta["title"] and "| GTA 6" not in meta["youtube"]["title"]
-        assert not meta["title"].startswith("xQc: xQc")
+        assert not meta["title"].startswith("xQc:")  # a clip's own title is not presented as a quote
     lower = metadata.build(cfg, cand, "a", "KaiCenat", section, "kai bank", "")
     assert "Kai bank" in lower["title"]

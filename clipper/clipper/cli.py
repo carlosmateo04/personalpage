@@ -41,7 +41,7 @@ def cmd_clip(cfg, args) -> int:
     """One-off: turn a video file into finished clips, without the ledger or posting."""
     src = Path(args.video).resolve()
     sid = media.file_id(src)
-    cands, _, _ = pipeline.analyse(cfg, src, sid)
+    cands = pipeline.analyse(cfg, src, sid).cands
     out_dir = Path(args.out).resolve() if args.out else cfg.path("out") / "manual" / src.stem
     for n, cand in enumerate(cands[: args.count], 1):
         clip_id = f"{src.stem}-{n:02d}"

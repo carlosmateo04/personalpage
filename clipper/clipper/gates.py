@@ -10,6 +10,9 @@ from .moments import Candidate
 from .state import Ledger
 
 
+MIN_TEXT = 40  # characters of transcript needed before two clips are compared
+
+
 def normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower())[:600]
 
@@ -27,12 +30,13 @@ def check(cfg: Config, cand: Candidate, source_id: str, ledger: Ledger, whole: b
         reasons.append(f"too short ({cand.duration:.0f}s)")
     if cand.duration > longest:
         reasons.append(f"too long ({cand.duration:.0f}s)")
-    need = g.min_words_whole if whole else g.min_words
-    if len(cand.words) < need:
-        reasons.append(f"too little speech ({len(cand.words)} words)")
-    spoken = sum(w.e - w.s for w in cand.words)
-    if not whole and cand.duration > 0 and spoken / cand.duration < g.min_speech_share:
-        reasons.append(f"mostly silence ({spoken / cand.duration:.0%} speech)")
+    if cfg.filters.require_speech:
+        need = g.min_words_whole if whole else g.min_words
+        if len(cand.words) < need:
+            reasons.append(f"too little speech ({len(cand.words)} words)")
+        spoken = sum(w.e - w.s for w in cand.words)
+        if not whole and cand.duration > 0 and spoken / cand.duration < g.min_speech_share:
+            reasons.append(f"mostly silence ({spoken / cand.duration:.0%} speech)")
     low = cand.text.lower()
     hit = next((t for t in g.banned_terms if re.search(r"\b" + re.escape(t.lower()) + r"\b", low)), None)
     if hit:
@@ -47,8 +51,8 @@ def check(cfg: Config, cand: Candidate, source_id: str, ledger: Ledger, whole: b
     text = normalise(cand.text)
     recent = sorted(ledger.clips.values(), key=lambda c: c.get("created", ""))[-300:]
     for old in recent:
-        if old.get("source_id") == source_id or not old.get("text") or old.get("status") == "failed":
-            continue
+        if old.get("source_id") == source_id or len(old.get("text") or "") < MIN_TEXT or len(text) < MIN_TEXT or old.get("status") == "failed":
+            continue  # too little was said to tell whether it is the same moment
         if SequenceMatcher(None, text, old["text"]).ratio() > g.max_text_similarity:
             reasons.append(f"same moment as clip {old['id']}")
             break

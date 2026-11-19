@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 command -v ffmpeg >/dev/null || { echo "ffmpeg is required (apt-get install -y ffmpeg)"; exit 1; }
 
-python3 -c "import numpy, soundfile, sherpa_onnx, upload_post, requests, yt_dlp" 2>/dev/null \
+python3 -c "import numpy, soundfile, sherpa_onnx, upload_post, requests, yt_dlp, cv2" 2>/dev/null \
   || python3 -m pip install -q --root-user-action=ignore -r requirements.txt
 
 MODELS="${CLIPPER_MODELS:-$HOME/.cache/clipper/models}"

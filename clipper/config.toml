@@ -2,11 +2,13 @@
 # No secrets belong in this file.
 #
 # The model these settings implement:
-#   1. GTA 6 videos and clips are found online (Twitch channels, YouTube searches).
+#   1. Gameplay-only GTA 6 videos are found online: no streamer on camera and
+#      nobody talking over the game.
 #   2. The highlights are cut out and sorted into sections: new findings, tricks,
-#      glitches and wild moments.
-#   3. Each becomes a short vertical clip with karaoke captions, a section badge
-#      and a credit to the channel it came from. The sound is the footage's own.
+#      glitches and highlights.
+#   3. Each becomes a short vertical clip with a section badge and a credit to the
+#      channel it came from. The sound is the game's own; when characters speak,
+#      their lines appear as karaoke captions.
 #   4. Clips are posted to TikTok, Instagram, YouTube and Facebook four times a day,
 #      taking the sections in turn.
 
@@ -48,10 +50,10 @@ youtube_playlist_id = ""
 
 [[sections]]
 name = "moments"                 # the catch-all
-label = "WILD MOMENT"
+label = "HIGHLIGHT"
 color = "#FF2E93"
 cues = []
-hashtags = ["#gta6funny", "#gta6moments"]
+hashtags = ["#gta6highlights", "#gta6moments"]
 youtube_playlist_id = ""
 
 # ---------------------------------------------------------------------------
@@ -62,85 +64,67 @@ youtube_playlist_id = ""
 #   section     where its clips go unless their content clearly says otherwise.
 # ---------------------------------------------------------------------------
 
-# Twitch: each channel's most-viewed clips of the last 24 hours, GTA 6 only.
-# These are already highlights picked by viewers, so they are used whole.
-[[sources]]
-type = "ytdlp"
-url = "https://www.twitch.tv/kaicenat/clips?filter=clips&range=24hr"
-category = "Grand Theft Auto VI"
-min_views = 300
-max_items = 2
-look_at = 10
+# Gameplay-only videos: every source below takes only videos whose title says
+# they have no commentary, and each video is then checked for a streamer's
+# facecam and for commentator talk before it is used.
+#
+# YouTube refuses automated downloads from cloud machines, so these sources
+# produce clips only when the run happens on a home connection.
 
 [[sources]]
 type = "ytdlp"
-url = "https://www.twitch.tv/xqc/clips?filter=clips&range=24hr"
-category = "Grand Theft Auto VI"
-min_views = 300
-max_items = 2
-look_at = 10
-
-[[sources]]
-type = "ytdlp"
-url = "https://www.twitch.tv/jynxzi/clips?filter=clips&range=24hr"
-category = "Grand Theft Auto VI"
-min_views = 150
-max_items = 2
-look_at = 10
-
-[[sources]]
-type = "ytdlp"
-url = "https://www.twitch.tv/agent00/clips?filter=clips&range=24hr"
-category = "Grand Theft Auto VI"
-min_views = 100
-max_items = 2
-look_at = 10
-
-[[sources]]
-type = "ytdlp"
-url = "https://www.twitch.tv/summit1g/clips?filter=clips&range=24hr"
-category = "Grand Theft Auto VI"
-min_views = 300
+url = "https://www.youtube.com/results?search_query=gta+6+no+commentary+gameplay&sp=EgIIAw%253D%253D"
+title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+section = "moments"
+min_views = 2000
+min_minutes = 3
+max_minutes = 75
+max_hours = 0.75
 max_items = 1
-look_at = 10
 
 [[sources]]
 type = "ytdlp"
-url = "https://www.twitch.tv/caseoh_/clips?filter=clips&range=24hr"
-category = "Grand Theft Auto VI"
-min_views = 300
+url = "https://www.youtube.com/results?search_query=gta+6+police+chase+stunt+no+commentary&sp=EgIIAw%253D%253D"
+title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+section = "moments"
+min_views = 1000
+min_minutes = 1
+max_minutes = 30
 max_items = 1
-look_at = 10
 
-# YouTube: this week's videos found by search (the "sp" part of the address is
-# YouTube's "uploaded this week" filter), cut down to their best passages.
-# YouTube currently refuses automated downloads from cloud machines, so these
-# produce nothing here; they work when the run happens on a home connection.
 [[sources]]
 type = "ytdlp"
-url = "https://www.youtube.com/results?search_query=gta+6+easter+eggs+secrets&sp=EgIIAw%253D%253D"
+url = "https://www.youtube.com/results?search_query=gta+6+easter+egg+secret+location+no+commentary&sp=EgIIAw%253D%253D"
+title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
 section = "findings"
-min_views = 2000
+min_views = 500
 min_minutes = 1
-max_minutes = 25
+max_minutes = 20
 max_items = 1
 
 [[sources]]
 type = "ytdlp"
-url = "https://www.youtube.com/results?search_query=gta+6+tips+and+tricks&sp=EgIIAw%253D%253D"
+url = "https://www.youtube.com/results?search_query=gta+6+how+to+guide+no+commentary&sp=EgIIAw%253D%253D"
+title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
 section = "tricks"
-min_views = 2000
+min_views = 500
 min_minutes = 1
-max_minutes = 25
+max_minutes = 20
 max_items = 1
 
 [[sources]]
 type = "ytdlp"
-url = "https://www.youtube.com/results?search_query=gta+6+glitches&sp=EgIIAw%253D%253D"
+url = "https://www.youtube.com/results?search_query=gta+6+glitch+no+commentary&sp=EgIIAw%253D%253D"
+title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
 section = "glitches"
-min_views = 2000
+min_views = 500
 min_minutes = 1
-max_minutes = 25
+max_minutes = 20
 max_items = 1
 
 # Your own recordings: drop video files into clipper/inbox/.
@@ -148,6 +132,12 @@ max_items = 1
 type = "folder"
 path = "inbox"
 permission = "own footage"
+
+# Gameplay only: nobody on camera, nobody talking over the game.
+[filters]
+no_facecam = true                # leave out footage with a streamer's webcam on it
+no_commentary = true             # leave out footage where someone talks about the game over it
+require_speech = false           # clips may have no speech at all
 
 [rights]
 block_channels = ["Rockstar Games", "Take-Two Interactive"]   # never taken from

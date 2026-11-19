@@ -98,6 +98,12 @@ def build(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime |
         lines += ["## Not fetched", ""]
         lines += [f"- {_cell(src.get('name', ''))}: {_cell(src.get('reason', src['status']))}" for src in missed[:15]]
         lines.append("")
+    presented = [src for src in ledger.sources.values() if src.get("status") == "skipped" and fresh(src)
+                 and str(src.get("reason", "")).startswith(("streamer facecam", "someone is talking"))]
+    if presented:
+        lines += ["## Left out: not gameplay-only", ""]
+        lines += [f"- {_cell(src.get('name', ''))} ({_cell(src.get('creator') or '-')}): {_cell(src['reason'])}" for src in presented[:20]]
+        lines.append("")
 
     failed = [c for c in clips if c.get("status") == "failed"]
     if failed:

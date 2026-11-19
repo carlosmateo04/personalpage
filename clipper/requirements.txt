@@ -4,3 +4,4 @@ sherpa-onnx>=2.0
 upload-post>=2.20
 requests>=2.25
 yt-dlp
+opencv-python-headless>=4.8

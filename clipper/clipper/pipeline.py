@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from . import captions, gates, intake, media, metadata, moments, publish, render, schedule, sections, transcribe
+from . import captions, gates, intake, media, metadata, moments, presenter, publish, render, schedule, sections, transcribe
 from .config import Config
 from .state import Ledger, now_iso
 from .transcribe import Word
@@ -35,11 +35,21 @@ def ledger_of(cfg: Config) -> Ledger:
     return Ledger(cfg.path("state") / "ledger.json")
 
 
-def analyse(cfg: Config, path: Path, source_id: str, chat: list[float] | None = None, views: int = 0) -> tuple[list[moments.Candidate], float, bool]:
-    """Transcribe one video. Returns its clip candidates, its duration, and whether it is used whole.
+@dataclass
+class Analysis:
+    cands: list[moments.Candidate]
+    duration: float
+    whole: bool  # the video is short enough to be the clip itself
+    text: str  # everything said in the video
+
+
+def analyse(cfg: Config, path: Path, source_id: str, chat: list[float] | None = None, views: int = 0) -> Analysis:
+    """Transcribe one video and work out its clip candidates.
 
     A short video (a Twitch clip, say) is already somebody's highlight, so it becomes
     one candidate covering all of it. A long video goes through the moment finder.
+    A video of a few minutes in which nothing stands out gives its last stretch,
+    which is where a guide shows what it was leading up to.
     """
     info = media.probe(path)
     if not info.has_audio:
@@ -47,11 +57,17 @@ def analyse(cfg: Config, path: Path, source_id: str, chat: list[float] | None = 
     work = cfg.path("work")
     wav = media.extract_audio(path, work / "audio" / f"{source_id}.wav")
     words = transcribe.transcribe(cfg, wav, work / "transcripts" / f"{source_id}.json")
-    if info.duration <= cfg.moments.whole_clip_max:
+    text = " ".join(w.w for w in words)
+    m = cfg.moments
+    if info.duration <= m.whole_clip_max:
         score = round(math.log10(views + 10), 3)  # more-watched clips rank higher
-        return [moments.Candidate(0.0, round(info.duration, 2), round(info.duration / 2, 2), score, words)], info.duration, True
-    found = moments.find(cfg.moments, wav, words, info.duration, chat, cues=sections.all_cues(cfg))
-    return found, info.duration, False
+        return Analysis([moments.Candidate(0.0, round(info.duration, 2), round(info.duration / 2, 2), score, words)], info.duration, True, text)
+    found = moments.find(m, wav, words, info.duration, chat, cues=sections.all_cues(cfg))
+    if not found and info.duration <= 300:
+        end = round(info.duration - 2, 2)
+        start = round(max(0.0, end - m.max_len), 2)
+        found = [moments.Candidate(start, end, round((start + end) / 2, 2), 1.0, [w for w in words if w.s >= start and w.e <= end])]
+    return Analysis(found, info.duration, False, text)
 
 
 def _by_turns(pool: list[dict]) -> list[dict]:
@@ -80,19 +96,41 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
 
     for item in intake.collect(cfg, ledger, log):
         log(f"analysing {item.name}")
+
+        def leave_out(reason: str) -> None:
+            ledger.sources[item.source_id] = {"name": item.name, "origin": item.origin, "creator": item.creator,
+                                              "status": "skipped", "reason": reason, "processed": now_iso()}
+            rejected.append({"source": item.name, "start": 0.0, "end": 0.0, "score": 0.0, "reasons": [reason]})
+            log(f"  left out: {reason}")
+
         try:
-            cands, duration, whole = analyse(cfg, item.path, item.source_id, intake.load_chat(item.chat_file), item.views)
+            # Gameplay only: a video with a streamer on camera or talking over it is left out whole.
+            if cfg.filters.no_facecam:
+                on_camera, where = presenter.facecam(cfg, item.path, 0.0, media.probe(item.path).duration)
+                if on_camera:
+                    leave_out(f"streamer facecam ({where})")
+                    continue
+            found = analyse(cfg, item.path, item.source_id, intake.load_chat(item.chat_file), item.views)
         except (media.MediaError, transcribe.TranscribeError) as exc:
             problems.append(f"{item.name}: {exc}")
             ledger.sources[item.source_id] = {"name": item.name, "origin": item.origin, "status": "failed", "reason": str(exc)[:300], "processed": now_iso()}
             continue
+        cands, duration, whole = found.cands, found.duration, found.whole
+        said = presenter.talk(cfg, found.text) if cfg.filters.no_commentary else []
+        if said:
+            leave_out(f"someone is talking over the game (says: {', '.join(said[:4])})")
+            continue
         kept = 0
         for cand in cands:
             reasons = gates.check(cfg, cand, item.source_id, ledger, whole)
+            if not reasons and not whole:  # a passage of a long video gets its own look
+                reasons = presenter.check(cfg, item.path, cand.start, cand.end, cand.text)
             if not reasons and kept >= cfg.moments.max_per_source:
                 reasons = ["over the per-video limit"]
             text = gates.normalise(cand.text)
-            if not reasons and any(sid != item.source_id and SequenceMatcher(None, text, t).ratio() > cfg.gates.max_text_similarity for t, sid in seen):
+            if not reasons and len(text) >= gates.MIN_TEXT and any(
+                    sid != item.source_id and len(t) >= gates.MIN_TEXT and SequenceMatcher(None, text, t).ratio() > cfg.gates.max_text_similarity
+                    for t, sid in seen):
                 reasons = ["same moment as another clip in this run"]
             if reasons:
                 rejected.append({"source": item.name, "start": cand.start, "end": cand.end, "score": cand.score, "reasons": reasons})
@@ -118,9 +156,13 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
             "origin": item.origin, "creator": item.creator, "permission": item.permission, "section": section.name,
             "start": cand.start, "end": cand.end, "peak": cand.peak, "score": cand.score,
             "text": cand.text, "words": [asdict(w) for w in cand.words],
-            "meta": metadata.build(cfg, cand, clip_id, item.creator, section, item.title if entry["whole"] else "", item.origin),
+            "meta": metadata.build(cfg, cand, clip_id, item.creator, section, item.title, item.origin, entry["whole"]),
             "slot": slot.isoformat(), "voiceover": "", "drop": False,
         }
+        try:  # a strip of frames, so whoever reviews the plan can see what happens in the clip
+            clip["sheet"] = str(media.contact_sheet(item.path, cand.start, cand.end, run_dir / f"{clip_id}.jpg"))
+        except media.MediaError:
+            clip["sheet"] = ""
         clips.append(clip)
         ledger.clips[clip_id] = {
             "id": clip_id, "source_id": item.source_id, "source_name": item.name, "creator": item.creator,

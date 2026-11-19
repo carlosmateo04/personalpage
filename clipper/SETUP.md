@@ -27,14 +27,14 @@ For a different name:
 
 Bio (all platforms):
 
-> Daily GTA 6 clips: new findings, tricks, glitches and wild moments. Unofficial
+> Daily GTA 6 clips: new findings, tricks, glitches and highlights. Unofficial
 > fan channel, not affiliated with Rockstar Games or Take-Two. Every clip credits
 > its creator. Creators: message us to have a clip removed.
 
 YouTube channel description:
 
-> The best GTA 6 clips, sorted daily: new findings, tricks, glitches and wild
-> moments. Unofficial fan channel, not affiliated with Rockstar Games or Take-Two
+> The best GTA 6 gameplay clips, sorted daily: new findings, tricks, glitches and
+> highlights. Pure gameplay, no commentary. Unofficial fan channel, not affiliated with Rockstar Games or Take-Two
 > Interactive. Every clip credits the creator it came from. Creators: message us
 > and we will remove any clip of yours.
 
@@ -46,17 +46,25 @@ YouTube channel description:
 3. Create an API key. Do not paste it into chat: tell Claude "the key is ready"
    and enter it in the secure form that opens.
 
-## 3. Choose whose footage to clip
+## 3. Footage: where it comes from and where the run happens
 
-`config.toml` starts with six Twitch channels (their most-viewed GTA 6 clips of
-the day) and three YouTube searches. Edit the `[[sources]]` list to add or
-remove channels.
+`config.toml` searches YouTube for this week's GTA 6 videos labelled "no
+commentary" (general gameplay, chases and stunts, easter eggs, how-to guides,
+glitches). Videos with a streamer on camera or talking over the game are left
+out automatically.
 
-No permission is on file for any of the starter channels. Clips credit the
-channel, but credit is not permission: a creator can have a clip taken down,
-and repeated takedowns close an account. For each channel you keep, check its
-clip policy (channel panels, Discord) and write it in `permission`, or join its
-clipping campaign.
+Two things only you can settle:
+
+- **Where the run happens.** YouTube refuses downloads from cloud machines, so
+  the daily run has to happen on a home internet connection. Either open a
+  Claude Code session on your own computer (the Claude desktop app, or
+  `claude remote-control` in a terminal in this repository's folder) and tell
+  Claude to run the clipper there, or record your own gameplay and drop the
+  files into `clipper/inbox/`.
+- **Permission.** None is on file for the channels the searches find. Clips
+  credit the channel, but credit is not permission: a creator can have a clip
+  taken down, and repeated takedowns close an account. To record a basis for a
+  channel, add a source for it with `permission` filled in.
 
 ## 4. Tell Claude to go live
 

@@ -149,8 +149,6 @@ def _window(cfg: Moments, i: int, score: np.ndarray, sents: list[Sentence], word
     and closes where it dies down, snapped to sentence boundaries and then fitted
     to the length limits.
     """
-    if not sents:
-        return None
     peak = i * HOP
     floor = max(cfg.min_score * 0.5, score[i] * 0.45)
     a = i
@@ -160,6 +158,9 @@ def _window(cfg: Moments, i: int, score: np.ndarray, sents: list[Sentence], word
     while b < len(score) - 1 and score[b + 1] >= floor:
         b += 1
     onset, offset = a * HOP - cfg.lead_in, (b + 1) * HOP
+    spoken = sum(min(w.e, offset) - max(w.s, onset) for w in words if w.e > onset and w.s < offset)
+    if not sents or spoken < 0.35 * (offset - onset):
+        return _plain_window(cfg, peak, onset, offset, words, total)  # action with little or no talking
     # Sentences whose midpoint falls inside the excited stretch.
     first = next((k for k, s in enumerate(sents) if (s.s + s.e) / 2 >= onset), len(sents) - 1)
     last = max((k for k, s in enumerate(sents) if (s.s + s.e) / 2 <= offset), default=0)
@@ -191,10 +192,28 @@ def _window(cfg: Moments, i: int, score: np.ndarray, sents: list[Sentence], word
     return round(start, 2), round(end, 2)
 
 
+def _plain_window(cfg: Moments, peak: float, onset: float, offset: float, words: list[Word], total: float) -> tuple[float, float] | None:
+    """Clip edges for a stretch with little or no speech: the loud stretch itself, fitted to the length limits."""
+    start, end = max(0.0, onset), min(total, offset)
+    if end - start > cfg.max_len:
+        start = max(start, peak - cfg.max_len * 0.4)
+        end = min(total, start + cfg.max_len)
+    if end - start < cfg.min_len:
+        start = max(0.0, start - (cfg.min_len - (end - start)) * 0.4)
+        end = min(total, start + cfg.min_len)
+        start = max(0.0, end - cfg.min_len)
+    for w in words:  # do not cut through a spoken word
+        if w.s < start < w.e:
+            start = max(0.0, w.s - 0.1)
+        if w.s < end < w.e:
+            end = min(total, w.e + 0.2)
+    if end - start < min(cfg.min_len, 8):
+        return None
+    return round(start, 2), round(end, 2)
+
+
 def find(cfg: Moments, wav: Path, words: list[Word], total: float, chat_times: list[float] | None = None, limit: int = 24, cues: list[str] | None = None) -> list[Candidate]:
-    """Best non-overlapping clip candidates, strongest first."""
-    if not words:
-        return []
+    """Best non-overlapping clip candidates, strongest first. Works with or without speech."""
     score = score_track(cfg, wav, words, chat_times, cues)
     sents = sentences(words)
     picked: list[Candidate] = []

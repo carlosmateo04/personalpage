@@ -11,26 +11,49 @@ footage -> transcript -> best moments -> quality checks -> titles + hashtags
 
 ## The model
 
-GTA 6 videos and clips are found online, the highlights are cut out, sorted into
-sections and posted as short vertical clips:
+Gameplay-only GTA 6 videos are found online, the highlights are cut out, sorted
+into sections and posted as short vertical clips:
 
-1. **Grab.** Each run lists the sources in `config.toml`: a Twitch channel's
-   most-viewed clips of the last 24 hours, a YouTube search, a channel's videos,
-   or files in `inbox/`. Videos are filtered by views, length and game before
-   anything is downloaded.
-2. **Cut.** A short clip (up to 62 s, such as a Twitch clip) is used whole. A long
-   video goes through the moment finder, which reacts to loudness, fast talking,
-   hype words and the sections' cue words.
-3. **Sort.** Every clip is filed under a section: new findings, tricks, glitches
-   or wild moments. It gets that section's badge, hashtags and playlist.
-4. **Credit.** The channel the footage came from is named on the clip and in
+1. **Grab.** Each run lists the sources in `config.toml` (YouTube searches for
+   no-commentary gameplay, or files in `inbox/`) and filters them by title,
+   views and length before anything is downloaded.
+2. **Gameplay only.** A video with a streamer on camera or someone talking over
+   the game is left out (see below).
+3. **Cut.** A long video goes through the moment finder, which reacts to loud
+   action, fast talking and the sections' cue words; it works on footage with
+   no speech at all. A short clip (up to 62 s) is used whole. A guide of a few
+   minutes with no standout moment gives its last stretch.
+4. **Sort.** Every clip is filed under a section: new findings, tricks, glitches
+   or highlights. It gets that section's badge, hashtags and playlist.
+5. **Credit.** The channel the footage came from is named on the clip and in
    every caption, with a link to the original in the YouTube description.
-5. **Post.** Four clips a day on four platforms, the sections taking turns.
+6. **Post.** Four clips a day on four platforms, the sections taking turns.
+
+The sound is the game's own. When characters speak, their lines appear as
+karaoke captions; a clip with no speech has none.
 
 Clips are other people's footage unless a source says otherwise. `permission`
 on a source records the basis for using it; the daily report lists footage used
 with none on file. Each platform decides for itself whether reposted clips are
 recommended or paid for.
+
+## Gameplay-only filter
+
+`[filters]` in `config.toml`, on by default. Three layers:
+
+- **Title.** Each online source only takes videos whose title says "no
+  commentary" (or similar) and none of "reaction", "live", "stream", ...
+- **Facecam.** Sixteen frames are sampled and faces detected (YuNet model,
+  bundled). A face that stays in the same spot in 60% of the frames is a
+  webcam overlay; characters in the game move with the camera and do not.
+- **Talk.** The transcript is searched for things only a commentator says:
+  "chat", "this game", "gameplay", "like and subscribe". One hit rejects a
+  short clip; a long video needs three hits of two kinds.
+
+What gets left out is listed in the report under "Left out: not gameplay-only".
+The talk check cannot catch a commentator with no camera who never uses such
+words. `plan` writes a strip of four frames per clip (`out/<run>/<id>.jpg`) next
+to the transcript in `plan.json`, so a reviewer can catch those before `execute`.
 
 ## Quick start
 
@@ -116,7 +139,8 @@ go by default) and `permission`.
 YouTube refuses automated downloads from cloud machines ("confirm you're not a
 bot"). The run records those videos as not fetched and moves on; it does not
 try to get around the check. YouTube sources work when the run happens on a
-home connection. Twitch works from cloud machines.
+home connection: `./run_daily.sh` on your own computer, or a Claude session
+that runs there.
 
 ## Going live
 
@@ -144,12 +168,13 @@ down the requests this code sends; the stand-in's responses are assumptions.
 
 - Uploading through a real Upload-Post account, and the exact shape of its
   status and analytics responses (links and views are extracted defensively).
-- Downloading from YouTube (refused by its bot check from this machine) and
-  from Kick (not tried). Twitch clips were listed, downloaded and clipped live.
-- The moment finder on long real videos; so far only whole Twitch clips have
-  gone through on real footage.
-- Section sorting on real findings, tricks and glitch videos: launch-day Twitch
-  clips all landed in "moments".
+- Downloading from YouTube: refused by its bot check from the cloud machine
+  this was built on, so no gameplay-only video has gone through end to end.
+- The facecam check was run on seven real streamer clips (all caught) and on the
+  same clips with the webcam cropped out (all passed). It has not been run on
+  no-commentary walkthrough footage.
+- The moment finder on long real gameplay; loud-action detection is tested on
+  generated audio only.
 
 ## Font
 

@@ -127,3 +127,48 @@ def test_short_clip_is_used_whole_with_its_own_title_and_credit(cfg, ledger):
     assert summary["clips"] == 1 and ledger.clips[clip["id"]]["section"] == "glitches"
     text = report.build(cfg, ledger, summary, NOW)
     assert "| glitches |" in text and "StreamerA" in text
+
+
+def test_footage_with_a_streamer_is_left_out(cfg, ledger, footage, monkeypatch):
+    from clipper import presenter
+
+    quiet = lambda m: None
+    monkeypatch.setattr(presenter, "facecam", lambda *a, **k: (True, "a face stays at the bottom right in 100% of the frames"))
+    plan = pipeline.plan(cfg, ledger, NOW, quiet)
+    assert plan["clips"] == [] and "streamer facecam" in plan["rejected"][0]["reasons"][0]
+    src = next(iter(ledger.sources.values()))
+    assert src["status"] == "skipped" and src["reason"].startswith("streamer facecam")
+    assert "Left out: not gameplay-only" in report.build(cfg, ledger, None, NOW)
+    assert pipeline.plan(cfg, ledger, NOW, quiet)["rejected"] == []  # it is not looked at again
+
+
+def test_footage_with_commentary_is_left_out(cfg, ledger, footage, monkeypatch):
+    from clipper import presenter
+
+    monkeypatch.setattr(presenter, "talk", lambda cfg, text: ["chat", "this game"])
+    plan = pipeline.plan(cfg, ledger, NOW, lambda m: None)
+    assert plan["clips"] == [] and "talking over the game" in plan["rejected"][0]["reasons"][0]
+    cfg.filters.no_commentary = False
+    ledger.sources.clear()
+    assert len(pipeline.plan(cfg, ledger, NOW, lambda m: None)["clips"]) == 1  # with the filter off the same footage is used
+
+
+def test_planned_clips_come_with_a_frame_strip(cfg, ledger, footage):
+    plan = pipeline.plan(cfg, ledger, NOW, lambda m: None)
+    sheet = plan["clips"][0]["sheet"]
+    info = media.probe(__import__("pathlib").Path(sheet))
+    assert info.width == 1600 and 220 <= info.height <= 230  # four 400-wide frames side by side
+
+
+def test_quiet_short_guide_gives_its_last_stretch(cfg):
+    """A few minutes of calm footage with no standout moment: the ending is used."""
+    rate = 16000
+    wav = cfg.root / "guide.wav"
+    sf.write(wav, np.random.default_rng(8).normal(0, 0.01, rate * 100).astype(np.float32), rate)
+    video = cfg.root / "guide.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=15:duration=100", "-i", str(wav),
+         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(video)], check=True)
+    found = pipeline.analyse(cfg, video, "guide")
+    assert not found.whole and len(found.cands) == 1
+    assert (found.cands[0].start, found.cands[0].end) == (53.0, 98.0)

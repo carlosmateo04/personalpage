@@ -43,6 +43,8 @@ class Source:
     min_minutes: float = 0.0
     max_minutes: float = 0.0  # 0 = no limit
     category: str = ""  # only videos whose game/category contains this text
+    title_any: list[str] = field(default_factory=list)  # the title must contain one of these
+    title_none: list[str] = field(default_factory=list)  # the title must contain none of these
     max_hours: float = 3.0  # only the first N hours of a long video are fetched
     chat_file: str = ""  # optional chat log (JSON list of {"t": seconds}) for a folder source
 
@@ -71,8 +73,27 @@ def default_sections() -> list[Section]:
                 ["glitch", "glitched", "bug", "bugged", "broken", "clipped through", "fell through", "under the map",
                  "out of bounds", "launched", "physics"],
                 ["#gta6glitch", "#gta6bugs"]),
-        Section("moments", "WILD MOMENT", "#FF2E93", [], ["#gta6funny", "#gta6moments"]),
+        Section("moments", "HIGHLIGHT", "#FF2E93", [], ["#gta6highlights", "#gta6moments"]),
     ]
+
+
+@dataclass
+class Filters:
+    """Keep only gameplay-only footage: nobody on camera, nobody talking over the game."""
+
+    no_facecam: bool = True
+    no_commentary: bool = True
+    facecam_frames: int = 16  # frames looked at per clip
+    facecam_share: float = 0.6  # a face in the same spot in this share of the frames is a facecam
+    require_speech: bool = False  # gameplay-only clips often have no speech at all
+    commentary_words: list[str] = field(
+        default_factory=lambda: [
+            "chat", "clip that", "clip it", "gifted", "subs", "donation", "donations", "this game", "gta", "gta 6", "gta six",
+            "grand theft auto", "rockstar", "gameplay", "walkthrough", "cutscene", "cutscenes", "npc", "npcs", "easter egg",
+            "playstation", "ps5", "xbox", "frame rate", "fps", "this video", "today's video", "my channel",
+            "welcome back to", "what's up guys", "hey guys", "let me know in the comments", "like and subscribe",
+        ]
+    )
 
 
 @dataclass
@@ -224,6 +245,7 @@ class Config:
     sources: list[Source] = field(default_factory=lambda: [Source(type="folder", path="inbox")])
     sections: list[Section] = field(default_factory=default_sections)
     rights: Rights = field(default_factory=Rights)
+    filters: Filters = field(default_factory=Filters)
     transcribe: Transcribe = field(default_factory=Transcribe)
     moments: Moments = field(default_factory=Moments)
     captions: Captions = field(default_factory=Captions)

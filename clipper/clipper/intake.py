@@ -68,8 +68,8 @@ def _folder(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
     items: list[Item] = []
     for path in sorted((p for p in folder.iterdir() if p.suffix.lower() in VIDEO_EXTS), key=lambda p: p.stat().st_mtime):
         sid = file_id(path)
-        if ledger.sources.get(sid, {}).get("status") == "done":
-            continue
+        if ledger.sources.get(sid, {}).get("status") in ("done", "skipped"):
+            continue  # a file that failed is tried again, in case it was replaced
         chat = Path(src.chat_file) if src.chat_file else path.with_suffix(".chat.json")
         items.append(Item(path, sid, path.name, src.creator, src.permission or "local file", str(path),
                           chat if chat.exists() else None, section=src.section))
@@ -184,11 +184,14 @@ def _ytdlp(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
         title = entry.get("title") or str(entry["id"])
         if _seen(ledger, sid):
             continue
+        low = title.lower()
+        # Filters that cost nothing to apply are not recorded: another source may want the same video.
+        if (src.title_any and not any(t.lower() in low for t in src.title_any)) or any(t.lower() in low for t in src.title_none):
+            continue
         views, minutes = entry.get("view_count"), (entry.get("duration") or 0) / 60
         if views is not None and views < src.min_views:
-            continue  # may pass once it has more views, so it is not recorded
+            continue
         if minutes and (minutes < src.min_minutes or (src.max_minutes and minutes > src.max_minutes)):
-            _skip(ledger, sid, title, url, "skipped", "outside the length limits")
             continue
 
         time.sleep(PAUSE)

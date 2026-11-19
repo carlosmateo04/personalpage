@@ -84,7 +84,15 @@ LONG = "no way he just drove the bus off the bridge oh my god did you see that c
 def test_gates(cfg, ledger):
     good = _cand(LONG)
     assert gates.check(cfg, good, "src1", ledger) == []
-    assert any("too little speech" in r for r in gates.check(cfg, _cand("no way"), "src1", ledger))
+    quiet = moments.Candidate(100.0, 125.0, 110.0, 2.0, speak("no way", 100.0))
+    assert gates.check(cfg, quiet, "src1", ledger) == []  # gameplay with next to no speech is fine by default
+    cfg.filters.require_speech = True
+    assert any("too little speech" in r for r in gates.check(cfg, quiet, "src1", ledger))
+    cfg.filters.require_speech = False
+    silent_twin = moments.Candidate(100.0, 125.0, 110.0, 2.0, [])
+    ledger.clips["silent"] = {"id": "silent", "source_id": "other", "start": 0, "end": 30, "status": "posted", "text": "", "created": "0"}
+    assert gates.check(cfg, silent_twin, "src1", ledger) == []  # two silent clips are not "the same moment"
+    del ledger.clips["silent"]
     casino = _cand(LONG + " thanks to stake for the sponsor")
     assert any("banned term" in r for r in gates.check(cfg, casino, "src1", ledger))
     ledger.clips["old"] = {"id": "old", "source_id": "src1", "start": 95.0, "end": 120.0, "status": "scheduled", "text": "x"}

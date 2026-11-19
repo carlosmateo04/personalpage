@@ -64,6 +64,18 @@ def extract_audio(src: Path, dst: Path, rate: int = 16000) -> Path:
     return dst
 
 
+def contact_sheet(src: Path, start: float, end: float, out: Path, shots: int = 4) -> Path:
+    """One image with a few frames from a stretch of video, side by side, for a quick look."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    span = max(end - start, 0.5)
+    run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.2f}", "-t", f"{span:.2f}", "-i", str(src),
+         "-vf", f"fps={shots / span:.5f},scale=400:-2,tile={shots}x1", "-frames:v", "1", "-q:v", "5", str(out)],
+        "contact sheet",
+    )
+    return out
+
+
 def file_id(path: Path) -> str:
     """Stable id for a file: its size plus the first and last 4 MB."""
     size = path.stat().st_size
