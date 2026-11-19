@@ -112,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="clipper", description=__doc__)
     parser.add_argument("--config", help="path to config.toml")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("setup", help="install what is needed and download the speech model (handled before this parser)")
     sub.add_parser("doctor", help="check that everything needed is in place").set_defaults(fn=cmd_doctor)
     p = sub.add_parser("clip", help="make clips from one video file (no posting)")
     p.add_argument("video")

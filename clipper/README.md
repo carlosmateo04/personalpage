@@ -58,8 +58,10 @@ to the transcript in `plan.json`, so a reviewer can catch those before `execute`
 ## Quick start
 
 ```bash
-./setup.sh
+python3 -m clipper setup --install
 ```
+
+(`./setup.sh` does the same. To run on your own computer, see `LOCAL.md`.)
 
 ```bash
 python3 -m clipper doctor

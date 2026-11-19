@@ -56,10 +56,9 @@ out automatically.
 Two things only you can settle:
 
 - **Where the run happens.** YouTube refuses downloads from cloud machines, so
-  the daily run has to happen on a home internet connection. Either open a
-  Claude Code session on your own computer (the Claude desktop app, or
-  `claude remote-control` in a terminal in this repository's folder) and tell
-  Claude to run the clipper there, or record your own gameplay and drop the
+  the daily run has to happen on a home internet connection. `LOCAL.md` has
+  the steps for running it on your own computer, by hand or with a Claude Code
+  session there. The alternative is to record your own gameplay and drop the
   files into `clipper/inbox/`.
 - **Permission.** None is on file for the channels the searches find. Clips
   credit the channel, but credit is not permission: a creator can have a clip

@@ -9,8 +9,12 @@ from .media import run
 
 
 def _esc(path: Path | str) -> str:
-    """Escape a path for use inside an ffmpeg filter argument."""
-    s = str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    """Escape a path for use inside an ffmpeg filter argument.
+
+    Forward slashes are used on every system, so a Windows path becomes
+    'C\\:/Users/...': only the drive colon needs escaping.
+    """
+    s = Path(path).as_posix().replace(":", "\\:").replace("'", "\\'")
     return f"'{s}'"
 
 
