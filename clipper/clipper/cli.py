@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from . import config, media, pipeline, publish, report, sections, transcribe
+from .bootstrap import js_runtime
 from .captions import build as build_captions
 from .metadata import build as build_meta
 from .transcribe import Word
@@ -24,6 +25,8 @@ def cmd_doctor(cfg, args) -> int:
 
     line(shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None, "ffmpeg and ffprobe installed")
     line(transcribe.models_present(cfg), f"speech models in {cfg.models_dir}")
+    runtime, version = js_runtime()
+    line(bool(runtime), f"JavaScript runtime for YouTube downloads: {runtime} {version}" if runtime else "JavaScript runtime for YouTube downloads (Deno 2.3+ or Node 22+)")
     line(any(cfg.fonts_dir.glob("*.ttf")), f"caption font in {cfg.fonts_dir}")
     for s in cfg.sources:
         print(f"     source: {s.type} {s.path or s.file or s.url} (section: {s.section or 'auto'}, permission: {s.permission or 'none on file'})")

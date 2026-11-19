@@ -9,6 +9,8 @@ It has been run on Linux only. macOS should behave the same; Windows is untested
 
 - Python 3.11 or newer
 - ffmpeg (macOS: `brew install ffmpeg`; Windows: `winget install ffmpeg`; Linux: `apt-get install -y ffmpeg`)
+- Deno 2.3 or newer, or Node 22 or newer: the YouTube downloader needs a JavaScript runtime
+  (macOS: `brew install deno`; Windows: `winget install DenoLand.Deno`; Linux: `curl -fsSL https://deno.land/install.sh | sh`)
 - git, and about 2 GB of free disk space
 
 ## One-time setup

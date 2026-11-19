@@ -115,9 +115,17 @@ def _urls(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
     return items
 
 
+def runtime_args() -> list[str]:
+    """yt-dlp needs a JavaScript runtime for YouTube. Deno is used by default; Node has to be switched on."""
+    from .bootstrap import js_runtime
+
+    return ["--js-runtimes", "node"] if js_runtime()[0] == "node" else []
+
+
 def _yt(args: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
     """Run yt-dlp. Kept in one place so tests can replace it."""
-    return subprocess.run([sys.executable, "-m", "yt_dlp", "--no-warnings", *args], capture_output=True, text=True, timeout=timeout)
+    cmd = [sys.executable, "-m", "yt_dlp", "--no-warnings", *runtime_args(), *args]
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
 def _json(text: str) -> dict:

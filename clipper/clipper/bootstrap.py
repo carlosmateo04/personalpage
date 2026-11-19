@@ -23,8 +23,24 @@ BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 ASR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
 MODULES = {  # import name -> what to install
     "numpy": "numpy", "soundfile": "soundfile", "sherpa_onnx": "sherpa-onnx", "upload_post": "upload-post",
-    "requests": "requests", "yt_dlp": "yt-dlp", "cv2": "opencv-python-headless",
+    "requests": "requests", "yt_dlp": "yt-dlp", "yt_dlp_ejs": "yt-dlp-ejs", "cv2": "opencv-python-headless",
 }
+
+
+def js_runtime() -> tuple[str, str]:
+    """The JavaScript runtime yt-dlp can use for YouTube: ("deno" | "node" | "", its version)."""
+    for name, flag in (("deno", "--version"), ("node", "--version")):
+        exe = shutil.which(name)
+        if not exe:
+            continue
+        out = subprocess.run([exe, flag], capture_output=True, text=True).stdout.strip().splitlines()
+        version = (out[0] if out else "").replace("deno", "").replace("v", "").split()[0] if out else ""
+        parts = [int(p) for p in version.split(".")[:2] if p.isdigit()]
+        if name == "deno" and parts >= [2, 3]:
+            return name, version
+        if name == "node" and parts >= [22]:
+            return name, version
+    return "", ""
 
 
 def models_dir() -> Path:
@@ -86,6 +102,13 @@ def main(argv: list[str]) -> int:
         if shutil.which(tool) is None:
             print(f"FAIL {tool} is not installed (macOS: brew install ffmpeg; Windows: winget install ffmpeg; Linux: apt-get install -y ffmpeg)")
             ok = False
+    runtime, version = js_runtime()
+    if runtime:
+        print(f"ok   JavaScript runtime for YouTube downloads: {runtime} {version}")
+    else:
+        print("FAIL no JavaScript runtime: YouTube downloads need Deno 2.3+ or Node 22+ "
+              "(macOS: brew install deno; Windows: winget install DenoLand.Deno; Linux: curl -fsSL https://deno.land/install.sh | sh)")
+        ok = False
     missing = missing_modules()
     if missing and "--install" in argv:
         print(f"installing {', '.join(missing)}")

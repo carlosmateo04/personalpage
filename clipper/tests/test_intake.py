@@ -185,3 +185,33 @@ def test_failed_fetches_are_retried_then_given_up(cfg, ledger, tmp_path, monkeyp
         statuses = sorted((v["status"], v["tries"]) for v in ledger.sources.values() if "tries" in v)
         assert statuses == [("failed" if run == 3 else "blocked", run)] * 2
     assert any("two fetches in a row failed" in line for line in logs)
+
+
+def test_node_is_switched_on_for_the_downloader_when_deno_is_absent(monkeypatch):
+    from clipper import bootstrap
+
+    monkeypatch.setattr(bootstrap, "js_runtime", lambda: ("node", "22.1.0"))
+    assert intake.runtime_args() == ["--js-runtimes", "node"]
+    monkeypatch.setattr(bootstrap, "js_runtime", lambda: ("deno", "2.5.0"))
+    assert intake.runtime_args() == []  # deno is used without asking
+    monkeypatch.setattr(bootstrap, "js_runtime", lambda: ("", ""))
+    assert intake.runtime_args() == []
+
+
+def test_runtime_versions_are_checked(monkeypatch):
+    import subprocess as sp
+
+    from clipper import bootstrap
+
+    def fake(found, outputs):
+        monkeypatch.setattr(bootstrap.shutil, "which", lambda name: f"/bin/{name}" if name in found else None)
+        monkeypatch.setattr(bootstrap.subprocess, "run", lambda cmd, **k: sp.CompletedProcess(cmd, 0, outputs[cmd[0].rsplit("/", 1)[1]], ""))
+
+    fake({"node"}, {"node": "v22.23.5\n"})
+    assert bootstrap.js_runtime() == ("node", "22.23.5")
+    fake({"node"}, {"node": "v20.11.0\n"})
+    assert bootstrap.js_runtime() == ("", "")  # too old for the downloader
+    fake({"deno", "node"}, {"deno": "deno 2.5.1 (stable, release, x86_64)\nv8 13.5\n", "node": "v22.1.0\n"})
+    assert bootstrap.js_runtime() == ("deno", "2.5.1")
+    fake({"deno", "node"}, {"deno": "deno 1.46.0\n", "node": "v22.1.0\n"})
+    assert bootstrap.js_runtime() == ("node", "22.1.0")  # old deno, usable node
