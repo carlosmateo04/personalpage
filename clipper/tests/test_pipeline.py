@@ -44,7 +44,7 @@ def test_run_makes_schedules_and_never_repeats(cfg, ledger, footage):
     rec = Ledger(ledger.path).clips[clip["id"]]  # as a later run would read it
     assert rec["status"] == "scheduled" and rec["slot"].startswith("2026-11-18T11:30")
     out = media.probe(cfg.path("out") / plan["run"] / f"{clip['id']}.mp4")
-    assert (out.width, out.height, out.has_audio) == (1080, 1920, True)
+    assert (out.width, out.height, out.has_audio, out.pixel_shape) == (1080, 1920, True, "1:1")
     assert abs(out.duration - (clip["end"] - clip["start"])) < 0.5
     outbox = json.loads((cfg.path("out") / "outbox.json").read_text())
     assert outbox[0]["args"]["scheduled_date"] == "2026-11-18T16:30:00Z"
@@ -177,3 +177,19 @@ def test_quiet_short_guide_gives_its_last_stretch(cfg):
     found = pipeline.analyse(cfg, video, "guide")
     assert not found.whole and len(found.cands) == 1
     assert (found.cands[0].start, found.cands[0].end) == (53.0, 98.0)
+
+
+def test_odd_shaped_footage_still_renders_square_pixels(cfg, ledger):
+    """A source whose shape does not divide evenly (1400x1080) must not leave the clip with stretched pixels."""
+    from clipper import captions, render
+
+    video = cfg.root / "odd.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1400x1080:rate=30:duration=6", "-f", "lavfi", "-i", "sine=frequency=300:duration=6",
+         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(video)], check=True)
+    ass = cfg.root / "odd.ass"
+    ass.write_text(captions.build(cfg, [], 6.0), encoding="utf-8")
+    for layout in ("blur", "crop"):
+        cfg.render.layout = layout
+        out = media.probe(render.render(cfg, video, 0.0, 6.0, ass, cfg.root / f"odd-{layout}.mp4"))
+        assert (out.width, out.height, out.pixel_shape) == (1080, 1920, "1:1"), layout

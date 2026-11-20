@@ -181,7 +181,7 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
         clips.append(clip)
         ledger.clips[clip_id] = {
             "id": clip_id, "source_id": item.source_id, "source_name": item.name, "creator": item.creator,
-            "origin": item.origin, "section": section.name,
+            "origin": item.origin, "section": section.name, "permission": item.permission,
             "start": cand.start, "end": cand.end, "score": cand.score, "text": gates.normalise(cand.text),
             "title": clip["meta"]["title"], "slot": clip["slot"], "status": "planned", "run": run_id, "created": now_iso(),
         }
@@ -305,6 +305,83 @@ def approve(cfg: Config, ledger: Ledger, ids: list[str], voiceovers: dict[str, s
     return count
 
 
+# --- actions on finished clips, used by the app -------------------------------
+
+READY = ("held", "rendered")  # rendered and waiting for the user
+
+
+def clip_state(rec: dict) -> str:
+    """What a clip is to the person looking at it: ready, queued, posted, failed or dropped."""
+    status, mode = rec.get("status"), rec.get("publish", {}).get("mode")
+    if status in READY or (status == "scheduled" and mode != "live"):
+        return "ready"
+    if status == "scheduled":
+        return "queued"
+    return status if status in ("posted", "failed", "dropped") else "pending"
+
+
+def _kit(cfg: Config, rec: dict) -> None:
+    """Rewrite the ready-to-paste text file that sits next to the clip."""
+    video = Path(rec.get("file", ""))
+    if rec.get("meta") and video.parent.is_dir():
+        video.with_suffix(".txt").write_text(report.post_kit(cfg, rec, rec["slot"]), encoding="utf-8")
+
+
+def update_clip(cfg: Config, ledger: Ledger, clip_id: str, fields: dict) -> dict:
+    """Change a clip's title, caption or YouTube description (the text posted with it)."""
+    rec = ledger.clips[clip_id]
+    meta = rec.setdefault("meta", {})
+    if "title" in fields:
+        title = str(fields["title"]).strip()[:100]
+        meta["title"] = rec["title"] = title
+        meta.setdefault("youtube", {})["title"] = title if "#shorts" in title.lower() else f"{title[:90]} #shorts"
+    if "caption" in fields:
+        caption = str(fields["caption"]).strip()[:2200]
+        for platform in ("tiktok", "instagram", "facebook"):
+            meta.setdefault(platform, {})["title"] = caption
+    if "description" in fields:
+        meta.setdefault("youtube", {})["description"] = str(fields["description"]).strip()[:5000]
+    _kit(cfg, rec)
+    ledger.save()
+    return rec
+
+
+def drop_clip(cfg: Config, ledger: Ledger, clip_id: str) -> dict:
+    rec = ledger.clips[clip_id]
+    if clip_state(rec) != "ready":
+        raise publish.PublishError("only a clip that has not been sent can be dropped")
+    rec["status"] = "dropped"
+    ledger.save()
+    return rec
+
+
+def post_clip(cfg: Config, ledger: Ledger, clip_id: str, when: str = "now", platforms: list[str] | None = None,
+              now: datetime | None = None) -> dict:
+    """Send a ready clip to the connected accounts: straight away ("now") or in the next free slot ("next")."""
+    now = now or datetime.now(timezone.utc)
+    rec = ledger.clips[clip_id]
+    if clip_state(rec) != "ready":
+        raise publish.PublishError("this clip has already been sent or dropped")
+    video = Path(rec.get("file", ""))
+    if not video.exists():
+        raise publish.PublishError("the clip file is no longer on this computer")
+    pub = publish.UploadPost(cfg)
+    slot = None
+    if when == "next":
+        free = schedule.next_slots(cfg.schedule, now, ledger.taken_slots() - {rec.get("slot")}, 1)
+        if not free:
+            raise publish.PublishError("no free posting slot in the scheduling window")
+        slot = free[0]
+        rec["slot"] = slot.isoformat()
+    sent = pub.publish({"id": rec["id"], "meta": rec["meta"]}, video, slot, platforms)
+    rec["publish"] = {**sent, "platforms": platforms or list(cfg.publish.platforms), "sent": now_iso()}
+    rec["status"] = "scheduled" if slot else "posted"
+    if not slot:
+        rec["slot"] = now.isoformat()
+    ledger.save()
+    return rec
+
+
 def cleanup(cfg: Config, now: datetime | None = None, log: Log = _log) -> dict:
     """Delete old downloads, working files and finished clips so the disk does not fill up.
 
@@ -351,6 +428,8 @@ def refresh(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log =
     for rec in ledger.clips.values():
         if rec.get("status") not in ("scheduled", "posted") or rec.get("publish", {}).get("mode") != "live":
             continue
+        if rec.get("links") and rec.get("status") == "posted" and (now - datetime.fromisoformat(rec["slot"])).days > 7:
+            continue  # old posts are not asked about again
         age = now - datetime.fromisoformat(rec["slot"])
         if age.total_seconds() < 0 or age.days > 30:
             continue

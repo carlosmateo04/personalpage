@@ -31,6 +31,7 @@ class Probe:
     height: int
     fps: float
     has_audio: bool
+    pixel_shape: str = "1:1"  # sample aspect ratio; anything else means non-square pixels
 
 
 def probe(path: Path) -> Probe:
@@ -51,6 +52,7 @@ def probe(path: Path) -> Probe:
         height=int(video["height"]),
         fps=fps,
         has_audio=any(s.get("codec_type") == "audio" for s in info.get("streams", [])),
+        pixel_shape=video.get("sample_aspect_ratio") or "1:1",
     )
 
 

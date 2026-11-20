@@ -55,6 +55,22 @@ The talk check cannot catch a commentator with no camera who never uses such
 words. `plan` writes a strip of four frames per clip (`out/<run>/<id>.jpg`) next
 to the transcript in `plan.json`, so a reviewer can catch those before `execute`.
 
+## The app
+
+```bash
+python3 -m clipper ui
+```
+
+A page in your browser, served from this computer only: the finished clips with
+a player, editable titles and captions, post now or at the next free time, a
+"Make clips now" button with live progress, settings, and the connection to the
+posting service. On Windows the installer adds a desktop shortcut for it.
+
+Posting goes through Upload-Post: one key covers TikTok, Instagram, YouTube and
+Facebook. Direct connections to each platform are not built in, because uploads
+from a private app are locked to private on YouTube and TikTok until the app
+passes their audits.
+
 ## Quick start
 
 ```bash

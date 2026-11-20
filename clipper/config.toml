@@ -174,14 +174,14 @@ require_speech = false           # clips may have no speech at all
 block_channels = ["Rockstar Games", "Take-Two Interactive"]   # never taken from
 credit_format = "Credit: {creator}"                           # on the clip and in every caption
 
-# Clip length. TikTok only pays for videos longer than one minute, and YouTube
-# Shorts and Instagram Reels stop at three minutes, so clips run 61 to 120 seconds.
+# Clip length: about a minute and a half. TikTok only pays for videos longer than
+# one minute, and YouTube Shorts and Instagram Reels stop at three minutes.
 [moments]
-min_len = 61                     # seconds, for passages cut from long videos
-max_len = 120
+min_len = 85                     # seconds, for passages cut from long videos
+max_len = 95
 max_per_source = 3
-whole_clip_min = 61              # a short video is used whole only if it is at least this long...
-whole_clip_max = 180             # ...and at most this long
+whole_clip_min = 80              # a short video is used whole only if it is at least this long...
+whole_clip_max = 100             # ...and at most this long
 
 [captions]
 mode = "highlight"               # highlight: the spoken word pops in colour; sweep: colour fills across the line
@@ -211,4 +211,4 @@ profile = ""                     # the Upload-Post profile your social accounts 
 platforms = ["tiktok", "instagram", "youtube", "facebook"]
 facebook_page_id = ""
 tiktok_post_mode = "DIRECT_POST" # MEDIA_UPLOAD sends clips to your TikTok drafts instead
-hold_for_review = false          # true: render clips but wait for `approve` before scheduling
+hold_for_review = true           # finished clips wait in the app until you post them; false posts them by itself

@@ -25,14 +25,28 @@ irm https://raw.githubusercontent.com/carlosmateo04/personalpage/refs/heads/clau
 
 It needs no administrator rights and no other software. It puts everything in
 one folder, `clipper-run` in your user profile (Python, ffmpeg, the JavaScript
-runtime, the clipper, the speech model), then finds and downloads this week's
-gameplay-only GTA 6 videos, makes the clips and opens the folder they are in
-(`clipper-run\data\out`). Nothing is posted.
+runtime, the clipper, the speech model), adds a **Clipper** shortcut to your
+desktop, and opens the app in your browser.
 
-- To make clips again later, double-click `run.cmd` in `clipper-run`.
-- Pasting the line again updates the clipper and keeps your data.
-- Deleting the `clipper-run` folder removes everything.
-- To install without making clips, run `$env:CLIPPER_SKIP_RUN = "1"` first.
+In the app:
+
+- **Make clips now** finds and downloads this week's gameplay-only GTA 6 videos
+  and cuts the clips. Progress shows at the top and under Activity.
+- **Clips** shows each finished clip with a player. Edit its title and caption,
+  then post it now, send it to the next free posting time, or drop it.
+- **Accounts** connects the posting service (one key covers TikTok, Instagram,
+  YouTube and Facebook) and switches the daily run on or off.
+- **Settings** holds clip length, posting times, searches and the rest. What
+  you change there is kept in `clipper-run\data\settings.json` and survives
+  updates.
+
+Afterwards:
+
+- Open the app with the desktop shortcut. Leave its small window open while you
+  use it; closing that window quits Clipper.
+- Pasting the install line again updates the clipper and keeps your data.
+- Deleting the `clipper-run` folder (and the shortcut) removes everything.
+- `run.cmd` in `clipper-run` makes clips without the app.
 
 The installer and the clipper's tests run on a Windows machine on every change
 (`.github/workflows/clipper-windows-test.yml`), using generated footage.

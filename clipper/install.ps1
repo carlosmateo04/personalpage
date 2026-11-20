@@ -9,13 +9,13 @@
 #   app\     the clipper code            venv\    Python and its packages
 #   models\  the speech model            data\    downloads, finished clips (data\out), ledger, reports
 # Delete that folder to remove everything. Running the line again updates the code and
-# keeps the data. In that folder afterwards:
-#   run.cmd        make clips again          daily-on.cmd   make them every morning by itself
-#   daily-off.cmd  stop the daily run
+# keeps the data. Afterwards, use the Clipper shortcut on the desktop. In the folder:
+#   Clipper.cmd    open the app              run.cmd        make clips without the app
+#   daily-on.cmd   make clips every morning  daily-off.cmd  stop the daily run
 #
 # Optional environment variables:
 #   CLIPPER_DIR       install somewhere else
-#   CLIPPER_SKIP_RUN  set to 1 to install without making clips
+#   CLIPPER_SKIP_RUN  set to 1 to install without opening the app
 #   CLIPPER_FRESH     set to 1 to forget which videos were already looked at
 
 function Install-Clipper {
@@ -104,8 +104,19 @@ function Install-Clipper {
     }
     Invoke-Step 'installing the Python packages' { uv pip install --python $py -r (Join-Path $app 'requirements.txt') }
 
-    # Scripts for later: run.cmd makes clips again, daily-on.cmd and daily-off.cmd switch the daily run.
+    # Clipper.cmd opens the app; run.cmd makes clips without it; daily-on.cmd and daily-off.cmd switch the daily run.
     Copy-Item -Path (Join-Path $app 'windows\*') -Destination $root -Force
+    try {
+        $desktop = [Environment]::GetFolderPath('Desktop')
+        $link = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktop 'Clipper.lnk'))
+        $link.TargetPath = Join-Path $root 'Clipper.cmd'
+        $link.WorkingDirectory = $root
+        $link.WindowStyle = 7   # start minimised; the app itself opens in the browser
+        $link.Description = 'Clipper: make GTA 6 clips and post them'
+        $link.Save()
+    } catch {
+        Write-Host 'Could not create the desktop shortcut; open Clipper.cmd in the install folder instead.'
+    }
 
     $env:CLIPPER_DATA = $data
     $env:CLIPPER_MODELS = Join-Path $root 'models'
@@ -117,22 +128,14 @@ function Install-Clipper {
 
         if ($env:CLIPPER_SKIP_RUN -eq '1') {
             Write-Host ''
-            Write-Host "Installed in $root. Nothing was downloaded or clipped (CLIPPER_SKIP_RUN is set)." -ForegroundColor Green
+            Write-Host "Installed in $root. The app was not opened (CLIPPER_SKIP_RUN is set)." -ForegroundColor Green
             return
         }
 
-        Step 'Finding and downloading gameplay-only GTA 6 videos, picking the highlights'
-        Invoke-Step 'planning the clips' { & $py -m clipper plan }
-
-        Step 'Rendering the clips'
-        & $py -m clipper execute   # exit code 1 here means some clips failed; the report says which
-
-        $out = Join-Path $data 'out'
         Write-Host ''
-        Write-Host "Done. Clips and their post text are in $out" -ForegroundColor Green
-        Write-Host "To make clips again later, double-click run.cmd in $root"
-        Write-Host "To have it run by itself every morning, double-click daily-on.cmd in $root"
-        if (Test-Path $out) { Start-Process explorer.exe $out }
+        Write-Host 'Installed. Opening Clipper in your browser.' -ForegroundColor Green
+        Write-Host 'Click "Make clips now" there. Next time, use the Clipper shortcut on your desktop.'
+        Start-Process -FilePath (Join-Path $root 'Clipper.cmd') -WorkingDirectory $root -WindowStyle Minimized
     } finally {
         Pop-Location
     }

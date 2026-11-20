@@ -172,6 +172,7 @@ class Render:
     preset: str = "veryfast"
     loudness: float = -14.0
     hook_seconds: float = 3.5
+    progress_bar: bool = True  # a thin bar across the top that fills as the clip plays
 
 
 @dataclass
@@ -327,6 +328,9 @@ def load(path: str | Path | None = None) -> Config:
     if path.exists():
         # utf-8-sig: Windows editors (Notepad, PowerShell) put a byte-order mark at the start of the file.
         data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+    from . import settings  # settings made in the app on this computer win over config.toml
+
+    data = settings.overlay(data, settings.load(Config().data_root))
     cfg = _fill(Config, data, "config")
     validate(cfg)
     return cfg

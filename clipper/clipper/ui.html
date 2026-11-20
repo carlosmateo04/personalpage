@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clipper</title>
+<style>
+  :root {
+    --bg: #0e1014; --panel: #171a21; --panel2: #1e222b; --line: #2a2f3a; --text: #e9ecf1; --muted: #9aa3b2;
+    --accent: #ffe600; --accent-ink: #14140a; --good: #3ddc84; --bad: #ff5a5f; --info: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(14,16,20,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1280px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .brand { font-weight: 800; font-size: 20px; letter-spacing: .3px; display: flex; align-items: center; gap: 10px; }
+  .brand i { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, #ff2e93, #7b2ff7); display: inline-block; }
+  .grow { flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--good); } .dot.off { background: var(--bad); }
+  .btn { border: 1px solid var(--line); background: var(--panel2); padding: 8px 14px; border-radius: 9px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: #3b4252; } .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.danger { color: var(--bad); } .btn.small { padding: 5px 10px; font-size: 13px; }
+  nav { max-width: 1280px; margin: 0 auto; padding: 0 20px; display: flex; gap: 4px; }
+  nav button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; cursor: pointer; color: var(--muted); font-weight: 600; }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  main { max-width: 1280px; margin: 0 auto; padding: 20px; }
+  .progress { max-width: 1280px; margin: 0 auto; padding: 0 20px 10px; display: none; }
+  .progress.show { display: block; }
+  .progress div { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .pill { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px; }
+  .pill.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .card video { width: 100%; aspect-ratio: 9 / 16; max-height: 460px; background: #000; object-fit: contain; display: block; }
+  .card .missing { aspect-ratio: 16 / 9; display: grid; place-items: center; color: var(--muted); background: #0a0b0e; font-size: 13px; padding: 12px; text-align: center; }
+  .card .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 9px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tag { font-size: 11px; font-weight: 800; letter-spacing: .5px; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; }
+  .tag.state { background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+  .tag.state.ready { color: var(--accent); } .tag.state.queued { color: var(--info); } .tag.state.posted { color: var(--good); } .tag.state.failed, .tag.state.dropped { color: var(--bad); }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; font-weight: 600; }
+  input[type=text], input[type=password], input[type=number], textarea, select { width: 100%; background: #0f1218; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { resize: vertical; min-height: 64px; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid rgba(255,230,0,.35); border-color: var(--accent); }
+  .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .meta a { color: var(--info); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--text); background: var(--panel2); border: 1px solid var(--line); padding: 4px 9px; border-radius: 8px; cursor: pointer; }
+  .check input { accent-color: var(--accent); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; }
+  .empty { border: 1px dashed var(--line); border-radius: 14px; padding: 46px 20px; text-align: center; color: var(--muted); }
+  .empty h2 { color: var(--text); margin: 0 0 6px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 18px; }
+  .panel h2 { margin: 0 0 4px; font-size: 17px; } .panel p.sub { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+  .form { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+  pre { background: #0a0b0e; border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow: auto; max-height: 420px; font: 12.5px/1.5 Consolas, ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+  .searchrow { display: grid; grid-template-columns: 1fr 170px 40px; gap: 8px; margin-bottom: 8px; }
+  ol.steps { margin: 0 0 14px; padding-left: 20px; color: var(--muted); } ol.steps a { color: var(--info); }
+  #toast { position: fixed; right: 20px; bottom: 20px; background: var(--panel2); border: 1px solid var(--line); border-left: 4px solid var(--good); padding: 12px 16px; border-radius: 10px; max-width: 420px; display: none; z-index: 20; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  #toast.bad { border-left-color: var(--bad); } #toast.show { display: block; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><i></i>Clipper</div>
+    <span class="chip" id="chip-accounts"><span class="dot"></span><span>Accounts</span></span>
+    <span class="chip" id="chip-daily"><span class="dot"></span><span>Daily run</span></span>
+    <div class="grow"></div>
+    <button class="btn" id="btn-folder" title="Open the folder that holds the finished clips">Open clips folder</button>
+    <button class="btn primary" id="btn-run">Make clips now</button>
+  </div>
+  <div class="progress" id="progress"><div id="progress-text"></div></div>
+  <nav>
+    <button data-tab="clips" class="active">Clips</button>
+    <button data-tab="activity">Activity</button>
+    <button data-tab="settings">Settings</button>
+    <button data-tab="accounts">Accounts</button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-clips">
+    <div class="toolbar">
+      <button class="pill active" data-filter="ready">Ready</button>
+      <button class="pill" data-filter="queued">Queued</button>
+      <button class="pill" data-filter="posted">Posted</button>
+      <button class="pill" data-filter="all">All</button>
+      <div class="grow"></div>
+      <button class="btn" id="btn-post-all" title="Send every ready clip to the next free posting times">Schedule all ready clips</button>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="empty hide" id="empty"><h2 id="empty-title">No clips yet</h2><div id="empty-text">Click “Make clips now” and they will appear here as they are finished.</div></div>
+  </section>
+
+  <section id="tab-activity" class="hide">
+    <div class="panel"><h2>Current run</h2><p class="sub" id="run-sub">Nothing is running.</p><pre id="log">No run yet.</pre></div>
+    <div class="panel"><h2>Last report</h2><p class="sub">What was scheduled, what could not be fetched, and what was left out.</p><pre id="report">No report yet.</pre></div>
+  </section>
+
+  <section id="tab-settings" class="hide">
+    <div class="panel">
+      <h2>Clips</h2><p class="sub">How long each clip is and how many are taken from one video.</p>
+      <div class="form">
+        <div><label>Shortest clip (seconds)</label><input type="number" id="s-min" min="10" max="180"></div>
+        <div><label>Longest clip (seconds)</label><input type="number" id="s-max" min="10" max="180"></div>
+        <div><label>Clips per video (at most)</label><input type="number" id="s-per" min="1" max="10"></div>
+        <div><label>Your handle, shown on each clip</label><input type="text" id="s-handle" placeholder="@yourchannel"></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <label class="check"><input type="checkbox" id="s-facecam"> Leave out videos with a streamer on camera</label>
+        <label class="check"><input type="checkbox" id="s-talk"> Leave out videos with someone talking over the game</label>
+        <label class="check"><input type="checkbox" id="s-bar"> Progress bar across the top of each clip</label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Posting</h2><p class="sub">When clips go out and where.</p>
+      <div class="form">
+        <div><label>Posting times, 24-hour, comma separated</label><input type="text" id="s-slots" placeholder="11:30, 15:00, 19:00, 21:30"></div>
+        <div><label>Time zone</label><input type="text" id="s-tz" placeholder="America/New_York"></div>
+        <div><label>TikTok</label><select id="s-tiktok"><option value="DIRECT_POST">Post directly</option><option value="MEDIA_UPLOAD">Send to my drafts</option></select></div>
+        <div><label>YouTube visibility</label><select id="s-youtube"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></div>
+      </div>
+      <div class="row" style="margin-top:14px" id="s-platforms"></div>
+      <div class="row" style="margin-top:10px">
+        <label class="check"><input type="checkbox" id="s-auto"> Post automatically after each run, without waiting for me</label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Searches</h2><p class="sub">What the clipper looks for on YouTube. Only videos labelled “no commentary” are taken.</p>
+      <div id="searches"></div>
+      <button class="btn small" id="btn-add-search">Add a search</button>
+    </div>
+    <div class="panel">
+      <h2>Housekeeping</h2><p class="sub">Old files are deleted so the disk does not fill up.</p>
+      <div class="form">
+        <div><label>Keep downloaded videos (days)</label><input type="number" id="s-keep-dl" min="1" max="60"></div>
+        <div><label>Keep finished clips (days)</label><input type="number" id="s-keep-clips" min="1" max="365"></div>
+      </div>
+    </div>
+    <button class="btn primary" id="btn-save-settings">Save settings</button>
+  </section>
+
+  <section id="tab-accounts" class="hide">
+    <div class="panel">
+      <h2>Posting service</h2>
+      <p class="sub">One connection covers TikTok, Instagram, YouTube and Facebook. Clipper sends the clip and its text to Upload-Post, which posts it to the accounts you connected there.</p>
+      <ol class="steps">
+        <li>Create an account at <a href="https://www.upload-post.com" target="_blank" rel="noopener">upload-post.com</a>.</li>
+        <li>In Upload-Post, create a profile and connect your four social accounts to it.</li>
+        <li>Create an API key there and paste it below.</li>
+      </ol>
+      <div class="form">
+        <div><label>API key</label><input type="password" id="a-key" placeholder="Paste the key here" autocomplete="off"></div>
+        <div id="a-profile-wrap" class="hide"><label>Profile</label><select id="a-profile"></select></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="btn-connect">Save and test</button>
+        <button class="btn danger hide" id="btn-disconnect">Disconnect</button>
+      </div>
+      <p class="meta" style="margin-top:12px">The key is kept on this computer (in Windows Credential Manager) and is never shown again or sent anywhere except the posting service.</p>
+    </div>
+    <div class="panel"><h2>Connected accounts</h2><p class="sub" id="a-status">Not connected yet.</p><div class="row" id="a-platforms"></div></div>
+    <div class="panel">
+      <h2>Daily run</h2><p class="sub">Make clips by itself every morning while this computer is on and you are signed in.</p>
+      <div class="row">
+        <input type="text" id="d-at" value="06:00" style="width:90px" title="Time of day, 24-hour">
+        <button class="btn" id="btn-daily">Switch on</button>
+        <span class="meta" id="d-note"></span>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const NAMES = {tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", facebook: "Facebook"};
+let S = null, filter = "ready", settingsLoaded = false;
+const cards = new Map();
+const $ = id => document.getElementById(id);
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid);
+  return el;
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {method: body ? "POST" : "GET", headers: {"X-Clipper-Token": TOKEN, "Content-Type": "application/json"}, body: body ? JSON.stringify(body) : undefined});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Something went wrong");
+  return data;
+}
+
+let toastTimer;
+function toast(text, bad) {
+  const t = $("toast");
+  t.textContent = text; t.className = "show" + (bad ? " bad" : "");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = "", bad ? 7000 : 3500);
+}
+async function act(path, body, done) {
+  try { const r = await api(path, body || {}); if (done) toast(typeof done === "function" ? done(r) : done); await refresh(); return r; }
+  catch (e) { toast(e.message, true); return null; }
+}
+
+function connected() { return S && S.accounts.connected && S.settings.profile; }
+function linked() {
+  if (!S) return [];
+  const p = S.accounts.profiles.find(x => x.name === S.settings.profile);
+  return p && p.platforms.length ? p.platforms : S.settings.platforms;
+}
+
+// ---- clips ----------------------------------------------------------------
+function buildCard(c) {
+  const ready = c.state === "ready";
+  const title = h("input", {type: "text", value: c.title, maxlength: 100, disabled: !ready});
+  const caption = h("textarea", {rows: 3, disabled: !ready}); caption.value = c.caption;
+  const desc = h("textarea", {rows: 4, disabled: !ready}); desc.value = c.description;
+  const card = h("div", {class: "card", "data-id": c.id});
+  const dirty = () => { card.dataset.dirty = "1"; save.classList.remove("hide"); };
+  [title, caption, desc].forEach(el => el.addEventListener("input", dirty));
+  const saveText = async () => {
+    if (!card.dataset.dirty) return true;
+    const r = await act("/api/clip", {id: c.id, title: title.value, caption: caption.value, description: desc.value});
+    if (r) { delete card.dataset.dirty; save.classList.add("hide"); }
+    return !!r;
+  };
+  const save = h("button", {class: "btn small hide", text: "Save text", onclick: async () => { if (await saveText()) toast("Saved"); }});
+  const boxes = linked().map(p => { const box = h("input", {type: "checkbox", value: p, checked: true}); return h("label", {class: "check"}, box, NAMES[p] || p); });
+  const chosen = () => boxes.map(b => b.firstChild).filter(b => b.checked).map(b => b.value);
+  const send = async when => {
+    const to = chosen();
+    if (!to.length) return toast("Tick at least one account", true);
+    const names = to.map(p => NAMES[p] || p).join(", ");
+    if (when === "now" && !confirm(`Post this clip now to ${names}?`)) return;
+    if (!(await saveText())) return;
+    await act("/api/post", {id: c.id, when, platforms: to}, when === "now" ? `Sent to ${names}` : "Scheduled for the next free time");
+  };
+  const media = c.media
+    ? h("video", {src: c.media, controls: true, preload: "metadata", playsinline: true})
+    : h("div", {class: "missing", text: "The clip file is no longer on this computer."});
+  const links = Object.entries(c.links || {}).map(([p, url]) => h("a", {href: url, target: "_blank", rel: "noopener", text: (NAMES[p] || p) + (c.views && c.views[p] != null ? ` (${c.views[p].toLocaleString()} views)` : "")}));
+  card.append(media, h("div", {class: "body"},
+    h("div", {class: "tags"},
+      h("span", {class: "tag", text: c.section, style: `background:${c.color};color:#111`}),
+      h("span", {class: "tag state " + c.state, text: c.state}),
+      h("span", {class: "meta", text: `${Math.floor(c.seconds / 60)}:${String(c.seconds % 60).padStart(2, "0")}`}),
+      c.state !== "ready" && c.when ? h("span", {class: "meta", text: (c.state === "queued" ? "goes out " : "") + c.when}) : null),
+    h("div", {}, h("label", {text: "Title"}), title),
+    h("div", {}, h("label", {text: "Caption for TikTok, Instagram and Facebook"}), caption),
+    h("details", {}, h("summary", {text: "YouTube description"}), desc),
+    h("div", {class: "meta"}, "Footage: " + (c.creator || "unknown") + " · " + (c.permission || "no permission on file"),
+      c.origin && c.origin.startsWith("http") ? [" · ", h("a", {href: c.origin, target: "_blank", rel: "noopener", text: "original"})] : null),
+    links.length ? h("div", {class: "meta row"}, links) : null,
+    c.error ? h("div", {class: "meta", style: "color:var(--bad)", text: c.error}) : null,
+    ready ? h("div", {class: "row"}, boxes) : null,
+    ready ? h("div", {class: "row"},
+      h("button", {class: "btn primary small", text: "Post now", disabled: !connected(), title: connected() ? "" : "Connect your accounts first", onclick: () => send("now")}),
+      h("button", {class: "btn small", text: "Next free time", disabled: !connected(), title: connected() ? "" : "Connect your accounts first", onclick: () => send("next")}),
+      save,
+      h("div", {class: "grow"}),
+      h("button", {class: "btn small danger", text: "Drop", onclick: () => { if (confirm("Drop this clip? It will not be posted.")) act("/api/drop", {id: c.id}, "Dropped"); }})) : null));
+  return card;
+}
+
+function renderClips() {
+  const counts = {ready: 0, queued: 0, posted: 0, all: S.clips.length};
+  S.clips.forEach(c => { if (counts[c.state] != null) counts[c.state]++; });
+  document.querySelectorAll("[data-filter]").forEach(b => {
+    const f = b.dataset.filter;
+    b.textContent = f[0].toUpperCase() + f.slice(1) + (counts[f] ? ` ${counts[f]}` : "");
+    b.classList.toggle("active", f === filter);
+  });
+  const show = S.clips.filter(c => filter === "all" || c.state === filter);
+  const grid = $("grid"), keep = new Set(show.map(c => c.id));
+  for (const [id, entry] of cards) if (!keep.has(id)) { entry.el.remove(); cards.delete(id); }
+  let previous = null;
+  for (const c of show) {
+    const sig = JSON.stringify([c, connected(), linked()]);
+    let entry = cards.get(c.id);
+    const busy = entry && (entry.el.dataset.dirty || entry.el.contains(document.activeElement) || (entry.el.querySelector("video") && !entry.el.querySelector("video").paused));
+    if (!entry || (entry.sig !== sig && !busy)) {
+      const el = buildCard(c);
+      if (entry) entry.el.replaceWith(el);
+      entry = {el, sig}; cards.set(c.id, entry);
+    }
+    const want = previous ? previous.nextSibling : grid.firstChild;
+    if (entry.el !== want) grid.insertBefore(entry.el, want);
+    previous = entry.el;
+  }
+  $("empty").classList.toggle("hide", show.length > 0);
+  if (!show.length) {
+    $("empty-title").textContent = S.clips.length ? `No ${filter} clips` : "No clips yet";
+    $("empty-text").textContent = S.clips.length ? "Choose another filter above." : "Click “Make clips now” and they will appear here as they are finished.";
+  }
+  $("btn-post-all").disabled = !connected() || !counts.ready;
+  $("btn-post-all").title = connected() ? "Send every ready clip to the next free posting times" : "Connect your accounts first";
+}
+
+// ---- header, activity, accounts -------------------------------------------
+function renderShell() {
+  const run = S.run, acc = S.accounts;
+  $("btn-run").textContent = run.running ? "Stop" : "Make clips now";
+  $("btn-run").classList.toggle("primary", !run.running);
+  const last = run.log.length ? run.log[run.log.length - 1].replace(/^\[\d\d:\d\d:\d\d\]\s*/, "") : "";
+  $("progress").classList.toggle("show", run.running);
+  $("progress-text").textContent = run.running ? `Working (${run.minutes} min): ${last || "starting"}` : "";
+  const names = linked().map(p => NAMES[p] || p).join(", ");
+  $("chip-accounts").innerHTML = "";
+  $("chip-accounts").append(h("span", {class: "dot " + (connected() ? "on" : "off")}), h("span", {text: connected() ? "Posting to " : "Accounts "}), h("b", {text: connected() ? names : "not connected"}));
+  $("chip-daily").innerHTML = "";
+  $("chip-daily").append(h("span", {class: "dot " + (S.daily.on ? "on" : "")}), h("span", {text: "Daily run "}), h("b", {text: S.daily.on ? "on" : "off"}));
+  const log = $("log"), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.textContent = run.log.length ? run.log.join("\n") : "No run yet.";
+  if (atEnd) log.scrollTop = log.scrollHeight;
+  $("run-sub").textContent = run.running ? `Running for ${run.minutes} min.` : (run.exit == null ? "Nothing is running." : run.exit === 0 ? "The last run finished." : "The last run finished with problems.");
+  $("report").textContent = S.report || "No report yet.";
+
+  $("a-status").textContent = acc.error ? `The posting service did not accept the key: ${acc.error}` : acc.connected ? (S.settings.profile ? `Connected. Posting through the profile “${S.settings.profile}”.` : "Connected. Choose a profile above.") : "Not connected yet.";
+  $("a-platforms").innerHTML = "";
+  if (acc.connected) {
+    const p = acc.profiles.find(x => x.name === S.settings.profile);
+    if (p && p.platforms.length) Object.keys(NAMES).forEach(k => $("a-platforms").append(h("span", {class: "chip"}, h("span", {class: "dot " + (p.platforms.includes(k) ? "on" : "off")}), h("b", {text: NAMES[k]}))));
+    else if (p) $("a-platforms").append(h("span", {class: "meta", text: "Upload-Post did not list which accounts are connected to this profile. Check them on its website."}));
+  }
+  $("btn-disconnect").classList.toggle("hide", !acc.connected);
+  const wrap = $("a-profile-wrap"), sel = $("a-profile");
+  wrap.classList.toggle("hide", acc.profiles.length < 2);
+  if (acc.profiles.length >= 2 && document.activeElement !== sel) {
+    sel.innerHTML = "";
+    acc.profiles.forEach(p => sel.append(h("option", {value: p.name, text: p.name, selected: p.name === S.settings.profile})));
+  }
+  $("btn-daily").textContent = S.daily.on ? "Switch off" : "Switch on";
+  $("btn-daily").disabled = !S.daily.available;
+  $("d-note").textContent = S.daily.available ? (S.daily.on ? "On. Clips are made every day at the set time." : "Off.") : "Available in the Windows install.";
+}
+
+// ---- settings ---------------------------------------------------------------
+function searchRow(s) {
+  const q = h("input", {type: "text", value: s.query, placeholder: "gta 6 police chase no commentary"});
+  const sec = h("select", {}, S.settings.sections.map(x => h("option", {value: x.name, text: x.label, selected: x.name === s.section})));
+  const row = h("div", {class: "searchrow"}, q, sec, h("button", {class: "btn small danger", text: "✕", title: "Remove", onclick: () => row.remove()}));
+  return row;
+}
+function fillSettings() {
+  const s = S.settings;
+  $("s-min").value = s.min_len; $("s-max").value = s.max_len; $("s-per").value = s.max_per_source; $("s-handle").value = s.handle;
+  $("s-facecam").checked = s.no_facecam; $("s-talk").checked = s.no_commentary; $("s-bar").checked = s.progress_bar;
+  $("s-slots").value = s.slots.join(", "); $("s-tz").value = s.timezone; $("s-tiktok").value = s.tiktok_post_mode; $("s-youtube").value = s.youtube_privacy;
+  $("s-auto").checked = s.auto_post; $("s-keep-dl").value = s.keep_downloads_days; $("s-keep-clips").value = s.keep_clips_days;
+  $("s-platforms").innerHTML = "";
+  Object.keys(NAMES).forEach(p => $("s-platforms").append(h("label", {class: "check"}, h("input", {type: "checkbox", value: p, checked: s.platforms.includes(p)}), NAMES[p])));
+  $("searches").innerHTML = ""; s.searches.forEach(x => $("searches").append(searchRow(x)));
+  settingsLoaded = true;
+}
+function readSettings() {
+  const num = id => Number($(id).value);
+  return {
+    brand: {handle: $("s-handle").value.trim()},
+    moments: {min_len: num("s-min"), max_len: num("s-max"), max_per_source: num("s-per"), whole_clip_min: num("s-min"), whole_clip_max: num("s-max")},
+    filters: {no_facecam: $("s-facecam").checked, no_commentary: $("s-talk").checked},
+    render: {progress_bar: $("s-bar").checked},
+    schedule: {slots: $("s-slots").value.split(",").map(x => x.trim()).filter(Boolean), timezone: $("s-tz").value.trim()},
+    publish: {tiktok_post_mode: $("s-tiktok").value, youtube_privacy: $("s-youtube").value, platforms: [...$("s-platforms").querySelectorAll("input:checked")].map(x => x.value)},
+    housekeeping: {keep_downloads_days: num("s-keep-dl"), keep_clips_days: num("s-keep-clips")},
+    searches: [...$("searches").children].map(r => ({query: r.children[0].value.trim(), section: r.children[1].value})).filter(x => x.query),
+    auto_post: $("s-auto").checked,
+  };
+}
+
+// ---- wiring ------------------------------------------------------------------
+async function refresh() {
+  try { S = await api("/api/state"); } catch (e) { toast(e.message, true); return; }
+  renderShell(); renderClips();
+  if (!settingsLoaded) fillSettings();
+}
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
+  ["clips", "activity", "settings", "accounts"].forEach(t => $("tab-" + t).classList.toggle("hide", t !== b.dataset.tab));
+  if (b.dataset.tab === "settings" && S) fillSettings();
+}));
+document.querySelectorAll("[data-filter]").forEach(b => b.addEventListener("click", () => { filter = b.dataset.filter; renderClips(); }));
+$("btn-run").addEventListener("click", () => S && S.run.running ? act("/api/stop", {}, "Stopping") : act("/api/run", {}, "Started. Progress is shown at the top and under Activity."));
+$("btn-folder").addEventListener("click", () => act("/api/open", {}));
+$("btn-post-all").addEventListener("click", () => { if (confirm("Schedule every ready clip in the next free posting times?")) act("/api/post-all", {}, r => `${r.count} clip(s) scheduled`); });
+$("btn-save-settings").addEventListener("click", async () => {
+  const wanted = readSettings();
+  if (wanted.auto_post && !connected()) return toast("Connect your accounts before switching on automatic posting", true);
+  if (await act("/api/settings", wanted, "Settings saved. They apply from the next run.")) fillSettings();
+});
+$("btn-add-search").addEventListener("click", () => $("searches").append(searchRow({query: "", section: "moments"})));
+$("btn-connect").addEventListener("click", async () => {
+  const r = await act("/api/connect", {api_key: $("a-key").value, profile: $("a-profile").value || ""}, "Connected");
+  if (r) $("a-key").value = "";
+});
+$("a-profile").addEventListener("change", () => act("/api/connect", {api_key: "", profile: $("a-profile").value}, "Profile chosen"));
+$("btn-disconnect").addEventListener("click", () => { if (confirm("Remove the saved key from this computer?")) act("/api/disconnect", {}, "Disconnected"); });
+$("btn-daily").addEventListener("click", () => act("/api/daily", {on: !S.daily.on, at: $("d-at").value.trim()}, S.daily.on ? "Daily run switched off" : "Daily run switched on"));
+
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+</script>
+</body>
+</html>

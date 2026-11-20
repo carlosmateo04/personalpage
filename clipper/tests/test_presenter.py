@@ -137,12 +137,12 @@ def test_stray_words_in_game_dialogue_are_ignored(cfg):
 
 
 def test_clips_meet_the_length_the_platforms_pay_for(tmp_path):
-    """With the project's own settings, every clip cut from a long video runs 61 to 120 seconds."""
+    """With the project's own settings, every clip cut from a long video runs about a minute and a half."""
     from clipper import config as cfgmod
 
     real = cfgmod.load()  # the config.toml that ships with the clipper
-    assert (real.moments.min_len, real.moments.max_len) == (61, 120)
-    assert (real.moments.whole_clip_min, real.moments.whole_clip_max) == (61, 180)
+    assert (real.moments.min_len, real.moments.max_len) == (85, 95)
+    assert (real.moments.whole_clip_min, real.moments.whole_clip_max) == (80, 100)
     rate = 16000
     audio = np.random.default_rng(9).normal(0, 0.01, rate * 600).astype(np.float32)
     for at, length in ((100, 15), (300, 40), (480, 8)):  # three bursts of action of different lengths
@@ -153,11 +153,11 @@ def test_clips_meet_the_length_the_platforms_pay_for(tmp_path):
     found = moments.find(real.moments, wav, shout, 600.0)
     assert len(found) == 3
     for clip in found:
-        assert 60.99 <= clip.duration <= 121, clip.duration  # 61 s, give or take float rounding
+        assert 84.99 <= clip.duration <= 96, clip.duration  # about a minute and a half
     starts = sorted(c.start for c in found)
     assert starts[0] <= 100 and 250 <= starts[1] <= 300 and starts[2] <= 480
-    short = moments.Candidate(0.0, 40.0, 20.0, 3.0, [])
+    short = moments.Candidate(0.0, 70.0, 35.0, 3.0, [])
     from clipper.state import Ledger
     assert any("too short" in r for r in gates.check(real, short, "s", Ledger(tmp_path / "l.json"), whole=True))
-    ok = moments.Candidate(0.0, 95.0, 40.0, 3.0, [])
+    ok = moments.Candidate(0.0, 92.0, 40.0, 3.0, [])
     assert gates.check(real, ok, "s", Ledger(tmp_path / "l.json"), whole=True) == []

@@ -32,7 +32,8 @@ class FakeApi(BaseHTTPRequestHandler):
     def do_GET(self):
         FakeApi.calls.append(("GET", self.path, dict(self.headers), {}))
         if self.path.startswith("/api/uploadposts/users"):
-            self._reply({"success": True, "profiles": [{"username": "gta6clips", "social_accounts": {"tiktok": {}}}]})
+            self._reply({"success": True, "profiles": [{"username": "gta6clips", "social_accounts": {
+                "tiktok": {"username": "someone", "capabilities": ["draft"]}, "instagram": "", "youtube": None}}]})
         elif self.path.startswith("/api/uploadposts/status"):
             self._reply({"status": "completed", "results": [
                 {"platform": "tiktok", "success": True, "url": "https://www.tiktok.com/@x/video/1"},

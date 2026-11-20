@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,17 +29,24 @@ class PublishError(RuntimeError):
     pass
 
 
-def upload_args(cfg: Config, clip: dict, when: datetime) -> dict[str, Any]:
-    """Keyword arguments for UploadPostClient.upload_video."""
+def upload_args(cfg: Config, clip: dict, when: datetime | None, platforms: list[str] | None = None) -> dict[str, Any]:
+    """Keyword arguments for UploadPostClient.upload_video.
+
+    `when` is the posting time; None posts straight away. `platforms` narrows
+    the post to some of the configured platforms.
+    """
     meta, pub = clip["meta"], cfg.publish
+    chosen = [p for p in pub.platforms if platforms is None or p in platforms]
     args: dict[str, Any] = {
         "title": meta["title"],
         "user": pub.profile,
-        "platforms": list(pub.platforms),
-        "scheduled_date": when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "platforms": chosen,
         "async_upload": True,
-        "idempotency_key": clip["id"],
+        "idempotency_key": clip["id"] if platforms is None else f"{clip['id']}-{'-'.join(chosen)}",
     }
+    if when is not None:
+        args["scheduled_date"] = when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    pub = replace(pub, platforms=chosen)
     if "tiktok" in pub.platforms:
         args["tiktok_title"] = meta["tiktok"]["title"]
         args["post_mode"] = pub.tiktok_post_mode
@@ -109,6 +117,39 @@ def extract_views(payload: Any) -> dict[str, int]:
     return views
 
 
+def api_key(cfg: Config) -> str:
+    """The Upload-Post key: from the environment, or the one saved in the app."""
+    from . import settings
+
+    return os.environ.get("UPLOAD_POST_API_KEY") or settings.get_secret(cfg.data_root, "upload_post_api_key")
+
+
+def accounts(cfg: Config) -> dict[str, Any]:
+    """What the saved key can post to: its profiles and the platforms connected to each."""
+    if not api_key(cfg):
+        return {"connected": False, "profiles": [], "error": ""}
+    from upload_post import UploadPostClient, UploadPostError
+
+    try:
+        listing = UploadPostClient(api_key(cfg)).list_users()
+    except UploadPostError as exc:
+        return {"connected": False, "profiles": [], "error": str(exc)[:300]}
+    return {"connected": True, "profiles": profiles_in(listing), "error": ""}
+
+
+def profiles_in(listing: Any) -> list[dict[str, Any]]:
+    """Profiles in an Upload-Post account listing, each with the platforms connected to it.
+
+    A profile is an entry with a `username` and a `social_accounts` object keyed
+    by platform; a platform counts as connected when its entry is not empty.
+    """
+    found = [n for n in _walk(listing) if isinstance(n.get("username"), str) and isinstance(n.get("social_accounts"), dict)]
+    if not found:  # an unexpected shape: fall back to the top-level entries that carry a name
+        top = next((v for v in listing.values() if isinstance(v, list)), []) if isinstance(listing, dict) else []
+        found = [n for n in top if isinstance(n, dict) and isinstance(n.get("username"), str)]
+    return [{"name": n["username"], "platforms": sorted(p for p in PLATFORMS if (n.get("social_accounts") or {}).get(p))} for n in found]
+
+
 class DryRun:
     name = "dry_run"
 
@@ -119,10 +160,10 @@ class DryRun:
     def check(self) -> str:
         return "dry run: nothing will be posted"
 
-    def publish(self, clip: dict, video: Path, when: datetime) -> dict:
+    def publish(self, clip: dict, video: Path, when: datetime | None, platforms: list[str] | None = None) -> dict:
         entries = json.loads(self.outbox.read_text(encoding="utf-8")) if self.outbox.exists() else []
         entries = [e for e in entries if e["clip"] != clip["id"]]
-        entries.append({"clip": clip["id"], "video": str(video), "args": upload_args(self.cfg, clip, when)})
+        entries.append({"clip": clip["id"], "video": str(video), "args": upload_args(self.cfg, clip, when, platforms)})
         self.outbox.parent.mkdir(parents=True, exist_ok=True)
         self.outbox.write_text(json.dumps(entries, indent=1, ensure_ascii=False), encoding="utf-8")
         return {"mode": "dry_run"}
@@ -140,7 +181,7 @@ class UploadPost:
         if not cfg.publish.profile:
             raise PublishError("publish.profile is empty: set it to the Upload-Post profile your accounts are connected to")
         self.cfg = cfg
-        self.client = UploadPostClient(os.environ.get("UPLOAD_POST_API_KEY") or "set-by-network-proxy")
+        self.client = UploadPostClient(api_key(cfg) or "set-by-network-proxy")
 
     def check(self) -> str:
         from upload_post import UploadPostError
@@ -149,15 +190,15 @@ class UploadPost:
             users = self.client.list_users()
         except UploadPostError as exc:
             raise PublishError(f"Upload-Post rejected the request: {exc}") from exc
-        names = sorted({n["username"] for n in _walk(users) if isinstance(n.get("username"), str)})
+        names = sorted(p["name"] for p in profiles_in(users))
         if self.cfg.publish.profile not in names:
             raise PublishError(f"profile {self.cfg.publish.profile!r} not found; Upload-Post has: {', '.join(names) or 'none'}")
         return f"Upload-Post reachable; profile {self.cfg.publish.profile!r} found"
 
-    def publish(self, clip: dict, video: Path, when: datetime) -> dict:
+    def publish(self, clip: dict, video: Path, when: datetime | None, platforms: list[str] | None = None) -> dict:
         from upload_post import UploadPostError
 
-        args = upload_args(self.cfg, clip, when)
+        args = upload_args(self.cfg, clip, when, platforms)
         for attempt in range(1, 4):
             try:
                 resp = self.client.upload_video(video, **args)

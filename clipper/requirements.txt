@@ -6,3 +6,4 @@ requests>=2.25
 yt-dlp[default]>=2025.11
 opencv-python-headless>=4.8
 tzdata; sys_platform == "win32"
+keyring; sys_platform == "win32"

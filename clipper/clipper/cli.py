@@ -106,6 +106,13 @@ def cmd_status(cfg, args) -> int:
     return 0
 
 
+def cmd_ui(cfg, args) -> int:
+    from . import ui
+
+    ui.serve(args.config, args.port, not args.no_browser, args.token)
+    return 0
+
+
 def cmd_cleanup(cfg, args) -> int:
     pipeline.cleanup(cfg)
     return 0
@@ -140,6 +147,11 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_approve)
     sub.add_parser("status", help="refresh post links and views, rewrite the report").set_defaults(fn=cmd_status)
     sub.add_parser("cleanup", help="delete old downloads and old clips").set_defaults(fn=cmd_cleanup)
+    p = sub.add_parser("ui", help="open the Clipper app in your browser")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-browser", action="store_true")
+    p.add_argument("--token", help=argparse.SUPPRESS)
+    p.set_defaults(fn=cmd_ui)
     sub.add_parser("report", help="print the report").set_defaults(fn=cmd_report)
     args = parser.parse_args(argv)
     try:

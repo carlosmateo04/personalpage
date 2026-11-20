@@ -56,6 +56,7 @@ def missing_modules() -> list[str]:
     wanted = dict(MODULES)
     if os.name == "nt":
         wanted["tzdata"] = "tzdata"  # Windows has no time-zone database of its own
+        wanted["keyring"] = "keyring"  # keeps the posting key in Windows Credential Manager
     return [package for name, package in wanted.items() if importlib.util.find_spec(name) is None]
 
 

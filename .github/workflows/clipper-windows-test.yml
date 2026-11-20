@@ -97,6 +97,37 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'schedule.ps1') -Off
           if (Get-ScheduledTask -TaskName 'Clipper daily run' -ErrorAction SilentlyContinue) { throw 'the daily task was not removed' }
 
+      - name: The app starts and shows the clips; the desktop shortcut exists
+        shell: powershell
+        run: |
+          $root = $env:CLIPPER_DIR
+          if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Clipper.lnk'))) { throw 'the desktop shortcut was not created' }
+          $env:CLIPPER_CONFIG = Join-Path $root 'test-config.toml'
+          $env:CLIPPER_NO_BROWSER = '1'
+          $env:CLIPPER_UI_TOKEN = 'ci-token'
+          $app = Start-Process -FilePath (Join-Path $root 'Clipper.cmd') -WorkingDirectory $root -PassThru -WindowStyle Hidden
+          try {
+            $page = $null
+            for ($i = 0; $i -lt 40 -and -not $page; $i++) {
+              Start-Sleep -Seconds 1
+              try { $page = Invoke-WebRequest -Uri 'http://127.0.0.1:8765/' -UseBasicParsing } catch { }
+            }
+            if (-not $page -or $page.Content -notmatch 'Make clips now') { throw 'the app did not start' }
+            $state = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/state' -Headers @{ 'X-Clipper-Token' = 'ci-token' }
+            $state.clips | Select-Object id, state, title, seconds, media | Format-Table
+            if (@($state.clips).Count -lt 2) { throw 'the app does not list the clips' }
+            $clip = $state.clips | Where-Object { $_.media } | Select-Object -First 1
+            $video = Invoke-WebRequest -Uri ('http://127.0.0.1:8765' + $clip.media) -Headers @{ Range = 'bytes=0-1023' } -UseBasicParsing
+            if ($video.StatusCode -ne 206) { throw 'the app does not serve the clip video' }
+            $denied = $false
+            try { Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/state' -Headers @{ 'X-Clipper-Token' = 'wrong' } } catch { $denied = $true }
+            if (-not $denied) { throw 'the app answered without the right token' }
+            $saved = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8765/api/settings' -Headers @{ 'X-Clipper-Token' = 'ci-token' } -ContentType 'application/json' -Body '{"brand": {"handle": "@ci"}}'
+            if (-not (Test-Path (Join-Path $root 'data\settings.json'))) { throw 'settings were not saved' }
+          } finally {
+            taskkill /PID $app.Id /T /F | Out-Null
+          }
+
       - name: Keep the finished test clip
         if: always()
         uses: actions/upload-artifact@v4

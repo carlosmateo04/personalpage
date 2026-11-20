@@ -22,7 +22,7 @@ def _even(x: float) -> int:
     return int(x) // 2 * 2
 
 
-def video_graph(cfg: Config, ass: Path) -> str:
+def video_graph(cfg: Config, ass: Path, duration: float = 0.0) -> str:
     r = cfg.render
     W, H = r.width, r.height
     if r.layout == "blur":
@@ -49,7 +49,15 @@ def video_graph(cfg: Config, ass: Path) -> str:
             f"[gamesrc]scale={W}:{bottom}:force_original_aspect_ratio=increase,crop={W}:{bottom}[game];"
             f"[cam][game]vstack[base]"
         )
-    return graph + f";[base]ass={_esc(ass)}:fontsdir={_esc(cfg.fonts_dir)},format=yuv420p[v]"
+    graph += f";[base]ass={_esc(ass)}:fontsdir={_esc(cfg.fonts_dir)}"
+    if r.progress_bar and duration > 0:
+        # A thin bar across the top that slides in from the left and is full when the clip ends.
+        colour = "0x" + cfg.captions.active_color.lstrip("#")
+        graph += (
+            f"[texted];color=c={colour}:s={W}x10:r={r.fps}:d={duration:.3f}[bar];"
+            f"[texted][bar]overlay=x='-W+W*t/{duration:.3f}':y=0:shortest=1"
+        )
+    return graph + ",setsar=1,format=yuv420p[v]"  # square pixels: scaling can leave them a hair off
 
 
 def audio_graph(cfg: Config, voiceover: bool) -> str:
@@ -72,7 +80,7 @@ def render(cfg: Config, src: Path, start: float, end: float, ass: Path, out: Pat
     if voiceover:
         cmd += ["-i", str(voiceover)]
     cmd += [
-        "-filter_complex", video_graph(cfg, ass) + ";" + audio_graph(cfg, voiceover is not None),
+        "-filter_complex", video_graph(cfg, ass, end - start) + ";" + audio_graph(cfg, voiceover is not None),
         "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-preset", r.preset, "-crf", str(r.crf), "-r", str(r.fps), "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
