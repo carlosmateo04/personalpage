@@ -68,6 +68,19 @@ jobs:
           $code | & (Join-Path $root 'venv\Scripts\python.exe') -
           if ($LASTEXITCODE -ne 0) { throw 'the app got no sign-in address from the real sign-in tool' }
 
+      - name: The installer noted its version and put the update script in place
+        shell: powershell
+        run: |
+          $root = $env:CLIPPER_DIR
+          $version = Join-Path $root 'app\VERSION'
+          if (-not (Test-Path $version)) { throw 'the installer did not note which version it installed' }
+          Get-Content $version
+          if ((Get-Content $version)[0] -ne $env:GITHUB_SHA) { Write-Host "::warning::the noted version is not this commit (a newer push may have landed)" }
+          if (-not (Test-Path (Join-Path $root 'update.ps1'))) { throw 'update.ps1 was not put in the install folder' }
+          Set-Location (Join-Path $root 'app')
+          & (Join-Path $root 'venv\Scripts\python.exe') -c "from clipper import upkeep; print(upkeep.installed()); print(upkeep.update_command())"
+          if ($LASTEXITCODE -ne 0) { throw 'the app cannot read its version' }
+
       - name: The model that hears music was installed
         shell: powershell
         run: |

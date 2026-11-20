@@ -77,7 +77,7 @@ def test_signing_in_stores_the_long_lived_sign_in_and_shows_the_channel(cfg, goo
     sent = google.form(calls("POST", "/token")[0]["body"])
     assert sent == {"client_id": "client-123.apps.googleusercontent.com", "client_secret": "GOCSPX-secret", "code": "good-code",
                     "code_verifier": kept["verifier"], "grant_type": "authorization_code", "redirect_uri": "http://127.0.0.1:8765"}
-    assert calls("GET", "/youtube/v3/channels")[0]["query"] == {"part": "snippet", "mine": "true"}
+    assert calls("GET", "/youtube/v3/channels")[0]["query"] == {"part": "snippet,statistics", "mine": "true"}
     assert youtube.YouTube(cfg).connected() and youtube.YouTube(cfg).account()["name"] == "Leonida Clips"
     # The sign-in and the app's secret are kept as secrets, never in the settings file the page can read.
     assert settings.get_secret(cfg.data_root, "youtube_refresh_token") == "rt-good"

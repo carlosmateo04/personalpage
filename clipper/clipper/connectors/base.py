@@ -162,6 +162,18 @@ class Connector:
         """What became of a post: any of state, link, views, error."""
         return {}
 
+    def followers(self) -> int | None:
+        """How many people follow the account, or None when the platform does not say."""
+        return None
+
+    def comments(self, post: dict) -> list[dict[str, Any]]:
+        """The newest comments on a post: [{"id", "text", "at", "answered"}]. Commenters' names are not kept."""
+        return []
+
+    def reply(self, post: dict, comment_id: str, text: str) -> None:
+        """Answer a comment as the account."""
+        raise ConnectorError(f"{self.label} does not let an app answer comments")
+
     def unfit(self, clip: dict, seconds: float, size: int) -> str:
         """Why this clip cannot go to this platform at all (too long, too big), or empty."""
         return ""

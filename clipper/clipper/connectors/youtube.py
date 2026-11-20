@@ -30,6 +30,8 @@ from .base import UPLOAD_TIMEOUT, Connector, ConnectorError, Sent, pkce
 UPLOAD = "https://www.googleapis.com/auth/youtube.upload"
 READ = "https://www.googleapis.com/auth/youtube.readonly"
 MANAGE = "https://www.googleapis.com/auth/youtube"  # only asked for when a playlist is set: adding to one needs it
+COMMENTS = "https://www.googleapis.com/auth/youtube.force-ssl"  # only asked for when comments are switched on
+EARNINGS = "https://www.googleapis.com/auth/yt-analytics-monetary.readonly"  # only asked for when the earnings figure is wanted
 
 # What YouTube's refusals mean, in the app's words: reason -> (message, retry, reconnect, seconds to wait)
 REFUSALS: dict[str, tuple[str, bool, bool, int]] = {
@@ -58,6 +60,7 @@ class YouTube(Connector):
     REVOKE = "https://oauth2.googleapis.com/revoke"
     API = "https://www.googleapis.com/youtube/v3"
     UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos"
+    ANALYTICS = "https://youtubeanalytics.googleapis.com/v2/reports"
     BACKOFF = 2.0  # seconds before the first resume of an interrupted upload; doubles each time
     RESUMES = 6
 
@@ -69,7 +72,16 @@ class YouTube(Connector):
 
     def scopes(self) -> list[str]:
         wants_playlists = any(sec.youtube_playlist_id for sec in self.cfg.sections)
-        return [UPLOAD, READ] + ([MANAGE] if wants_playlists else [])
+        more = [MANAGE] if wants_playlists else []
+        if self.cfg.audience.enabled or self.cfg.audience.credit_comment:
+            more.append(COMMENTS)  # reading and answering comments
+        if self.cfg.progress.earnings:
+            more.append(EARNINGS)  # the channel's earnings figure
+        return [UPLOAD, READ, *more]
+
+    def allowed(self, scope: str) -> bool:
+        """Whether the sign-in on file was given this permission."""
+        return scope in (self.remembered().get("scopes") or [])
 
     def auth_url(self, redirect_uri: str, state: str) -> tuple[str, dict[str, Any]]:
         app = self.app()
@@ -117,7 +129,7 @@ class YouTube(Connector):
             self.set_secret("refresh_token", "")
             raise
         self.remember(connected=now_iso(), name=channel["name"], id=channel["id"], handle=channel["handle"],
-                      can_read=READ in granted, playlists=MANAGE in granted, problem="")
+                      can_read=READ in granted, playlists=MANAGE in granted, scopes=granted, problem="")
         return self.account()
 
     def access(self, fresh: bool = False) -> str:
@@ -159,14 +171,75 @@ class YouTube(Connector):
         return ConnectorError(f"YouTube refused while {doing} ({response.status_code} {reason}: {message})".replace(" : ", ": "))
 
     def channel(self) -> dict[str, str]:
-        response = self.call("GET", f"{self.API}/channels", params={"part": "snippet", "mine": "true"}, headers=self._headers())
+        response = self.call("GET", f"{self.API}/channels", params={"part": "snippet,statistics", "mine": "true"}, headers=self._headers())
         if response.status_code != 200:
             raise self._refused(response, "reading the channel")
         items = self.body(response).get("items") or []
         if not items:
             raise ConnectorError("This Google account has no YouTube channel yet. Create the channel on youtube.com, then connect again.")
-        snippet = items[0].get("snippet", {})
-        return {"id": str(items[0].get("id", "")), "name": str(snippet.get("title", "")), "handle": str(snippet.get("customUrl", ""))}
+        snippet, stats = items[0].get("snippet", {}), items[0].get("statistics", {})
+        found = {"id": str(items[0].get("id", "")), "name": str(snippet.get("title", "")), "handle": str(snippet.get("customUrl", ""))}
+        if not stats.get("hiddenSubscriberCount") and str(stats.get("subscriberCount", "")).isdigit():
+            found["subscribers"] = int(stats["subscriberCount"])
+        return found
+
+    def followers(self) -> int | None:
+        return self.channel().get("subscribers")
+
+    def earnings(self, start: str, end: str) -> dict[str, float]:
+        """What YouTube estimates the channel earned, per month ("2026-11": 12.34), between two dates. Needs the earnings permission."""
+        if not self.allowed(EARNINGS):
+            raise ConnectorError("the YouTube sign-in was not given the permission to read earnings: switch it on and connect YouTube again", reconnect=True)
+        response = self.call("GET", self.ANALYTICS, headers=self._headers(), params={
+            "ids": "channel==MINE", "startDate": start, "endDate": end, "metrics": "estimatedRevenue", "dimensions": "month"})
+        if response.status_code != 200:
+            raise self._refused(response, "reading the earnings")
+        out: dict[str, float] = {}
+        for row in self.body(response).get("rows") or []:
+            try:
+                out[str(row[0])[:7]] = round(float(row[1]), 2)
+            except (IndexError, TypeError, ValueError):
+                continue
+        return out
+
+    # --- comments ------------------------------------------------------------------
+
+    def comments(self, post: dict) -> list[dict[str, Any]]:
+        if not self.allowed(COMMENTS):
+            raise ConnectorError("the YouTube sign-in was not given the permission for comments: connect YouTube again", reconnect=True)
+        response = self.call("GET", f"{self.API}/commentThreads", headers=self._headers(), params={
+            "part": "snippet,replies", "videoId": post["id"], "maxResults": "20", "order": "time", "textFormat": "plainText"})
+        if response.status_code == 403 and "commentsDisabled" in self._reason(response):
+            return []
+        if response.status_code != 200:
+            raise self._refused(response, "reading the comments")
+        mine = self.remembered().get("id", "")
+        out = []
+        for item in self.body(response).get("items") or []:
+            top = (item.get("snippet") or {}).get("topLevelComment") or {}
+            said = top.get("snippet") or {}
+            if (said.get("authorChannelId") or {}).get("value") == mine:
+                continue  # the channel's own comment (the credit, say)
+            replies = (item.get("replies") or {}).get("comments") or []
+            answered = any(((r.get("snippet") or {}).get("authorChannelId") or {}).get("value") == mine for r in replies)
+            out.append({"id": str(top.get("id", "")), "text": str(said.get("textDisplay") or said.get("textOriginal") or "")[:600],
+                        "at": str(said.get("publishedAt", "")), "answered": answered})
+        return [c for c in out if c["id"] and c["text"]]
+
+    def reply(self, post: dict, comment_id: str, text: str) -> None:
+        self.say({"snippet": {"parentId": comment_id, "textOriginal": text[:2000]}}, f"{self.API}/comments", "answering the comment")
+
+    def comment(self, post: dict, text: str) -> None:
+        """A comment of the channel's own on its video."""
+        self.say({"snippet": {"videoId": post["id"], "topLevelComment": {"snippet": {"textOriginal": text[:2000]}}}},
+                 f"{self.API}/commentThreads", "commenting")
+
+    def say(self, body: dict, url: str, doing: str) -> None:
+        if not self.allowed(COMMENTS):
+            raise ConnectorError("the YouTube sign-in was not given the permission for comments: connect YouTube again", reconnect=True)
+        response = self.call("POST", url, params={"part": "snippet"}, json=body, headers=self._headers())
+        if response.status_code not in (200, 201):
+            raise self._refused(response, doing)
 
     def disconnect(self) -> None:
         token = self.secret("refresh_token")

@@ -297,19 +297,62 @@ def test_a_platform_whose_rule_is_shorter_gets_its_own_render(cfg, ledger, foota
     assert "cuts" not in rec and "unfit" not in rec and not Path(cut["file"]).exists()
 
 
-def test_a_clip_with_a_voiceover_keeps_one_version(cfg, ledger, footage):
+def tone(path, seconds: float = 4.0, hz: int = 220):
+    sf.write(path, (0.3 * np.sin(2 * np.pi * hz * np.arange(int(48000 * seconds)) / 48000)).astype(np.float32), 48000)
+    return path
+
+
+def test_your_own_commentary_goes_on_every_version_of_a_clip(cfg, ledger, footage):
+    quiet = lambda m: None
+    cfg.publish.hold_for_review = True
+    cfg.publish.platforms = ["tiktok", "youtube"]
+    cfg.edits = {"youtube": {"min_len": 0, "max_len": 12}}
+    plan = pipeline.plan(cfg, ledger, NOW, quiet)
+    pipeline.execute(cfg, ledger, now=NOW, log=quiet)
+    cid = plan["clips"][0]["id"]
+    rec = ledger.clips[cid]
+    run = cfg.path("out") / plan["run"]
+    before = {p.name: p.stat().st_size for p in run.glob("*.mp4")}
+    assert len(before) == 2 and not rec.get("voiceover")
+    assert {l["rule"]: l["level"] for l in rec["money"]["tiktok"]}["original"] == "warn"  # footage with nothing of the owner's own on it
+
+    with pytest.raises(pipeline.publish.PublishError, match="the recording is empty"):
+        pipeline.set_voiceover(cfg, ledger, cid, b"tiny")
+    with pytest.raises(pipeline.publish.PublishError, match="could not be read as sound"):
+        pipeline.set_voiceover(cfg, ledger, cid, b"not sound at all " * 400)
+
+    said: list[str] = []
+    pipeline.set_voiceover(cfg, ledger, cid, tone(cfg.root / "take.wav", 30.0).read_bytes(), said.append)  # the sound as the browser hands it over
+    rec = Ledger(ledger.path).clips[cid]
+    after = {p.name: p.stat().st_size for p in run.glob("*.mp4")}
+    assert rec["voiceover"] is True and set(after) == set(before) and all(after[name] != before[name] for name in before)  # both versions made again
+    assert (run / f"{cid}.voice.wav").exists() and not (run / f"{cid}.voice.raw").exists()
+    assert {l["rule"]: l["level"] for l in rec["money"]["tiktok"]}["original"] == "ok" and "your own commentary is on it" in json.dumps(rec["money"])
+    assert any("your commentary is on it" in line for line in said)
+    kept = json.loads((run / "plan.json").read_text())["clips"][0]
+    assert kept["voiceover"].endswith(f"{cid}.voice.wav")
+
+    pipeline.set_voiceover(cfg, ledger, cid, None, quiet)  # taken off again
+    rec = Ledger(ledger.path).clips[cid]
+    assert rec["voiceover"] is False and not (run / f"{cid}.voice.wav").exists()
+    assert {l["rule"]: l["level"] for l in rec["money"]["tiktok"]}["original"] == "warn"
+
+
+def test_a_voiceover_given_on_approval_is_on_the_short_version_too(cfg, ledger, footage):
     quiet = lambda m: None
     cfg.publish.hold_for_review = True
     cfg.edits = {"youtube": {"min_len": 0, "max_len": 12}}
     plan = pipeline.plan(cfg, ledger, NOW, quiet)
     pipeline.execute(cfg, ledger, now=NOW, log=quiet)
     cid = plan["clips"][0]["id"]
-    assert "youtube" in ledger.clips[cid]["cuts"]
-    voice = cfg.root / "take.wav"
-    sf.write(voice, (0.3 * np.sin(2 * np.pi * 220 * np.arange(48000 * 3) / 48000)).astype(np.float32), 48000)
-    assert pipeline.approve(cfg, ledger, [cid], {cid: str(voice)}, NOW, quiet) == 1
-    assert "cuts" not in ledger.clips[cid]  # the voice was recorded for the whole clip
-    assert len(list((cfg.path("out") / plan["run"]).glob("*.mp4"))) == 1
+    assert pipeline.approve(cfg, ledger, [cid], {cid: str(tone(cfg.root / "take.wav", 30.0))}, NOW, quiet) == 1
+    cut = ledger.clips[cid]["cuts"]["youtube"]
+    short = cfg.root / "short.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", cut["file"], "-ac", "1", "-ar", "8000", str(short)], check=True)
+    sound, rate = sf.read(short, dtype="float32")
+    spectrum = np.abs(np.fft.rfft(sound[rate:rate * 5]))
+    peak = np.argmax(spectrum) * rate / len(sound[rate:rate * 5])
+    assert abs(peak - 220) < 5  # the commentary's tone is the loudest thing in the short version: the clip's own sound ducks under it
 
 
 # --- the platforms' rules for paying ---------------------------------------------------

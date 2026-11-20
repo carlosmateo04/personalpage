@@ -303,3 +303,37 @@ music = "note"          # a clip with music playing: "note" posts it and says so
 music_share = 0.5       # with "hold": the share of the clip with music from which it is held
 min_height = 720        # a source picture lower than this is reported as blurry
 strict = true           # a platform whose rule a clip breaks is not sent that clip
+
+# --- The business around the clips. All of it is set in the app (Business tab, Settings). ---
+
+# Money in and out: payouts are typed in when they arrive; Claude's cost is worked out from
+# its count of requests; costs that come every month are listed here.
+[money]
+currency = "USD"
+monthly_costs = []       # e.g. [{ name = "Posting service", amount = 24, since = "2026-11" }]
+
+# What has worked steers what is made: sections whose clips got more views are favoured
+# (between x0.75 and x1.3), and Claude is told what did best.
+[learn]
+enabled = true
+min_clips = 5            # clips with views a section needs before its results count
+
+# Messages to your phone through ntfy. The topic they go to is kept with the secrets.
+[alerts]
+enabled = false
+server = "https://ntfy.sh"
+events = ["ready", "failed", "signin", "claim"]
+
+# Opening the app from a phone on your home network, with a private link. Off: only this computer.
+[phone]
+enabled = false
+
+# Followers typed in for platforms that do not let an app read them, and YouTube's earnings figure.
+[progress]
+followers = {}           # e.g. { tiktok = 2500 }
+earnings = false         # needs a further permission when YouTube is connected
+
+# Reading and answering comments (YouTube, Facebook, Instagram). Needs further permissions at sign-in.
+[audience]
+enabled = false
+credit_comment = false   # comment the credit once on each YouTube post

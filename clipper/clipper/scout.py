@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import claude, media, metadata, moments, sections
+from . import claude, learn, media, metadata, moments, sections
 from .config import Config
 from .transcribe import Word
 
@@ -103,7 +103,8 @@ def brief(cfg: Config, title: str, creator: str, duration: float, step: float, w
         f"What the loudness detector would clip: {picks}\n\n"
         f"Sections:\n{sections.guide(cfg)}\n\n"
         f"What the channel wants: {cfg.ai.direction or 'no particular direction'}\n\n"
-        f"Each clip must run between {m.min_len:g} and {m.max_len:g} seconds. Pick at most {limit} moments."
+        + (f"{learned}\n\n" if (learned := learn.brief(cfg)) else "")
+        + f"Each clip must run between {m.min_len:g} and {m.max_len:g} seconds. Pick at most {limit} moments."
     )
 
 

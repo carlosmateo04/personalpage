@@ -20,7 +20,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import (captions, claude, gates, intake, media, metadata, moments, outbox, presenter, publish, render, report, review, schedule,
-               monetize, scout, sections, transcribe, variants)
+               learn, monetize, rights, scout, sections, transcribe, variants)
 from .config import Config
 from .state import Ledger, now_iso
 from .transcribe import Word
@@ -72,12 +72,20 @@ def analyse(cfg: Config, path: Path, source_id: str, chat: list[float] | None = 
     return Analysis(found, info.duration, False, text, words)
 
 
-def _by_turns(pool: list[dict]) -> list[dict]:
-    """Best clip of each section in turn, so a day's posts cover different sections."""
+def _by_turns(pool: list[dict], favour: dict[str, float] | None = None) -> list[dict]:
+    """Best clip of each section in turn, so a day's posts cover different sections.
+
+    `favour` weights a section's candidates by how that section's clips have done on this channel (see clipper/learn.py).
+    """
+    favour = favour or {}
+
+    def worth(entry: dict) -> float:
+        return entry["cand"].score * favour.get(entry["section"].name, 1.0)
+
     groups: dict[str, list[dict]] = {}
-    for entry in sorted(pool, key=lambda e: -e["cand"].score):
+    for entry in sorted(pool, key=lambda e: -worth(e)):
         groups.setdefault(entry["section"].name, []).append(entry)
-    order = sorted(groups, key=lambda name: -groups[name][0]["cand"].score)
+    order = sorted(groups, key=lambda name: -worth(groups[name][0]))
     out: list[dict] = []
     while any(groups.values()):
         out.extend(groups[name].pop(0) for name in order if groups[name])
@@ -183,7 +191,10 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
         }
         log(f"  {len(cands)} moment(s) found, {kept} passed the checks")
 
-    pool = _by_turns(pool)
+    favour = learn.weights(cfg, ledger, now)
+    if favour:
+        log("what has done well so far favours: " + ", ".join(f"{name} x{weight:g}" for name, weight in sorted(favour.items(), key=lambda kv: -kv[1])))
+    pool = _by_turns(pool, favour)
     slots = schedule.next_slots(cfg.schedule, now, ledger.taken_slots(), len(pool))
     clips: list[dict] = []
     for entry, slot in zip(pool, slots):
@@ -191,7 +202,7 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
         clip_id = "c" + media.text_id(f"{item.source_id}:{cand.start:.1f}")[:10]
         clip = {
             "id": clip_id, "source_id": item.source_id, "source_name": item.name, "source_path": str(item.path),
-            "origin": item.origin, "creator": item.creator, "permission": item.permission, "section": section.name,
+            "origin": item.origin, "creator": item.creator, "permission": rights.permission_for(cfg, item.creator) or item.permission, "section": section.name,
             "start": cand.start, "end": cand.end, "peak": cand.peak, "score": cand.score,
             "text": cand.text, "words": [asdict(w) for w in cand.words],
             "meta": (metadata.compose(cfg, clip_id, item.creator, section, cand.ai["title"], cand.ai["hook"], item.origin, summary=cand.ai["why"])
@@ -257,17 +268,19 @@ def render_clip(cfg: Config, clip: dict, run_dir: Path, cut: list[float] | None 
     """
     out = run_dir / f"{clip['id']}.mp4"
     start, end = clip["start"], clip["end"]
-    notes, at, voice = clip.get("callouts") or [], clip.get("cover"), None
+    notes, at, voice, shift = clip.get("callouts") or [], clip.get("cover"), None, 0.0
+    if clip.get("voiceover"):
+        voice = Path(clip["voiceover"])
+        if not voice.exists():
+            raise media.MediaError(f"voiceover {voice} not found")
     if cut:
         out = variants.name_of(out, cut)
         shift = cut[0] - start
         start, end = cut
         notes = [dict(note, at=round(note["at"] - shift, 1)) for note in notes if 0 <= note["at"] - shift <= (end - start) - captions.CALLOUT_SECONDS]
         at = at - shift if isinstance(at, (int, float)) and 0 <= at - shift <= end - start else None
-    elif clip.get("voiceover"):
-        voice = Path(clip["voiceover"])
-        if not voice.exists():
-            raise media.MediaError(f"voiceover {voice} not found")
+        if voice and media.sound_seconds(voice) <= shift + 0.5:
+            voice = None  # the commentary is over before this version begins
     meta = clip["meta"]
     section = cfg.section(clip.get("section") or meta.get("section", ""))  # the section may have been changed in plan.json
     rel = [Word(w["w"], round(w["s"] - start, 3), round(w["e"] - start, 3)) for w in clip["words"] if w["s"] >= start and w["e"] <= end]
@@ -278,7 +291,7 @@ def render_clip(cfg: Config, clip: dict, run_dir: Path, cut: list[float] | None 
         badge=section.label, badge_color=section.color, credit=meta.get("credit", ""), callouts=notes,
     ), encoding="utf-8")
     # Strong language is silenced in the sound, as it is masked in the captions (see clipper/monetize.py).
-    render.render(cfg, Path(clip["source_path"]), start, end, ass, out, voice, monetize.mute_spans(cfg, rel))
+    render.render(cfg, Path(clip["source_path"]), start, end, ass, out, voice, monetize.mute_spans(cfg, rel), voice_from=shift if voice else 0.0)
     got = media.probe(out)
     if abs(got.duration - (end - start)) > 1.0 or not got.has_audio:
         raise media.MediaError(f"render check failed: {got.duration:.1f}s, audio={got.has_audio}")
@@ -307,15 +320,13 @@ def money_check(cfg: Config, clip: dict, rec: dict, log: Log = _log, look: bool 
 def render_versions(cfg: Config, clip: dict, run_dir: Path, rec: dict, log: Log = _log) -> None:
     """Render the cut of each platform whose rules the clip's own length does not meet, and note them on the record.
 
-    A clip with a voiceover keeps one version: the voice was recorded for the whole clip.
+    A voice-over was recorded against the whole clip; a shorter version carries the part of it that falls inside.
     """
     for old in {entry["file"] for entry in (rec.get("cuts") or {}).values()}:
         for stale in (Path(old), cover_of(Path(old))):
             stale.unlink(missing_ok=True)
     rec.pop("cuts", None)
     rec.pop("unfit", None)
-    if clip.get("voiceover"):
-        return
     found = variants.plan(cfg, clip)
     made: dict[tuple, Path] = {}
     cuts: dict[str, dict] = {}
@@ -508,6 +519,62 @@ def update_clip(cfg: Config, ledger: Ledger, clip_id: str, fields: dict) -> dict
         rec["money"] = monetize.check(cfg, rec)  # the hashtags and the wording are part of it
     _kit(cfg, rec)
     ledger.save()
+    return rec
+
+
+def _planned(cfg: Config, rec: dict) -> tuple[Path, dict, dict]:
+    """The plan a finished clip came from, and its entry in it; raises when the clip can no longer be made again."""
+    plan_path = cfg.path("out") / str(rec.get("run", "")) / "plan.json"
+    data = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.exists() else {"clips": []}
+    clip = next((c for c in data["clips"] if c["id"] == rec["id"]), None)
+    if clip is None or not Path(clip["source_path"]).exists():
+        raise publish.PublishError("the video this clip was cut from is no longer on this computer, so it cannot be made again")
+    return plan_path, data, clip
+
+
+def set_voiceover(cfg: Config, ledger: Ledger, clip_id: str, recording: bytes | None, log: Log = _log) -> dict:
+    """Put the owner's own commentary on a finished clip (or, with None, take it off) and render every version again.
+
+    `recording` is the sound as the browser or a file gave it; it is converted here. The commentary was spoken while
+    watching the clip from its start, so it lines up with the clip's own time.
+    """
+    rec = ledger.clips[clip_id]
+    if clip_state(rec) != "ready":
+        raise publish.PublishError("only a clip that has not been sent can be given a commentary")
+    plan_path, data, clip = _planned(cfg, rec)
+    clip = json.loads(json.dumps(clip))
+    clip["meta"] = json.loads(json.dumps(rec["meta"]))  # the text may have been edited by hand since
+    voice = plan_path.parent / f"{clip_id}.voice.wav"
+    if recording is None:
+        clip["voiceover"] = ""
+    else:
+        if len(recording) < 2000:
+            raise publish.PublishError("the recording is empty; allow the microphone and try again")
+        raw = plan_path.parent / f"{clip_id}.voice.raw"
+        raw.write_bytes(recording)
+        try:
+            media.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-vn", "-ac", "1", "-ar", "48000", str(voice)], "voice-over")
+            heard = media.sound_seconds(voice)
+        except media.MediaError as exc:
+            raise publish.PublishError("the recording could not be read as sound") from exc
+        finally:
+            raw.unlink(missing_ok=True)
+        if heard < 1.0:
+            raise publish.PublishError("the recording is under a second long")
+        clip["voiceover"] = str(voice)
+    try:
+        video = render_clip(cfg, clip, plan_path.parent)
+        render_versions(cfg, clip, plan_path.parent, rec, log)
+    except media.MediaError as exc:
+        raise publish.PublishError(f"the clip could not be rendered again: {str(exc)[:200]}") from exc
+    if recording is None:
+        voice.unlink(missing_ok=True)
+    rec.update(file=str(video))
+    money_check(cfg, clip, rec, log, look=False)
+    data["clips"] = [clip if c["id"] == clip_id else c for c in data["clips"]]
+    plan_path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    ledger.save()
+    log(f"  {clip_id} " + ("commentary taken off" if recording is None else "your commentary is on it"))
     return rec
 
 

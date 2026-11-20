@@ -25,7 +25,8 @@
   .btn:hover { border-color: #3b4252; } .btn:disabled { opacity: .45; cursor: not-allowed; }
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .btn.danger { color: var(--bad); } .btn.small { padding: 5px 10px; font-size: 13px; }
-  nav { max-width: 1280px; margin: 0 auto; padding: 0 20px; display: flex; gap: 4px; }
+  nav { max-width: 1280px; margin: 0 auto; padding: 0 20px; display: flex; gap: 4px; overflow-x: auto; }
+  @media (max-width: 640px) { nav { padding: 0 6px; gap: 0; } nav button { padding: 10px 8px; font-size: 14px; } #s-costs .searchrow { grid-template-columns: 1fr 1fr !important; } }
   nav button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; cursor: pointer; color: var(--muted); font-weight: 600; }
   nav button.active { color: var(--text); border-bottom-color: var(--accent); }
   main { max-width: 1280px; margin: 0 auto; padding: 20px; }
@@ -45,7 +46,7 @@
   .tag.state { background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
   .tag.state.ready { color: var(--accent); } .tag.state.queued { color: var(--info); } .tag.state.posted { color: var(--good); } .tag.state.failed, .tag.state.dropped { color: var(--bad); }
   label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; font-weight: 600; }
-  input[type=text], input[type=password], input[type=number], textarea, select { width: 100%; background: #0f1218; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  input[type=text], input[type=password], input[type=number], input[type=date], input[type=month], textarea, select { color: var(--text); color-scheme: dark; width: 100%; background: #0f1218; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   textarea { resize: vertical; min-height: 64px; }
   input:focus, textarea:focus, select:focus { outline: 2px solid rgba(255,230,0,.35); border-color: var(--accent); }
   .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
@@ -71,6 +72,17 @@
   .acc code, .steps code { background: #0b0d11; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 12px; overflow-wrap: anywhere; }
   .posts { display: flex; flex-wrap: wrap; gap: 6px; } .posts .chip { font-size: 12px; padding: 4px 9px; } .posts a { color: var(--info); }
   .card.busy { opacity: .6; pointer-events: none; }
+  .bar2 { height: 8px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; margin: 4px 0 2px; }
+  .bar2 i { display: block; height: 100%; background: var(--good); } .bar2 i.part { background: var(--warn); }
+  table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; } table.t th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  table.t td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; } table.t td.n, table.t th.n { text-align: right; white-space: nowrap; }
+  .scroll { overflow-x: auto; } .good { color: var(--good); } .bad { color: var(--bad); }
+  .step { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .step:first-child { border-top: 0; } .step .meta { grid-column: 2; margin: 0; }
+  .say { background: #0b0d11; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 8px 0; }
+  .item { border-top: 1px solid var(--line); padding: 12px 0; } .item:first-child { border-top: 0; }
+  #chip-channel select { width: auto; max-width: 12rem; padding: 0 2px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+  #chip-channel select option { background: var(--panel2); color: var(--text); }
   .acct { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; }
   .acct.active { border-color: var(--good); } .acct .who { flex: 1; min-width: 10rem; display: flex; flex-direction: column; overflow-wrap: anywhere; }
   .addbox { margin-top: 12px; padding: 14px; border: 1px dashed var(--line); border-radius: 10px; }
@@ -91,6 +103,7 @@
     <div class="brand"><i></i>Clipper</div>
     <span class="chip" id="chip-accounts"><span class="dot"></span><span>Accounts</span></span>
     <span class="chip" id="chip-daily"><span class="dot"></span><span>Daily run</span></span>
+    <span class="chip" id="chip-channel" title="The channel in view. Each channel has its own accounts, clips and settings."><span>Channel</span></span>
     <span class="chip" id="chip-claude" title="The Claude account in use. Choose another to switch."><span class="dot"></span><span>Claude</span></span>
     <div class="grow"></div>
     <button class="btn" id="btn-folder" title="Open the folder that holds the finished clips">Open clips folder</button>
@@ -99,6 +112,7 @@
   <div class="progress" id="progress"><div id="progress-text"></div></div>
   <nav>
     <button data-tab="clips" class="active">Clips</button>
+    <button data-tab="business">Business</button>
     <button data-tab="activity">Activity</button>
     <button data-tab="settings">Settings</button>
     <button data-tab="accounts">Accounts</button>
@@ -117,6 +131,16 @@
     </div>
     <div class="grid" id="grid"></div>
     <div class="empty hide" id="empty"><h2 id="empty-title">No clips yet</h2><div id="empty-text">Click “Make clips now” and they will appear here as they are finished.</div></div>
+  </section>
+
+  <section id="tab-business" class="hide">
+    <div class="panel"><h2>Going live</h2><p class="sub" id="b-launch-sub">The steps from a fresh install to clips posting by themselves. Each is read off what is really there.</p><div id="b-launch"></div></div>
+    <div class="panel"><h2>Progress to being paid</h2><p class="sub">Each programme's bar against this channel's numbers. Views are those of posts Clipper sent, so the real figure can only be higher.</p><div id="b-progress"></div></div>
+    <div class="panel"><h2>Money in and out</h2><p class="sub">What the channel earned and what it cost. Claude's cost is an estimate from the count of requests; payouts you type in when they arrive.</p><div id="b-money"></div></div>
+    <div class="panel"><h2>What works</h2><p class="sub">The views of clips that have been out for two days or more. They steer which clips are made next and are told to Claude.</p><div id="b-learn"></div></div>
+    <div class="panel"><h2>Campaign desk</h2><p class="sub">A paid clipping campaign's rules, and what became of each post owed to it.</p><div id="b-desk"></div></div>
+    <div class="panel"><h2>Rights</h2><p class="sub">On what basis each channel's footage is used, and every claim, strike and takedown. One strike, or the set number of claims, and nothing more is taken from that channel.</p><div id="b-rights"></div></div>
+    <div class="panel"><h2>Comments</h2><p class="sub">The newest comments on your posts with a reply drafted by Claude. Nothing is sent until you press Send.</p><div id="b-audience"></div></div>
   </section>
 
   <section id="tab-activity" class="hide">
@@ -178,6 +202,11 @@
       <div class="cuts" id="s-edits"></div>
     </div>
     <div class="panel">
+      <h2>Your own gameplay</h2><p class="sub">Folders your own recordings land in (Xbox Game Bar, NVIDIA, OBS). Every run takes new recordings from them first, as your own footage: no credit line, and nothing a platform can call a repost. A file still being recorded is left for the next run.</p>
+      <div id="s-captures"></div>
+      <button class="btn small" id="btn-add-capture">Add a folder</button>
+    </div>
+    <div class="panel">
       <h2>Rules for being paid</h2>
       <p class="sub">Beyond length, each platform has rules a video must meet before it earns anything. These are built into every clip as it is cut, and each clip shows a “Monetization check” per platform. One rule no edit can meet: all four pay only for original videos, meaning your own footage or your own commentary. A clip of another channel's gameplay says so in its check.</p>
       <div class="row">
@@ -202,6 +231,41 @@
         <div><label>Keep downloaded videos (days)</label><input type="number" id="s-keep-dl" min="1" max="60"></div>
         <div><label>Keep finished clips (days)</label><input type="number" id="s-keep-clips" min="1" max="365"></div>
       </div>
+    </div>
+    <div class="panel">
+      <h2>Alerts on your phone</h2><p class="sub">A message when clips are ready, a post fails, a sign-in is running out or a claim comes in. Sent through ntfy: install the ntfy app on your phone, subscribe to a topic with a long name nobody could guess, and save the same name here. Messages say what happened and nothing else.</p>
+      <div class="row"><label class="check"><input type="checkbox" id="s-al-on"> Send alerts</label><span id="s-al-events" class="row" style="gap:8px"></span></div>
+      <div class="form" style="margin-top:14px">
+        <div><label>Topic (kept like a password)</label><input type="password" id="s-al-topic" autocomplete="off"></div>
+        <div><label>Server</label><input type="text" id="s-al-server" placeholder="https://ntfy.sh"></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn small" id="btn-al-topic">Save topic</button><button class="btn small" id="btn-al-test">Send a test</button></div>
+      <h2 style="margin-top:22px">Clipper on your phone</h2><p class="sub">Lets a phone on your home Wi-Fi open this app with a private link, to look at clips and post them. Off, nothing but this computer can reach the app. The link works on your home network only and is not encrypted, so use it at home, not on shared Wi-Fi.</p>
+      <div class="row"><label class="check"><input type="checkbox" id="s-ph-on"> Let my phone open Clipper at home</label><button class="btn small hide" id="btn-ph-new">Make a new link</button></div>
+      <p class="meta" id="s-ph-note" style="margin-top:10px"></p>
+    </div>
+    <div class="panel">
+      <h2>More to switch on</h2>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="s-learn"> Let results steer which clips are made</label>
+        <label class="check"><input type="checkbox" id="s-aud-on"> Read and answer comments</label>
+        <label class="check"><input type="checkbox" id="s-aud-credit"> Comment the credit on each YouTube post</label>
+        <label class="check"><input type="checkbox" id="s-earn"> Read my YouTube earnings</label>
+      </div>
+      <p class="meta" style="margin-top:10px">Comments and earnings need further permissions: after switching them on, connect YouTube (and Facebook/Instagram for comments) again under Accounts.</p>
+      <div class="form" style="margin-top:14px"><div><label>Currency of the money record</label><input type="text" id="s-currency" maxlength="5"></div></div>
+      <div style="margin-top:14px"><label>Costs every month (name, amount, since which month)</label><div id="s-costs"></div><button class="btn small" id="btn-add-cost">Add a monthly cost</button></div>
+    </div>
+    <div class="panel">
+      <h2>Channels</h2><p class="sub">A second game or a second brand gets a channel of its own: its own accounts, searches, schedule, clips and money. The daily run and the poster go through all of them.</p>
+      <div id="s-channels"></div>
+      <button class="btn small" id="btn-add-channel">New channel</button>
+    </div>
+    <div class="panel">
+      <h2>Safety</h2><p class="sub">The records (ledger, settings, money, rights) are backed up once a day; the newest 14 are kept. Keys and sign-ins are not in a backup: they stay in this computer's credential store.</p>
+      <div class="row"><button class="btn small" id="btn-backup">Back up now</button><button class="btn small" id="btn-downloader">Update the downloader</button><button class="btn small" id="btn-update-check">Look for a newer Clipper</button><button class="btn small primary hide" id="btn-update">Update now</button></div>
+      <p class="meta" id="s-update" style="margin-top:10px"></p>
+      <div id="s-backups" style="margin-top:8px"></div>
     </div>
     <button class="btn primary" id="btn-save-settings">Save settings</button>
   </section>
@@ -282,7 +346,7 @@ function h(tag, attrs, ...kids) {
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (v !== false && v != null) el.setAttribute(k, v === true ? "" : v);
   }
-  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid);
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid);  // lists inside lists are fine
   return el;
 }
 
@@ -395,6 +459,49 @@ function buildCard(c) {
     shared.length ? h("div", {style: "margin-top:8px"}, h("div", {class: "meta"}, h("b", {text: "Every platform"})), shared.map(line)) : null,
     grouped.map(([text, g]) => h("div", {style: "margin-top:8px"}, h("div", {class: "meta"}, h("b", {text: g.names.join(", ")})), line(g.line))),
     !shared.length && !grouped.length ? h("div", {class: "meta", style: "margin-top:8px", text: "Every rule is met on every platform."}) : null) : null;
+  // Your own commentary: what makes the clip yours in the platforms' eyes.
+  let recorder = null, heard = [];
+  const sendVoice = async blob => {
+    try {
+      const res = await fetch("/api/voiceover?id=" + encodeURIComponent(c.id), {method: "POST", headers: {"X-Clipper-Token": TOKEN, "Content-Type": blob.type || "application/octet-stream"}, body: blob});
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Something went wrong");
+      toast("Putting your commentary on the clip. It takes a minute or two."); refresh();
+    } catch (e) { toast(e.message, true); }
+  };
+  const recBtn = h("button", {class: "btn small primary", text: "Record", onclick: async () => {
+    if (recorder) return recorder.stop();
+    if (!navigator.mediaDevices || !window.MediaRecorder) return toast("This browser cannot record here. Choose a sound file instead.", true);
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({audio: true}); }
+    catch (e) { return toast("The microphone could not be used. Allow it for this page, or choose a sound file instead.", true); }
+    heard = []; recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = e => { if (e.data.size) heard.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop()); recorder = null; recBtn.textContent = "Record";
+      if (media.tagName === "VIDEO") { media.pause(); media.muted = false; media.onended = null; }
+      if (heard.length) sendVoice(new Blob(heard, {type: heard[0].type || "audio/webm"}));
+    };
+    if (media.tagName === "VIDEO") { media.currentTime = 0; media.muted = true; media.onended = () => recorder && recorder.stop(); media.play().catch(() => {}); }
+    recorder.start(); recBtn.textContent = "Stop and use it";
+  }});
+  const voiceFile = h("input", {type: "file", accept: "audio/*,video/webm", style: "max-width:15rem", onchange: e => { if (e.target.files[0]) sendVoice(e.target.files[0]); }});
+  const commentary = ready ? h("details", {}, h("summary", {text: c.voiceover ? "Your commentary is on this clip" : "Add your own commentary"}),
+    h("div", {class: "meta", style: "margin:8px 0", text: "Press Record: the clip plays without sound and your microphone records until it ends or you stop. Or choose a recording you made elsewhere."}),
+    c.say ? h("div", {class: "say"}, h("b", {text: "You could say: "}), c.say) : null,
+    h("div", {class: "row"}, recBtn, voiceFile,
+      c.voiceover ? h("button", {class: "btn small danger", text: "Take it off", onclick: () => act("/api/voiceover-remove", {id: c.id}, "Taking the commentary off")}) : null)) : null;
+  const out = Object.keys(c.posts || {});
+  const claimKind = h("select", {}, Object.entries(S.business.rights.kinds).map(([k, v]) => h("option", {value: k, text: v})));
+  const claimWhere = h("select", {}, out.map(p => h("option", {value: p, text: NAMES[p] || p})));
+  const claimNote = h("input", {type: "text", placeholder: "What the platform said (optional)", maxlength: 200});
+  const claim = out.length ? h("details", {}, h("summary", {text: (c.rights || []).length ? `On the rights record: ${c.rights.length}` : "Report a claim or strike"}),
+    h("div", {class: "form", style: "margin-top:8px"}, h("div", {}, h("label", {text: "What happened"}), claimKind), h("div", {}, h("label", {text: "Where"}), claimWhere)),
+    h("div", {style: "margin-top:8px"}, claimNote),
+    h("div", {class: "row", style: "margin-top:8px"}, h("button", {class: "btn small", text: "Put it on record", onclick: async () => {
+      const r = await act("/api/rights-event", {id: c.id, kind: claimKind.value, platform: claimWhere.value, note: claimNote.value});
+      if (r) toast(r.blocked ? `On record. Nothing more is taken from ${r.channel}.` : "On record.");
+    }}))) : null;
   const rest = !ready && ["queued", "posted"].includes(c.state) ? linked().filter(p => !(c.posts || {})[p] && !(c.unfit || {})[p]) : [];
   const again = () => {
     const ask = prompt("What should Claude change? Leave empty to let it look again.\nFor example: start a little later; a calmer title.", "");
@@ -411,7 +518,7 @@ function buildCard(c) {
     h("details", {}, h("summary", {text: "YouTube description"}), desc),
     h("div", {class: "meta"}, "Footage: " + (c.creator || "unknown") + " · " + (c.permission || "no permission on file"),
       c.origin && c.origin.startsWith("http") ? [" · ", h("a", {href: c.origin, target: "_blank", rel: "noopener", text: "original"})] : null),
-    versions, unfit, moneyBox,
+    versions, unfit, moneyBox, commentary, claim,
     posts.length ? h("div", {class: "posts"}, posts) : null,
     notes,
     c.busy ? h("div", {class: "meta", style: "color:var(--info)", text: c.busy + "…"}) : null,
@@ -454,7 +561,7 @@ function renderClips() {
   for (const [id, entry] of cards) if (!keep.has(id)) { entry.el.remove(); cards.delete(id); }
   let previous = null;
   for (const c of show) {
-    const sig = JSON.stringify([c, linked(), !S.ai.off, S.posting.tiktok, S.settings.platforms]);
+    const sig = JSON.stringify([c, linked(), !S.ai.off, S.posting.tiktok, S.settings.platforms, S.business.rights.kinds]);
     let entry = cards.get(c.id);
     const busy = entry && (entry.el.dataset.dirty || entry.el.contains(document.activeElement) || (entry.el.querySelector("video") && !entry.el.querySelector("video").paused));
     if (!entry || (entry.sig !== sig && !busy)) {
@@ -518,6 +625,8 @@ function renderShell() {
   $("btn-disconnect").classList.toggle("hide", !acc.connected);
   renderAi();
   renderAccounts();
+  renderBusiness();
+  renderUpkeep();
   const plog = S.posting.log;
   $("posting-log").textContent = plog.length ? plog.join("\n") : "Nothing has been sent yet.";
   const wrap = $("a-profile-wrap"), sel = $("a-profile");
@@ -529,6 +638,123 @@ function renderShell() {
   $("btn-daily").textContent = S.daily.on ? "Switch off" : "Switch on";
   $("btn-daily").disabled = !S.daily.available;
   $("d-note").textContent = S.daily.available ? (S.daily.on ? "On. Clips are made every day at the set time." : "Off.") : "Available in the Windows install.";
+}
+
+// ---- Business ----------------------------------------------------------------------
+// A part of the page is rebuilt when what it shows has changed, but never while someone is typing in it.
+function paint(id, data, build) {
+  const box = $(id), sig = JSON.stringify(data), at = document.activeElement;
+  const typing = box.contains(at) && ["INPUT", "TEXTAREA", "SELECT"].includes(at.tagName) && at.type !== "checkbox";
+  if (box.dataset.sig === sig || typing) return;
+  box.dataset.sig = sig; box.innerHTML = ""; box.append(...[build(data)].flat(Infinity).filter(x => x != null && x !== false));
+}
+const cash = n => (n < 0 ? "−" : "") + (S.settings.money.currency === "USD" ? "$" : "") + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + (S.settings.money.currency === "USD" ? "" : " " + S.settings.money.currency);
+const goTab = t => document.querySelector(`nav button[data-tab="${t}"]`).click();
+function field(label, input) { return h("div", {}, h("label", {text: label}), input); }
+
+function renderBusiness() {
+  const B = S.business;
+  $("b-launch-sub").textContent = B.launch.live ? "Every step is done: the channel is live." : `${B.launch.done} of ${B.launch.of} steps done. Next: ${B.launch.next}.`;
+  paint("b-launch", B.launch.steps, steps => steps.map(st => h("div", {class: "step"},
+    h("span", {class: "dot " + (st.done ? "on" : "")}), h("b", {text: st.title}),
+    st.key === "public" ? h("label", {class: "check"}, h("input", {type: "checkbox", checked: st.done, onchange: e => act("/api/settings", {launch: {seen_public: e.target.checked}})}), "Seen")
+      : st.done ? h("span", {class: "tag state posted", text: "done"}) : h("button", {class: "btn small", text: "Go there", onclick: () => goTab(st.where)}),
+    h("span", {class: "meta", text: st.detail}))));
+
+  const asked = new Set();  // a number typed in for a platform is asked for once, under its first programme
+  paint("b-progress", [B.progress, S.settings.progress.followers], ([list]) => [list.length ? null : h("p", {class: "sub", text: "Choose the platforms under Settings first."}),
+    list.map(pr => h("div", {class: "item"}, h("b", {text: pr.name}), pr.reached ? h("span", {class: "tag state posted", style: "margin-left:8px", text: "bar cleared"}) : null,
+      pr.goals.map(g => h("div", {style: "margin-top:8px"}, h("div", {class: "meta", text: `${g.have == null ? "not known" : g.have.toLocaleString()} of ${g.need.toLocaleString()} ${g.label}`}),
+        h("div", {class: "bar2"}, h("i", {class: g.share === 1 ? "" : "part", style: `width:${Math.round((g.share || 0) * 100)}%`})))),
+      pr.goals.length ? null : h("div", {class: "meta", style: "margin-top:6px", text: `${pr.followers == null ? "Followers not known" : pr.followers.toLocaleString() + " " + pr.word} · ${pr.views.toLocaleString()} views in ${pr.days} days`}),
+      pr.followers_from !== "platform" && !asked.has(pr.platform) && asked.add(pr.platform) ? h("div", {class: "row", style: "margin-top:8px"}, (() => {
+        const n = h("input", {type: "number", min: 0, style: "max-width:9rem", value: pr.followers == null ? "" : pr.followers, placeholder: pr.word, "aria-label": `${pr.word} on ${NAMES[pr.platform]}`});
+        return [n, h("button", {class: "btn small", text: "Save the number", title: "This platform does not let the app read it", onclick: () => act("/api/settings", {progress: {followers: {...S.settings.progress.followers, [pr.platform]: Number(n.value) || 0}}}, "Saved")})];
+      })()) : null,
+      pr.note ? h("div", {class: "meta", style: "margin-top:6px", text: pr.note}) : null)),
+    h("div", {class: "row", style: "margin-top:12px"}, h("button", {class: "btn small", text: "Read the numbers now", onclick: () => act("/api/progress-refresh", {}, "Read")}))]);
+
+  paint("b-money", [B.money, S.settings.money], ([m]) => {
+    const kind = h("select", {}, h("option", {value: "income", text: "Money in"}), h("option", {value: "cost", text: "Money out"}));
+    const source = h("input", {type: "text", placeholder: "TikTok rewards, campaign, software…", maxlength: 60});
+    const amount = h("input", {type: "number", min: 0, step: "0.01"}), date = h("input", {type: "date"}), note = h("input", {type: "text", maxlength: 200});
+    const year = new Date().getFullYear();
+    return [h("div", {class: "row"}, h("span", {class: "chip"}, "In ", h("b", {text: cash(m.total.income)})), h("span", {class: "chip"}, "Out ", h("b", {text: cash(m.total.cost)})),
+        h("span", {class: "chip"}, "Left ", h("b", {class: m.total.net < 0 ? "bad" : "good", text: cash(m.total.net)}))),
+      m.months.length ? h("div", {class: "scroll", style: "margin-top:12px"}, h("table", {class: "t"}, h("tr", {}, h("th", {text: "Month"}), h("th", {class: "n", text: "In"}), h("th", {class: "n", text: "Out"}), h("th", {class: "n", text: "Left"})),
+        m.months.slice(0, 12).map(r => h("tr", {}, h("td", {text: r.month}), h("td", {class: "n", text: cash(r.income)}), h("td", {class: "n", text: cash(r.cost)}), h("td", {class: "n " + (r.net < 0 ? "bad" : "good"), text: cash(r.net)}))))) : h("p", {class: "sub", style: "margin-top:12px", text: "Nothing on record yet."}),
+      h("div", {class: "form", style: "margin-top:14px"}, field("In or out", kind), field("From or to", source), field("Amount", amount), field("Date", date), field("Note", note)),
+      h("div", {class: "row", style: "margin-top:12px"}, h("button", {class: "btn small primary", text: "Add", onclick: async () => {
+          if (await act("/api/money-add", {kind: kind.value, source: source.value, amount: Number(amount.value), date: date.value, note: note.value}, "Added")) { source.value = amount.value = note.value = ""; }
+        }}), h("a", {class: "btn small", href: `/api/money.csv?year=${year}&t=${encodeURIComponent(TOKEN)}`, text: `Download ${year} as a sheet`}),
+        h("a", {class: "btn small", href: `/api/money.csv?t=${encodeURIComponent(TOKEN)}`, text: "Everything as a sheet"})),
+      m.entries.length ? h("details", {style: "margin-top:12px"}, h("summary", {text: `Entries (${m.entries.length})`}), h("div", {class: "scroll"}, h("table", {class: "t"},
+        m.entries.slice(0, 60).map(e => h("tr", {}, h("td", {text: e.date}), h("td", {text: e.source}), h("td", {class: "n " + (e.kind === "cost" ? "bad" : "good"), text: cash(e.kind === "cost" ? -e.amount : e.amount)}), h("td", {class: "meta", text: e.note || ""}),
+          h("td", {}, e.auto ? h("span", {class: "meta", text: "worked out"}) : h("button", {class: "btn small danger", text: "✕", title: "Remove", onclick: () => act("/api/money-remove", {id: e.id}, "Removed")}))))))) : null];
+  });
+
+  paint("b-learn", B.learn, L => !L.clips ? h("p", {class: "sub", text: "No clip has been out for two days with views yet."}) : [
+    h("p", {class: "sub", text: `${L.clips} clip(s) with views; a typical clip gets ${L.typical.toLocaleString()}.` + (L.enough ? "" : ` Results start to steer once a section has ${L.needed} clips.`)}),
+    h("div", {class: "scroll"}, h("table", {class: "t"}, h("tr", {}, h("th", {text: "Section"}), h("th", {class: "n", text: "Clips"}), h("th", {class: "n", text: "Typical views"}), h("th", {class: "n", text: "Best"}), h("th", {class: "n", text: "Favoured"})),
+      L.sections.map(x => h("tr", {}, h("td", {text: x.name}), h("td", {class: "n", text: x.clips}), h("td", {class: "n", text: x.typical.toLocaleString()}), h("td", {class: "n", text: x.best.toLocaleString()}), h("td", {class: "n", text: L.weights[x.name] ? "×" + L.weights[x.name] : "not yet"}))))),
+    h("div", {class: "meta", style: "margin-top:10px", text: "Posting times by typical views: " + L.hours.map(x => `${x.name} (${x.typical.toLocaleString()}, ${x.clips} clips)`).join(" · ")}),
+    h("div", {class: "meta", style: "margin-top:6px", text: "Best so far: " + L.top.map(x => `${x.title} (${x.views.toLocaleString()})`).join(" · ")})]);
+
+  paint("b-desk", B.desk, D => {
+    const c = D.campaign, name = h("input", {type: "text", value: c.name, maxlength: 60}), paid = h("input", {type: "checkbox", checked: c.paid});
+    const rate = h("input", {type: "number", min: 0, step: "0.01", value: c.rate_per_1k}), min = h("input", {type: "number", min: 0, step: "0.01", value: c.min_payout}), max = h("input", {type: "number", min: 0, step: "0.01", value: c.max_payout});
+    const fee = h("input", {type: "number", min: 0, max: 100, step: "1", value: Math.round(c.fee * 100)}), tags = h("input", {type: "text", value: c.required_hashtags.join(" "), placeholder: "#campaign #brand"});
+    const tag = h("input", {type: "text", value: c.disclosure_tag, maxlength: 20}), credit = h("input", {type: "text", value: c.credit, maxlength: 80}), url = h("input", {type: "text", value: c.submit_url, placeholder: "https://"}), ends = h("input", {type: "date", value: c.ends});
+    return [h("details", {open: !D.on}, h("summary", {text: D.on ? `Campaign: ${c.name || "unnamed"}` : "Set up a campaign"}),
+        h("div", {class: "form", style: "margin-top:10px"}, field("Campaign", name), field("Pay per 1,000 views", rate), field("Least paid per post", min), field("Most paid per post (0 = no cap)", max),
+          field("Marketplace fee, percent", fee), field("Required hashtags", tags), field("Disclosure word", tag), field("Credit line it asks for", credit), field("Where links are handed in", url), field("Last day", ends)),
+        h("div", {class: "row", style: "margin-top:10px"}, h("label", {class: "check"}, paid, "These are paid posts: disclose them as ads"),
+          h("button", {class: "btn small primary", text: "Save the campaign", onclick: () => act("/api/settings", {campaign: {name: name.value.trim(), paid: paid.checked, rate_per_1k: Number(rate.value) || 0, min_payout: Number(min.value) || 0,
+            max_payout: Number(max.value) || 0, fee: (Number(fee.value) || 0) / 100, required_hashtags: tags.value.split(/[\s,]+/).filter(Boolean), disclosure_tag: tag.value.trim() || "#ad", credit: credit.value.trim(), submit_url: url.value.trim(), ends: ends.value}}, "Saved. It applies to clips made from now on.")}))),
+      D.on ? h("p", {class: "sub", style: "margin-top:12px", text: `${D.totals.posts} post(s) out, ${D.totals.to_submit} still to hand in. Would earn about ${cash(D.totals.estimate)} by the brief; ${cash(D.totals.paid)} paid so far.`}) : null,
+      D.rows.length ? h("div", {class: "scroll"}, h("table", {class: "t"}, h("tr", {}, h("th", {text: "Clip"}), h("th", {text: "Where"}), h("th", {class: "n", text: "Views"}), h("th", {class: "n", text: "By the brief"}), h("th", {text: "Stands"}), h("th", {})),
+        D.rows.slice(0, 60).map(r => { const st = h("select", {}, Object.entries(D.states).map(([k, v]) => h("option", {value: k, text: v, selected: k === r.status})));
+          const got = h("input", {type: "number", min: 0, step: "0.01", style: "max-width:6rem", value: r.amount || "", placeholder: "paid", "aria-label": "Amount paid"});
+          return h("tr", {}, h("td", {}, r.link ? h("a", {href: r.link, target: "_blank", rel: "noopener", text: r.title}) : r.title), h("td", {text: NAMES[r.platform] || r.platform}), h("td", {class: "n", text: r.views.toLocaleString()}), h("td", {class: "n", text: cash(r.estimate)}), h("td", {}, st, " ", got),
+            h("td", {}, h("div", {class: "row"}, r.link ? h("button", {class: "btn small", text: "Copy link", onclick: async () => { try { await navigator.clipboard.writeText(r.link); toast("Link copied"); } catch (e) { toast("Could not copy", true); } }}) : null,
+              c.submit_url ? h("a", {class: "btn small", href: c.submit_url, target: "_blank", rel: "noopener", text: "Hand in"}) : null,
+              h("button", {class: "btn small primary", text: "Save", onclick: () => act("/api/desk-mark", {id: r.clip, platform: r.platform, status: st.value, amount: Number(got.value) || 0}, "Saved")})))); }))) : null];
+  });
+
+  paint("b-rights", B.rights, R => {
+    const who = h("input", {type: "text", placeholder: "Channel name", maxlength: 80}), basis = h("input", {type: "text", placeholder: "Their clip policy, an e-mail of 3 Nov, a campaign…", maxlength: 300});
+    return [h("b", {text: "Permission on file"}),
+      R.permissions.length ? R.permissions.map(x => h("div", {class: "item"}, h("div", {class: "row"}, h("b", {text: x.channel}), h("span", {class: "meta", text: x.note}), h("div", {class: "grow"}),
+        h("button", {class: "btn small danger", text: "Remove", onclick: () => act("/api/rights-unpermit", {channel: x.channel}, "Removed")})))) : h("p", {class: "sub", style: "margin:6px 0", text: "None yet. Clips of a channel without one say “no permission on file”."}),
+      h("div", {class: "form", style: "margin-top:8px"}, field("Channel", who), field("On what basis its footage may be used", basis)),
+      h("div", {class: "row", style: "margin-top:8px"}, h("button", {class: "btn small primary", text: "Put on file", onclick: async () => { if (await act("/api/rights-permit", {channel: who.value, note: basis.value}, "On file")) who.value = basis.value = ""; }})),
+      R.blocked.length ? [h("b", {style: "display:block;margin-top:16px", text: "Nothing more is taken from"}), R.blocked.map(x => h("div", {class: "item"}, h("div", {class: "row"}, h("b", {text: x.channel}), h("span", {class: "meta", text: x.why}), h("div", {class: "grow"}),
+        h("button", {class: "btn small", text: "Allow again", onclick: () => { if (confirm(`Take footage from ${x.channel} again?`)) act("/api/rights-unblock", {channel: x.channel}, "Allowed again"); }}))))] : null,
+      h("b", {style: "display:block;margin-top:16px", text: "Claims, strikes and takedowns"}),
+      R.events.length ? R.events.slice(0, 40).map(e => h("div", {class: "item"}, h("div", {class: "row"}, h("span", {class: "tag state failed", text: R.kinds[e.kind]}), h("span", {text: `${NAMES[e.platform] || e.platform}: ${e.title}`}), h("span", {class: "meta", text: `${e.channel || "own footage"} · ${e.at.slice(0, 10)}${e.auto ? " · reported by the platform" : ""}${e.note ? " · " + e.note : ""}`}), h("div", {class: "grow"}),
+        h("button", {class: "btn small danger", text: "✕", title: "Remove from the record", onclick: () => act("/api/rights-event-remove", {id: e.id}, "Removed")})))) : h("p", {class: "sub", style: "margin:6px 0", text: "None. Report one from the clip it concerns."})];
+  });
+
+  paint("b-audience", B.audience, A => !A.enabled ? h("p", {class: "sub", text: "Switched off. Switch on “Read and answer comments” under Settings, then connect YouTube and Facebook/Instagram again: reading comments needs a further permission. TikTok gives an app no way to read comments."}) : [
+    h("div", {class: "row"}, h("button", {class: "btn small primary", text: "Read the newest comments", onclick: async () => { const r = await act("/api/audience-refresh", {}); if (r) toast(r.count ? `${r.count} comment(s) waiting` : "Nothing new to answer."); }}),
+      A.at ? h("span", {class: "meta", text: "Last read " + A.at.slice(0, 16).replace("T", " ")}) : null),
+    (A.problems || []).map(x => h("div", {class: "meta", style: "color:var(--bad);margin-top:8px", text: x})),
+    A.items.map(i => { const reply = h("textarea", {rows: 2}); reply.value = i.draft;
+      return h("div", {class: "item"}, h("div", {class: "meta", text: `${NAMES[i.platform] || i.platform} · ${i.title}`}), h("div", {style: "margin:6px 0", text: i.text}), reply,
+        h("div", {class: "row", style: "margin-top:8px"}, h("button", {class: "btn small primary", text: "Send", onclick: () => act("/api/audience-answer", {key: i.key, text: reply.value}, "Sent")}),
+          h("button", {class: "btn small", text: "No answer needed", onclick: () => act("/api/audience-skip", {key: i.key})}))); }),
+    A.items.length ? null : h("p", {class: "sub", style: "margin-top:10px", text: "No comment is waiting for an answer."})]);
+
+  // The channel in view, at the top of every tab.
+  const ch = S.channels, chip = $("chip-channel"), sig = JSON.stringify(ch);
+  if (chip.dataset.sig !== sig) {
+    chip.dataset.sig = sig; chip.innerHTML = "";
+    chip.append(h("span", {text: "Channel "}), h("select", {"aria-label": "Channel in view", onchange: async e => {
+      if (e.target.value === "+") { const name = prompt("A name for the new channel:", ""); if (name && name.trim()) await act("/api/channel-create", {name}, "Channel made. Connect its accounts under Accounts."); else e.target.value = ch.current; }
+      else await act("/api/channel-use", {id: e.target.value});
+      settingsLoaded = false; aiLoaded = false; cards.forEach(x => x.el.remove()); cards.clear(); refresh();
+    }}, ch.list.map(x => h("option", {value: x.id, text: x.name, selected: x.id === ch.current})), h("option", {value: "+", text: "New channel…"})));
+  }
 }
 
 // ---- Claude ----------------------------------------------------------------------
@@ -707,6 +933,35 @@ const CUT_WHY = {
   facebook: "Page reels stop at 90 seconds; anything longer goes up as a plain Page video.",
   instagram: "Reels of more than 3 minutes are not recommended to new viewers.",
 };
+function captureRow(path) {
+  const row = h("div", {class: "searchrow", style: "grid-template-columns:1fr 40px"}, h("input", {type: "text", value: path, placeholder: "C:\\Users\\you\\Videos\\Captures"}),
+    h("button", {class: "btn small danger", text: "✕", title: "Remove", onclick: () => row.remove()}));
+  return row;
+}
+function costRow(c) {
+  const row = h("div", {class: "searchrow", style: "grid-template-columns:1fr 110px 130px 40px"}, h("input", {type: "text", value: c.name || "", placeholder: "Posting service"}),
+    h("input", {type: "number", min: 0, step: "0.01", value: c.amount || "", placeholder: "24.00"}), h("input", {type: "month", value: c.since || ""}),
+    h("button", {class: "btn small danger", text: "✕", title: "Remove", onclick: () => row.remove()}));
+  return row;
+}
+function renderUpkeep() {
+  const u = S.upkeep, st = S.settings;
+  $("s-update").textContent = !u.update.installed ? "This copy was not put here by the installer, so it cannot say whether a newer one is out."
+    : u.update.available ? `A newer Clipper is out (yours ${u.update.installed}, newest ${u.update.latest}).` : `Clipper ${u.update.installed}` + (u.update.latest ? " is the newest." : ". Not checked yet.");
+  $("btn-update").classList.toggle("hide", !(u.update.available && u.can_update));
+  paint("s-backups", u.backups, list => list.length ? list.map(b => h("div", {class: "row", style: "margin-top:6px"}, h("span", {class: "meta", text: `${b.when} · ${b.kb} KB`}),
+    h("button", {class: "btn small", text: "Restore", onclick: () => { if (confirm(`Put the records back as they were on ${b.when}? What is there now is backed up first.`)) act("/api/restore", {name: b.name}, "Restored").then(() => { settingsLoaded = false; }); }}))) : h("p", {class: "meta", text: "No backup yet."}));
+  paint("s-channels", S.channels, ch => ch.list.map(x => h("div", {class: "row", style: "margin-top:6px"}, h("b", {text: x.name}), x.id === ch.current ? h("span", {class: "tag state posted", text: "in view"}) : null,
+    x.id === "main" ? h("span", {class: "meta", text: "the first channel"}) : [
+      h("button", {class: "btn small", text: "Rename", onclick: () => { const n = prompt("New name:", x.name); if (n && n.trim()) act("/api/channel-rename", {id: x.id, name: n}, "Renamed"); }}),
+      h("button", {class: "btn small danger", text: "Take off the list", onclick: async () => { if (confirm(`Take “${x.name}” off the list? Its folder with its clips and records stays on this computer.`)) { const r = await act("/api/channel-unlist", {id: x.id}); if (r) toast("Off the list. Its folder is still at " + r.folder); } }})])));
+  const ph = st.phone;
+  if (document.activeElement !== $("s-ph-on")) $("s-ph-on").checked = ph.enabled;
+  $("btn-ph-new").classList.toggle("hide", !ph.enabled);
+  $("s-ph-note").textContent = !ph.enabled ? "Off: only this computer can open Clipper." : ph.listening !== ph.enabled ? "Close Clipper and open it again for this to take effect."
+    : ph.link ? "Open this on your phone and keep it as a bookmark: " + ph.link : "This computer has no home-network address right now.";
+  $("btn-al-topic").textContent = st.alerts.has_topic ? "Replace the topic" : "Save topic";
+}
 function fillSettings() {
   const s = S.settings;
   $("s-min").value = s.min_len; $("s-max").value = s.max_len; $("s-per").value = s.max_per_source; $("s-handle").value = s.handle;
@@ -723,6 +978,11 @@ function fillSettings() {
   $("s-m-calm").value = s.monetize.calm_open; $("s-m-music").value = s.monetize.music;
   $("s-m-note").textContent = s.monetize.listens ? "Graphic moments and other platforms' watermarks are found by Claude; music is heard by a small model on this computer."
     : "The model that hears music is not installed, so that check is skipped. Run the installer again to add it.";
+  $("s-captures").innerHTML = ""; s.captures.forEach(x => $("s-captures").append(captureRow(x)));
+  $("s-al-on").checked = s.alerts.enabled; $("s-al-server").value = s.alerts.server; $("s-al-topic").placeholder = s.alerts.has_topic ? "A topic is saved" : "clipper-7f3k9q2m…";
+  $("s-al-events").innerHTML = ""; Object.entries(s.alerts.all).forEach(([k, v]) => $("s-al-events").append(h("label", {class: "check"}, h("input", {type: "checkbox", value: k, checked: s.alerts.events.includes(k)}), v)));
+  $("s-learn").checked = s.learn; $("s-aud-on").checked = s.audience.enabled; $("s-aud-credit").checked = s.audience.credit_comment; $("s-earn").checked = s.progress.earnings;
+  $("s-currency").value = s.money.currency; $("s-costs").innerHTML = ""; s.money.monthly_costs.forEach(x => $("s-costs").append(costRow(x)));
   $("s-auto").checked = s.auto_post; $("s-keep-dl").value = s.keep_downloads_days; $("s-keep-clips").value = s.keep_clips_days;
   $("s-platforms").innerHTML = "";
   Object.keys(NAMES).forEach(p => $("s-platforms").append(h("label", {class: "check"}, h("input", {type: "checkbox", value: p, checked: s.platforms.includes(p)}), NAMES[p])));
@@ -741,6 +1001,12 @@ function readSettings() {
     publish: {tiktok_post_mode: $("s-tiktok").value, tiktok_direct: $("s-tiktok-direct").value, tiktok_privacy_level: $("s-tiktok-audience").value,
       tiktok_comments: $("s-tiktok-comments").checked, tiktok_duet: $("s-tiktok-duet").checked, tiktok_stitch: $("s-tiktok-stitch").checked, youtube_privacy: $("s-youtube").value, platforms: [...$("s-platforms").querySelectorAll("input:checked")].map(x => x.value)},
     housekeeping: {keep_downloads_days: num("s-keep-dl"), keep_clips_days: num("s-keep-clips")},
+    captures: [...$("s-captures").children].map(r => r.children[0].value.trim()).filter(Boolean),
+    alerts: {enabled: $("s-al-on").checked, server: $("s-al-server").value.trim() || "https://ntfy.sh", events: [...$("s-al-events").querySelectorAll("input:checked")].map(x => x.value)},
+    learn: {enabled: $("s-learn").checked}, audience: {enabled: $("s-aud-on").checked, credit_comment: $("s-aud-credit").checked},
+    progress: {earnings: $("s-earn").checked, followers: S.settings.progress.followers},
+    money: {currency: $("s-currency").value.trim().toUpperCase() || "USD", monthly_costs: [...$("s-costs").children].map(r => ({name: r.children[0].value.trim(), amount: Number(r.children[1].value) || 0, since: r.children[2].value}))
+      .filter(x => x.name && x.amount > 0)},
     monetize: {enabled: $("s-m-on").checked, mute_profanity: $("s-m-mute").checked, strict: $("s-m-strict").checked, calm_open: num("s-m-calm"), music: $("s-m-music").value},
     searches: [...$("searches").children].map(r => ({query: r.children[0].value.trim(), section: r.children[1].value})).filter(x => x.query),
     auto_post: $("s-auto").checked,
@@ -755,7 +1021,7 @@ async function refresh() {
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
-  ["clips", "activity", "settings", "accounts"].forEach(t => $("tab-" + t).classList.toggle("hide", t !== b.dataset.tab));
+  ["clips", "business", "activity", "settings", "accounts"].forEach(t => $("tab-" + t).classList.toggle("hide", t !== b.dataset.tab));
   if (b.dataset.tab === "settings" && S) fillSettings();
 }));
 document.querySelectorAll("[data-filter]").forEach(b => b.addEventListener("click", () => { filter = b.dataset.filter; renderClips(); }));
@@ -768,6 +1034,17 @@ $("btn-save-settings").addEventListener("click", async () => {
   if (await act("/api/settings", wanted, "Settings saved. They apply from the next run.")) fillSettings();
 });
 $("btn-add-search").addEventListener("click", () => $("searches").append(searchRow({query: "", section: "moments"})));
+$("btn-add-capture").addEventListener("click", () => $("s-captures").append(captureRow("")));
+$("btn-add-cost").addEventListener("click", () => $("s-costs").append(costRow({})));
+$("btn-add-channel").addEventListener("click", async () => { const name = prompt("A name for the new channel:", ""); if (name && name.trim() && await act("/api/channel-create", {name}, "Channel made. Connect its accounts under Accounts.")) { settingsLoaded = false; aiLoaded = false; cards.forEach(x => x.el.remove()); cards.clear(); refresh(); } });
+$("btn-backup").addEventListener("click", async () => { const r = await act("/api/backup", {}); if (r) toast(r.name ? "Backed up: " + r.name : "There is nothing to back up yet."); });
+$("btn-downloader").addEventListener("click", async () => { toast("Updating the downloader…"); const r = await act("/api/downloader", {}); if (r) toast(r.said[0].toUpperCase() + r.said.slice(1) + ".", !r.said.includes("up to date")); });
+$("btn-update-check").addEventListener("click", async () => { const r = await act("/api/update-check", {}); if (r) toast(r.available ? "A newer Clipper is out." : r.installed ? "This is the newest Clipper." : "This copy was not put here by the installer."); });
+$("btn-update").addEventListener("click", () => { if (confirm("Update Clipper now? The app closes, updates in its own window and opens again. Your clips, settings and accounts stay.")) act("/api/update", {}, "Updating. This page will stop answering for a few minutes."); });
+$("btn-al-topic").addEventListener("click", async () => { const t = $("s-al-topic").value.trim(); if (!t) return toast("Type the topic first", true); if (await act("/api/alerts-topic", {topic: t}, "Topic saved")) $("s-al-topic").value = ""; });
+$("btn-al-test").addEventListener("click", () => act("/api/alerts-test", {}, "Sent. It should be on your phone in a moment."));
+$("s-ph-on").addEventListener("change", e => act("/api/phone", {on: e.target.checked}, e.target.checked ? "On. Close Clipper and open it again." : "Off. Old links no longer work."));
+$("btn-ph-new").addEventListener("click", () => { if (confirm("Make a new link? The old one stops working.")) act("/api/phone", {on: true, new_key: true}, "New link made"); });
 $("btn-connect").addEventListener("click", async () => {
   const r = await act("/api/connect", {api_key: $("a-key").value, profile: $("a-profile").value || ""}, "Connected");
   if (r) $("a-key").value = "";

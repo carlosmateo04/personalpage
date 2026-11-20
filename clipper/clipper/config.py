@@ -46,6 +46,7 @@ class Source:
     title_any: list[str] = field(default_factory=list)  # the title must contain one of these
     title_none: list[str] = field(default_factory=list)  # the title must contain none of these
     max_hours: float = 3.0  # only the first N hours of a long video are fetched
+    settle: float = 0.0  # folder: a file changed less than this many seconds ago is still being recorded and is left for the next run
     chat_file: str = ""  # optional chat log (JSON list of {"t": seconds}) for a folder source
 
 
@@ -108,6 +109,7 @@ class Housekeeping:
 @dataclass
 class Rights:
     block_channels: list[str] = field(default_factory=lambda: ["Rockstar Games", "Take-Two Interactive"])  # never taken from
+    claims_before_block: int = 2  # copyright claims on one channel's footage before nothing more is taken from it (a strike blocks at once)
     credit_format: str = "Credit: {creator}"  # shown on the clip and in every caption
 
 
@@ -192,6 +194,8 @@ class Campaign:
     max_payout: float = 0.0  # cap per post (0 = no cap)
     fee: float = 0.0  # marketplace fee taken from payouts (0.10 = 10%)
     counted_platforms: list[str] = field(default_factory=list)  # platforms whose views are paid (empty = all)
+    submit_url: str = ""  # the campaign's page where post links are handed in
+    ends: str = ""  # the last day of the campaign (2026-12-31), for the desk
 
     def payout(self, platform: str, views: int) -> float:
         """Estimated net payout for one post, before the campaign's own review."""
@@ -289,6 +293,54 @@ class Gates:
 
 
 @dataclass
+class Alerts:
+    """Messages to the owner's phone. See clipper/alerts.py."""
+
+    enabled: bool = False
+    server: str = "https://ntfy.sh"  # the notification service; the topic it is sent to is kept with the secrets
+    events: list[str] = field(default_factory=lambda: ["ready", "failed", "signin", "claim"])
+
+
+@dataclass
+class Phone:
+    """Opening the app from a phone on the same home network. Off unless switched on. See clipper/ui.py."""
+
+    enabled: bool = False
+
+
+@dataclass
+class Progress:
+    """Follower counts typed in by hand, for platforms that do not let the app read them: {platform: number}."""
+
+    followers: dict[str, Any] = field(default_factory=dict)
+    earnings: bool = False  # also ask YouTube for the channel's earnings figure (needs a further permission at sign-in)
+
+
+@dataclass
+class Audience:
+    """Reading and answering comments. Off unless switched on: it needs further permissions at sign-in. See clipper/audience.py."""
+
+    enabled: bool = False
+    credit_comment: bool = False  # after a clip goes out on YouTube, comment once with the credit to the source
+
+
+@dataclass
+class Money:
+    """Money in and out. See clipper/money.py."""
+
+    currency: str = "USD"
+    monthly_costs: list[dict[str, Any]] = field(default_factory=list)  # e.g. {name = "Posting service", amount = 24, since = "2026-11"}
+
+
+@dataclass
+class Learn:
+    """The channel's own results steer what is made next. See clipper/learn.py."""
+
+    enabled: bool = True
+    min_clips: int = 5  # clips with views a section needs before its results count
+
+
+@dataclass
 class Monetize:
     """What the platforms ask of a video before they pay for it, beyond its length. See clipper/monetize.py."""
 
@@ -324,6 +376,15 @@ class Config:
     filters: Filters = field(default_factory=Filters)
     housekeeping: Housekeeping = field(default_factory=Housekeeping)
     monetize: Monetize = field(default_factory=Monetize)
+    money: Money = field(default_factory=Money)
+    learn: Learn = field(default_factory=Learn)
+    alerts: Alerts = field(default_factory=Alerts)
+    phone: Phone = field(default_factory=Phone)
+    progress: Progress = field(default_factory=Progress)
+    audience: Audience = field(default_factory=Audience)
+    captures: list[str] = field(default_factory=list)  # folders your own gameplay is recorded to; set in the app
+    launch: dict[str, Any] = field(default_factory=dict)  # steps of the go-live checklist ticked by hand
+    pinned: str = ""  # the data folder this configuration was loaded for (set by load, not a setting)
     transcribe: Transcribe = field(default_factory=Transcribe)
     moments: Moments = field(default_factory=Moments)
     captions: Captions = field(default_factory=Captions)
@@ -350,6 +411,8 @@ class Config:
         A separate data folder lets the code be replaced by a fresh download
         without losing the ledger, the clips or the inbox.
         """
+        if self.pinned:
+            return Path(self.pinned)
         return Path(os.environ["CLIPPER_DATA"]).expanduser() if os.environ.get("CLIPPER_DATA") else self.root
 
     def path(self, name: str) -> Path:
@@ -398,8 +461,12 @@ def _fill(cls: type, data: dict[str, Any], where: str) -> Any:
     return cls(**kwargs)
 
 
-def load(path: str | Path | None = None) -> Config:
-    """Read config.toml (or the given file); a missing file means all defaults."""
+def load(path: str | Path | None = None, data_dir: str | Path | None = None) -> Config:
+    """Read config.toml (or the given file); a missing file means all defaults.
+
+    `data_dir` is the data folder to load it for (one channel's), instead of $CLIPPER_DATA. The configuration
+    remembers its data folder, so it keeps pointing there whatever the environment says later.
+    """
     path = Path(path) if path else ROOT / "config.toml"
     data: dict[str, Any] = {}
     if path.exists():
@@ -407,12 +474,16 @@ def load(path: str | Path | None = None) -> Config:
         data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     from . import settings  # settings made in the app on this computer win over config.toml
 
-    data = settings.overlay(data, settings.load(Config().data_root))
+    home = Path(data_dir).expanduser() if data_dir else Config().data_root
+    data = settings.overlay(data, settings.load(home))
+    data.pop("pinned", None)
     data["edits"] = {**default_edits(), **{k: {**default_edits().get(k, {}), **v} for k, v in (data.get("edits") or {}).items() if isinstance(v, dict)}}
     if "review" in data:  # the earlier name of [ai]; frames meant something else there
         old = {k: v for k, v in data.pop("review").items() if k in ("enabled", "model", "effort")}
         data["ai"] = {**old, **data.get("ai", {})}
     cfg = _fill(Config, data, "config")
+    if data_dir or os.environ.get("CLIPPER_DATA"):
+        cfg.pinned = str(home)
     validate(cfg)
     return cfg
 

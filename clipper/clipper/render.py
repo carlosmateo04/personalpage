@@ -77,12 +77,13 @@ def audio_graph(cfg: Config, voiceover: bool, mute: list[tuple[float, float]] | 
 
 
 def render(cfg: Config, src: Path, start: float, end: float, ass: Path, out: Path, voiceover: Path | None = None,
-           mute: list[tuple[float, float]] | None = None) -> Path:
+           mute: list[tuple[float, float]] | None = None, voice_from: float = 0.0) -> Path:
+    """`voice_from` is where in the voice-over this render starts: a shorter version of a clip begins part-way into it."""
     out.parent.mkdir(parents=True, exist_ok=True)
     r = cfg.render
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(src)]
     if voiceover:
-        cmd += ["-i", str(voiceover)]
+        cmd += [*(["-ss", f"{voice_from:.3f}"] if voice_from > 0 else []), "-i", str(voiceover)]
     cmd += [
         "-filter_complex", video_graph(cfg, ass, end - start) + ";" + audio_graph(cfg, voiceover is not None, mute),
         "-map", "[v]", "-map", "[a]",

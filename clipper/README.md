@@ -142,6 +142,28 @@ With `strict`, a platform whose rule a clip breaks is not sent it. The one
 rule no edit meets, originality, is reported on every clip of another
 channel's footage.
 
+## The business around the clips
+
+The Business tab and further Settings panels; described for the owner in
+[ACCOUNTS.md](ACCOUNTS.md) under "Running it as a business". Each part is a
+small module that keeps its own JSON file in `state/`:
+
+| Part | Module | What it does |
+|---|---|---|
+| Going live | `launch.py` | The steps to a live channel, each read off what is really there |
+| Commentary | `pipeline.set_voiceover`, `ui.html` | The owner's voice recorded in the app and put on every version of a clip; Claude drafts what to say |
+| Own gameplay | `settings.overlay`, `intake._folder` | Capture folders as sources of own footage; a file still recording waits |
+| Money | `money.py` | Income and costs, typed in or worked out; a sheet per year |
+| Progress | `progress.py` | Followers and views against each programme's bar |
+| What works | `learn.py` | Views weight the ranking of candidates and are told to Claude |
+| Campaign desk | `desk.py` | The status and payout of each post owed to a campaign |
+| Rights | `rights.py` | Permissions on file; claims and strikes, which block a source |
+| Comments | `audience.py` | Unanswered comments with replies drafted by Claude; sent only by hand |
+| Alerts | `alerts.py` | Messages to the owner's phone through ntfy |
+| Phone access | `ui.py` (`allowed`, `page_key_ok`) | The app from a phone on the home network, with a private key |
+| Safety | `upkeep.py` | Daily backups and restore, an update check, the downloader kept current |
+| Channels | `channels.py` | Further channels, each a data folder of its own |
+
 ## Posting
 
 `clipper/outbox.py` and `clipper/connectors/`. This is the clipper's own
@@ -375,7 +397,11 @@ stored sign-in the real SDK then reads; adding, switching and removing
 accounts), `test_variants.py` (the cut each platform gets), `test_monetize.py`
 (the rules for being paid: the rendered sound really is silent where strong
 language is spoken, music and still pictures are told apart on generated
-video, the check per platform, the editor's drops and moved openings).
+video, the check per platform, the editor's drops and moved openings),
+`test_business.py` (money, rights, what works, the campaign desk, progress,
+backups and restore, updates, alerts, channels, capture folders, going live)
+and `test_audience.py` (followers, earnings and comments against the
+stand-ins for Google and Meta).
 
 `tests/test_system.py` runs the whole system as one. The four accounts and
 Claude are connected through the app; "Make clips now" starts a real run that
@@ -409,6 +435,21 @@ the real services, as of this writing:
   press reports of its September 2026 update. Whether Claude spots a graphic
   moment or a watermark in real footage has not been seen with a real key.
   The music listener was run on two real GTA 6 videos and heard music in both.
+- **Followers, earnings and comments:** written from the platforms' API
+  references as remembered, not re-read (their pages cannot be opened from the
+  machine this was built on), and run against stand-ins only. The further
+  permissions they need (YouTube `youtube.force-ssl` and
+  `yt-analytics-monetary.readonly`; Meta `instagram_manage_comments`,
+  `pages_manage_engagement`, `pages_read_user_content`) may need app review at
+  Meta beyond the owner's own accounts.
+- **Alerts:** the message format follows ntfy's documentation; no message has
+  been sent to a real phone.
+- **Phone access and recording:** the access rules are unit-tested; recording
+  was driven in a real browser with a simulated microphone and ended up on the
+  clip. A real phone on a real home network has not been tried.
+- **Updating from the app:** the update script has not been run on Windows by
+  a person; the Windows test checks that it is installed and that the version
+  is noted.
 - **TikTok public posts:** refused by TikTok until it has audited the app,
   which it does not do for tools posting to their owner's accounts; the code
   path is exercised against the stand-in only.

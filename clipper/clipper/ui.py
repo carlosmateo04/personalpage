@@ -12,10 +12,12 @@ that only the page it served knows.
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import mimetypes
 import os
 import secrets
+import socket
 import subprocess
 import sys
 import threading
@@ -28,7 +30,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import check, claude, config, connectors, metadata, monetize, outbox, pipeline, publish, review, settings, signin, variants
+from . import (alerts, audience, channels, check, claude, config, connectors, desk, launch, learn, metadata, monetize, money, outbox, pipeline,
+               progress, publish, review, rights, settings, signin, upkeep, variants)
 from .connectors import tiktok
 from .connectors import ConnectorError
 from .config import ROOT
@@ -41,6 +44,18 @@ RETURNED = """<!doctype html><meta charset="utf-8"><title>Clipper</title>
 <body style="font:16px system-ui,sans-serif;background:#0f1115;color:#e8eaed;display:grid;place-items:center;height:100vh;margin:0">
 <div style="max-width:32rem;padding:24px;text-align:center"><h1 style="font-size:22px">__TITLE__</h1><p>__MESSAGE__</p>
 <p style="color:#9aa0a6">You can close this tab and go back to Clipper.</p></div></body>"""
+
+
+HOME_NETWORKS = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")]
+
+
+def at_home(address: str) -> bool:
+    """Whether an address is one a home network hands out. Nothing else is ever let in from outside this computer."""
+    try:
+        who = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(who.version == net.version and who in net for net in HOME_NETWORKS)
 
 
 class Problem(Exception):
@@ -65,6 +80,10 @@ class App:
         self.jobs: dict[str, str] = {}  # clips Claude is editing again right now
         self.job_errors: dict[str, str] = {}
         self.posting_log: deque[str] = deque(maxlen=60)
+        self.base = channels.base()  # the first channel's data folder; the list of channels lives there
+        self.channel = channels.MAIN  # the channel the page is showing
+        self.wrong_keys: dict[str, list[float]] = {}  # phone access: wrong keys per address, to slow down guessing
+        self._hourly = 0.0
         self.login: signin.Login | None = None  # a sign-in with Claude that is under way or just finished
         self.login_note = ""  # what the last sign-in came to, for the page
         self._refreshed = 0.0
@@ -72,8 +91,17 @@ class App:
 
     # --- reading ---------------------------------------------------------------
 
-    def cfg(self) -> config.Config:
-        return config.load(self.config_path)
+    def cfg(self, channel: str | None = None) -> config.Config:
+        """The settings of the channel in view (or of the one named)."""
+        channel = channel or self.channel
+        if channel == channels.MAIN:
+            return config.load(self.config_path)
+        return config.load(self.config_path, data_dir=channels.folder(channel, self.base))
+
+    def _env(self, cfg: config.Config) -> dict[str, str]:
+        """The surroundings a run or a check of this channel starts in."""
+        return {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1", "CLIPPER_DATA": str(cfg.data_root), "CLIPPER_BASE": str(self.base),
+                "CLIPPER_CHANNEL": self.channel}
 
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -210,6 +238,65 @@ class App:
         found = subprocess.run(["schtasks", "/Query", "/TN", TASK], capture_output=True, text=True)
         return {"available": True, "on": found.returncode == 0}
 
+    def business(self, cfg: config.Config, ledger) -> dict:
+        """Everything on the Business tab: the way to going live, progress to being paid, money, what works, the campaign, rights, comments."""
+        passed = None if not self.check_results or self.checking else all(r["status"] != "problem" for r in self.check_results)
+        steps = launch.steps(cfg, ledger, self.daily()["on"], passed)
+        camp = cfg.campaign
+        return {
+            "launch": {"steps": steps, **launch.summary(steps)},
+            "progress": progress.report(cfg, ledger, ask=False),
+            "money": money.summary(cfg),
+            "learn": learn.stats(cfg, ledger),
+            "desk": {"on": desk.active(cfg), "rows": desk.rows(cfg, ledger), "totals": desk.totals(cfg, ledger), "states": desk.STATES,
+                     "campaign": {"name": camp.name, "paid": camp.paid, "disclosure_tag": camp.disclosure_tag, "required_hashtags": camp.required_hashtags,
+                                  "credit": camp.credit, "rate_per_1k": camp.rate_per_1k, "min_payout": camp.min_payout, "max_payout": camp.max_payout,
+                                  "fee": camp.fee, "submit_url": camp.submit_url, "ends": camp.ends}},
+            "rights": rights.record(cfg),
+            "audience": {**audience.inbox(cfg), "items": [i for i in audience.inbox(cfg)["items"] if i["state"] == "open"],
+                         "credit_comment": cfg.audience.credit_comment},
+        }
+
+    def lan_address(self) -> str:
+        """This computer's address on the home network, or "" when it has none."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+                probe.connect(("10.255.255.255", 1))  # nothing is sent: this only asks which of this computer's addresses would be used
+                found = probe.getsockname()[0]
+            return found if at_home(found) else ""
+        except OSError:
+            return ""
+
+    def phone(self, cfg: config.Config) -> dict:
+        key = settings.get_secret(self.base, "phone_key")
+        address = self.lan_address()
+        return {"enabled": cfg.phone.enabled, "listening": getattr(self, "open_to_network", False),
+                "link": f"http://{address}:{self.port}/?k={key}" if cfg.phone.enabled and key and address else ""}
+
+    def allowed(self, client: str, host: str) -> bool:
+        """Whether a request may be answered at all: from this computer always; from the home network only with phone access on."""
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+        try:
+            who = ipaddress.ip_address(client)
+        except ValueError:
+            return False
+        if who.is_loopback:
+            return name in ("127.0.0.1", "localhost")
+        # From elsewhere: only with phone access on, only from the home network, and only when the page was asked for
+        # by this computer's number there, not by a name someone else could point here.
+        return self.cfg(channels.MAIN).phone.enabled and at_home(client) and at_home(name.strip("[]"))
+
+    def page_key_ok(self, client: str, key: str) -> bool:
+        """A phone asks for the page with its key. Ten wrong keys from one address shut it out for ten minutes."""
+        recent = [t for t in self.wrong_keys.get(client, []) if time.time() - t < 600]
+        if len(recent) >= 10:
+            return False
+        want = settings.get_secret(self.base, "phone_key")
+        if want and key and secrets.compare_digest(key, want):
+            return True
+        self.wrong_keys[client] = [*recent, time.time()]
+        return False
+
     @staticmethod
     def _media(out: Path, video: Path) -> str:
         """The address the page plays a clip file from, or "" when the file is gone."""
@@ -254,7 +341,8 @@ class App:
                 "versions": [{"seconds": v["seconds"], "platforms": v["platforms"], "media": self._media(out, Path(v["file"]))}
                              for v in variants.versions(rec, cfg.publish.platforms)],
                 "unfit": {**monetize.blocked(cfg, rec), **rec.get("unfit", {})}, "tiktok": rec.get("tiktok", {}),
-                "money": rec.get("money", {}),
+                "money": rec.get("money", {}), "voiceover": bool(rec.get("voiceover")), "say": rec.get("review", {}).get("say", ""),
+                "rights": rec.get("rights", []),
             })
         latest = cfg.path("reports") / "latest.md"
         searches = [{"query": settings.search_text(s.url), "section": s.section or "moments"}
@@ -271,6 +359,9 @@ class App:
                       "summary": check.summary(self.check_results) if self.check_results and not self.checking else ""},
             "report": latest.read_text(encoding="utf-8") if latest.exists() else "",
             "folder": str(out),
+            "business": self.cached(f"business:{self.channel}", 4, lambda: self.business(cfg, ledger)),
+            "channels": {"current": self.channel, "list": [{"id": c["id"], "name": c["name"]} for c in channels.listing(self.base)]},
+            "upkeep": {"backups": upkeep.backups(cfg)[:8], "update": upkeep.newest(cfg, ask=False), "can_update": upkeep.update_command() is not None},
             "settings": {
                 "handle": cfg.brand.handle, "min_len": cfg.moments.min_len, "max_len": cfg.moments.max_len,
                 "max_per_source": cfg.moments.max_per_source, "slots": cfg.schedule.slots, "timezone": cfg.schedule.timezone,
@@ -282,6 +373,13 @@ class App:
                 "tiktok_duet": cfg.publish.tiktok_duet, "tiktok_stitch": cfg.publish.tiktok_stitch,
                 "edits": {name: {"min_len": rule.get("min_len", 0), "max_len": rule.get("max_len", 0)} for name, rule in cfg.edits.items()
                           if name in publish.PLATFORMS},
+                "captures": cfg.captures, "learn": cfg.learn.enabled,
+                "alerts": {"enabled": cfg.alerts.enabled, "server": cfg.alerts.server, "events": cfg.alerts.events, "has_topic": bool(alerts.topic(cfg)),
+                           "all": alerts.EVENTS},
+                "phone": self.phone(cfg),
+                "audience": {"enabled": cfg.audience.enabled, "credit_comment": cfg.audience.credit_comment},
+                "progress": {"followers": cfg.progress.followers, "earnings": cfg.progress.earnings},
+                "money": {"currency": cfg.money.currency, "monthly_costs": cfg.money.monthly_costs},
                 "monetize": {"enabled": cfg.monetize.enabled, "calm_open": cfg.monetize.calm_open, "mute_profanity": cfg.monetize.mute_profanity,
                              "music": cfg.monetize.music, "strict": cfg.monetize.strict, "listens": monetize.tagger_ready(cfg)},
                 "no_facecam": cfg.filters.no_facecam, "no_commentary": cfg.filters.no_commentary, "no_cutscenes": cfg.filters.no_cutscenes,
@@ -300,7 +398,7 @@ class App:
             cmd = [sys.executable, "-m", "clipper"]
             if self.config_path:
                 cmd += ["--config", self.config_path]
-            env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1"}
+            env = self._env(self.cfg())
             self.log.clear()
             self.exit_code = None
             self.started = time.time()
@@ -336,7 +434,7 @@ class App:
                 raise Problem("wait for the current run to finish, then check")
             self.checking, self.check_results, self.check_at = True, [], ""
         zone = self.cfg().schedule.timezone
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1"}
+        env = self._env(self.cfg())
         try:
             proc = subprocess.Popen(self.check_command(), cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     text=True, encoding="utf-8", errors="replace", bufsize=1)
@@ -488,15 +586,35 @@ class App:
 
     def tick(self, now: datetime | None = None) -> dict:
         """Send the posts that are due and, every ten minutes, read back what became of the ones that went out."""
-        cfg = self.cfg()
-        ledger = pipeline.ledger_of(cfg)
-        if not any(rec.get("posts") for rec in ledger.clips.values()):
-            return {}
-        counts = outbox.deliver(cfg, ledger, now, self.posting_log.append)
-        if time.time() - self._refreshed > 600 and not counts.get("busy"):
+        total: dict = {}
+        look = time.time() - self._refreshed > 600
+        hourly = time.time() - self._hourly > 3600
+        for channel in channels.listing(self.base):
+            try:
+                cfg = self.cfg(channel["id"])
+            except (config.ConfigError, KeyError):
+                continue
+            ledger = pipeline.ledger_of(cfg)
+            if hourly:
+                try:
+                    progress.followers(cfg, fresh=True)
+                    progress.earnings(cfg)
+                    alerts.signins(cfg)
+                except Exception as exc:  # noqa: BLE001 - figures that cannot be read now are read next hour
+                    self.posting_log.append(f"figures: {type(exc).__name__}: {exc}")
+            if not any(rec.get("posts") for rec in ledger.clips.values()):
+                continue
+            counts = outbox.deliver(cfg, ledger, now, self.posting_log.append)
+            if look and not counts.get("busy"):
+                outbox.refresh(cfg, ledger, now, lambda message: None)
+            for key, value in counts.items():
+                total[key] = (total.get(key, 0) + value) if not isinstance(value, bool) else (total.get(key, False) or value)
+        if look:
             self._refreshed = time.time()
-            outbox.refresh(cfg, ledger, now, lambda message: None)
-        return counts
+        if hourly:
+            self._hourly = time.time()
+            upkeep.newest(self.cfg(channels.MAIN))
+        return total
 
     def reveal(self, cfg: config.Config, rec: dict, platform: str = "") -> None:
         """Show a clip's file in the file manager, selected: the version this platform gets."""
@@ -568,6 +686,69 @@ class App:
                 return {"ok": True, "problem": self.claude_problem(cfg)}
             elif name == "claude-remove":
                 claude.remove_account(cfg, str(body.get("id", "")))
+            elif name == "money-add":
+                money.add(cfg, str(body.get("kind", "")), str(body.get("source", "")), body.get("amount", 0), str(body.get("date", "")), str(body.get("note", "")))
+            elif name == "money-remove":
+                money.remove(cfg, str(body.get("id", "")))
+            elif name == "rights-permit":
+                rights.permit(cfg, str(body.get("channel", "")), str(body.get("note", "")))
+            elif name == "rights-unpermit":
+                rights.unpermit(cfg, str(body.get("channel", "")))
+            elif name == "rights-unblock":
+                rights.unblock(cfg, str(body.get("channel", "")))
+            elif name == "rights-event":
+                event = rights.add_event(cfg, ledger, str(body.get("kind", "")), str(body.get("platform", "")), body["id"], str(body.get("note", "")))
+                alerts.send(cfg, "claim", f"{rights.KINDS[event['kind']]} put on record for \"{event['title']}\".", once=f"claim:{event['id']}")
+                return {"ok": True, "blocked": event["blocked"], "channel": event["channel"]}
+            elif name == "rights-event-remove":
+                rights.remove_event(cfg, str(body.get("id", "")))
+            elif name == "desk-mark":
+                desk.mark(cfg, ledger, body["id"], str(body.get("platform", "")), str(body.get("status", "")), body.get("amount", 0))
+            elif name == "backup":
+                made = upkeep.backup(cfg)
+                return {"ok": True, "name": made.name if made else ""}
+            elif name == "restore":
+                if self.running():
+                    raise Problem("Wait for the current run to finish, then restore.")
+                return {"ok": True, "files": upkeep.restore(cfg, str(body.get("name", "")))}
+            elif name == "update-check":
+                return {"ok": True, **upkeep.newest(cfg, fresh=True)}
+            elif name == "update":
+                self.update()
+            elif name == "downloader":
+                return {"ok": True, "said": upkeep.refresh_downloader()}
+            elif name == "alerts-topic":
+                settings.set_secret(cfg.data_root, "alerts_topic", str(body.get("topic", "")).strip())
+            elif name == "alerts-test":
+                if not alerts.ready(cfg):
+                    raise Problem("Switch alerts on and save a topic first.")
+                if not alerts.send(cfg, cfg.alerts.events[0] if cfg.alerts.events else "ready", "This is a test from Clipper. Alerts work."):
+                    raise Problem("The message could not be sent. Check the server address and the connection.")
+            elif name == "phone":
+                self.set_phone(bool(body.get("on")), bool(body.get("new_key")))
+            elif name == "channel-create":
+                made = channels.create(str(body.get("name", "")), self.base)
+                self.use_channel(made["id"])
+                return {"ok": True, "id": made["id"]}
+            elif name == "channel-use":
+                self.use_channel(str(body.get("id", "")))
+            elif name == "channel-rename":
+                channels.rename(str(body.get("id", "")), str(body.get("name", "")), self.base)
+            elif name == "channel-unlist":
+                if str(body.get("id", "")) == self.channel:
+                    self.use_channel(channels.MAIN)
+                return {"ok": True, "folder": str(channels.unlist(str(body.get("id", "")), self.base))}
+            elif name == "progress-refresh":
+                progress.followers(cfg, fresh=True)
+                return {"ok": True, "earnings": progress.earnings(cfg)}
+            elif name == "audience-refresh":
+                return {"ok": True, "count": len(audience.refresh(cfg, ledger)["items"])}
+            elif name == "audience-answer":
+                audience.answer(cfg, ledger, str(body.get("key", "")), str(body.get("text", "")))
+            elif name == "audience-skip":
+                audience.skip(cfg, str(body.get("key", "")))
+            elif name == "voiceover-remove":
+                self.voiceover(body["id"], None)
             elif name == "posted-by-hand":
                 pipeline.posted_by_hand(cfg, ledger, body["id"], str(body.get("platform", "")), str(body.get("link", "")))
             elif name == "reveal":
@@ -599,11 +780,62 @@ class App:
                 raise Problem("unknown action")
         except KeyError as exc:
             raise Problem(f"not found: {exc}") from exc
-        except (publish.PublishError, ConnectorError) as exc:
+        except (publish.PublishError, ConnectorError, ValueError, FileNotFoundError) as exc:
             raise Problem(str(exc)) from exc
         finally:
             self._cache.clear()
         return {"ok": True}
+
+    def use_channel(self, ident: str) -> None:
+        if self.running() or self.checking:
+            raise Problem("Wait for the current run or check to finish, then change the channel.")
+        channels.folder(ident, self.base)  # refuses a channel that is not on the list
+        self.channel = ident
+        self.log.clear()
+        self.exit_code, self.check_results, self.check_at, self._accounts = None, [], "", None
+        self._cache.clear()
+
+    def voiceover(self, clip_id: str, recording: bytes | None) -> None:
+        """Put the owner's commentary on a clip (None takes it off), in the background; the card shows when it is done."""
+        cfg = self.cfg()
+        if self.running():
+            raise Problem("Wait for the current run to finish, then add the commentary.")
+        if clip_id in self.jobs:
+            raise Problem("This clip is being worked on already.")
+        if clip_id not in pipeline.ledger_of(cfg).clips:
+            raise Problem("not found")
+        self.jobs[clip_id] = "Taking the commentary off" if recording is None else "Putting your commentary on the clip"
+        self.job_errors.pop(clip_id, None)
+
+        def work() -> None:
+            try:
+                pipeline.set_voiceover(cfg, pipeline.ledger_of(cfg), clip_id, recording, self.posting_log.append)
+            except (publish.PublishError, KeyError, OSError) as exc:
+                self.job_errors[clip_id] = str(exc)
+            finally:
+                self.jobs.pop(clip_id, None)
+                self._cache.clear()
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def set_phone(self, on: bool, new_key: bool = False) -> None:
+        """Switch access from a phone on the home network on or off. A new key makes every old link stop working."""
+        if on and (new_key or not settings.get_secret(self.base, "phone_key")):
+            settings.set_secret(self.base, "phone_key", secrets.token_urlsafe(9))
+        if not on:
+            settings.set_secret(self.base, "phone_key", "")
+        settings.update(self.base, {"phone": {"enabled": on}})
+
+    def update(self) -> None:
+        """Bring Clipper up to date: the installer runs again in a window of its own and this app closes."""
+        cmd = upkeep.update_command()
+        if cmd is None:
+            raise Problem("Updating from the app works in the Windows install. Elsewhere, run the installer again.")
+        if self.running():
+            raise Problem("Wait for the current run to finish, then update.")
+        upkeep.backup(self.cfg(channels.MAIN), "before-update")
+        subprocess.Popen(cmd, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))  # noqa: S603 - the installer shipped with the app
+        threading.Timer(1.5, lambda: os._exit(0)).start()  # the installer replaces the app's files, so the app must not be running
 
 
 def handler_for(app: App):
@@ -614,8 +846,10 @@ def handler_for(app: App):
             pass
 
         def _local(self) -> bool:
-            host = (self.headers.get("Host") or "").split(":")[0]
-            return host in ("127.0.0.1", "localhost")
+            return app.allowed(self.client_address[0], self.headers.get("Host") or "")
+
+        def _near(self) -> bool:
+            return ipaddress.ip_address(self.client_address[0]).is_loopback
 
         def _send(self, code: int, body: bytes, kind: str, extra: dict | None = None) -> None:
             self.send_response(code)
@@ -676,8 +910,18 @@ def handler_for(app: App):
                 self._send(200 if worked else 400, RETURNED.replace("__TITLE__", "Connected" if worked else "Not connected")
                            .replace("__MESSAGE__", html.escape(message)).encode(), "text/html; charset=utf-8")
             elif path == "/":
+                if not self._near() and not app.page_key_ok(self.client_address[0], query.get("k", "")):
+                    self._send(403, b"Open the link from Clipper's Settings on your computer.", "text/plain")
+                    return
                 page = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", app.token)
                 self._send(200, page.encode(), "text/html; charset=utf-8")
+            elif path == "/api/money.csv":
+                if not secrets.compare_digest(query.get("t", ""), app.token):
+                    self._send(403, b"", "text/plain")
+                    return
+                year = query.get("year", "")
+                self._send(200, money.as_csv(app.cfg(), year).encode("utf-8-sig"), "text/csv; charset=utf-8",
+                           {"Content-Disposition": f'attachment; filename="clipper-money-{year or "all"}.csv"'})
             elif path == "/api/state":
                 if self.headers.get("X-Clipper-Token") != app.token:
                     self._json(403, {"error": "reload the page"})
@@ -701,8 +945,16 @@ def handler_for(app: App):
                 self._json(403, {"error": "reload the page"})
                 return
             try:
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                size = int(self.headers.get("Content-Length") or 0)
                 name = urlparse(self.path).path.removeprefix("/api/")
+                if name == "voiceover":  # a recording: the sound itself is the body
+                    if not 0 < size <= 80_000_000:
+                        raise Problem("The recording is empty or far too large.")
+                    clip_id = parse_qs(urlparse(self.path).query).get("id", [""])[0]
+                    app.voiceover(clip_id, self.rfile.read(size))
+                    self._json(200, {"ok": True})
+                    return
+                body = json.loads(self.rfile.read(size) or b"{}")
                 self._json(200, app.act(name, body if isinstance(body, dict) else {}))
             except Problem as exc:
                 self._json(400, {"error": str(exc)})
@@ -717,7 +969,9 @@ def serve(config_path: str | None = None, port: int = 8765, open_browser: bool =
     server = None
     for candidate in range(port, port + 20):  # the next free port, if the usual one is taken
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", candidate), handler_for(app))
+            # Only this computer can reach the app, unless access from a phone on the home network is switched on.
+            server = ThreadingHTTPServer(("0.0.0.0" if app.cfg(channels.MAIN).phone.enabled else "127.0.0.1", candidate), handler_for(app))
+            app.open_to_network = app.cfg(channels.MAIN).phone.enabled
             break
         except OSError:
             continue

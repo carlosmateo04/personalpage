@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import connectors, monetize, publish, variants
+from . import alerts, audience, connectors, monetize, publish, rights, variants
 from .config import Config
 from .connectors import ConnectorError
 from .state import Ledger, Lock, now_iso
@@ -85,6 +85,9 @@ def enqueue(cfg: Config, ledger: Ledger, rec: dict, when: datetime | None, platf
     video = Path(rec.get("file", ""))
     if not video.exists():
         raise publish.PublishError("the clip file is no longer on this computer")
+    stopped = rights.is_blocked(cfg, str(rec.get("creator", ""))) if "own" not in str(rec.get("permission", "")).lower() else ""
+    if stopped:
+        raise publish.PublishError(f"nothing more of {rec.get('creator')} is posted: the channel is {stopped}")
     how = routes(cfg)
     barred = monetize.blocked(cfg, rec)
     posts = rec.setdefault("posts", {})
@@ -214,6 +217,9 @@ def deliver(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log =
                         post["state"] = "failed"
                         counts["failed"] += 1
                     log(f"  {rec['id']} to {conn.label}: {exc}" + (" (will try again)" if post["state"] == "waiting" else ""))
+                    if post["state"] == "failed":
+                        alerts.send(cfg, "signin" if exc.reconnect else "failed", f"A clip could not be sent to {conn.label}: {str(exc)[:200]}",
+                                    once=f"post-failed:{rec['id']}:{name}")
                 except Exception as exc:  # noqa: BLE001 - a fault in one connector must not leave the post marked as sending
                     _failed(post, f"{type(exc).__name__}: {exc}", counts)
                     log(f"  {rec['id']} to {conn.label} failed: {type(exc).__name__}: {exc}")
@@ -257,10 +263,21 @@ def refresh(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log =
                 continue
             post.pop("status_error", None)
             post["checked"] = now.isoformat()
+            was = post["state"]
             for field in ("state", "link", "views", "note", "error"):
                 if got.get(field) not in (None, ""):
                     post[field] = got[field]
             asked = True
+            if post["state"] == "failed" and was != "failed":
+                # A post the platform rejected: if it was over copyright, it goes on the rights record by itself.
+                event = rights.notice(cfg, ledger, rec, name, str(post.get("error", "")))
+                if event:
+                    alerts.send(cfg, "claim", f"{rights.KINDS[event['kind']]} on {name} for \"{rec.get('title', '')}\"."
+                                + (" Nothing more is taken from its source channel." if event.get("blocked") else ""), once=f"claim:{event['id']}")
+                else:
+                    alerts.send(cfg, "failed", f"A post on {name} failed: {str(post.get('error', ''))[:200]}", once=f"post-failed:{rec['id']}:{name}")
+            if name == "youtube" and post["state"] == "posted":
+                audience.credit(cfg, rec, log)
         service = [post for post in posts.values() if post.get("via") == "service" and post["state"] in ("scheduled", "processing", "posted") and not post.get("link")]
         if service and age.total_seconds() >= 0:
             try:

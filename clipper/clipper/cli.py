@@ -6,11 +6,12 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import check, claude, config, media, outbox, pipeline, report, review, sections, transcribe
+from . import alerts, channels, check, claude, config, intake, media, outbox, pipeline, report, review, sections, transcribe, upkeep
 from .bootstrap import js_runtime
 from .captions import build as build_captions
 from .metadata import build as build_meta
@@ -96,6 +97,7 @@ def cmd_plan(cfg, args) -> int:
 def _finish(cfg, ledger, summary) -> int:
     path = report.write(cfg, ledger, summary)
     print(f"report: {path}")
+    alerts.after_run(cfg, summary)
     return 1 if summary["failed"] or summary["problems"] else 0
 
 
@@ -129,8 +131,18 @@ def cmd_review(cfg, args) -> int:
 
 
 def cmd_run(cfg, args) -> int:
+    made = upkeep.daily(cfg)  # the records are backed up before anything is changed
+    if made:
+        pipeline._log(f"backup: {made.name}")
+    upkeep.weekly(cfg, pipeline._log)  # video sites change; the downloader is kept current
+    alerts.signins(cfg)
     ledger = pipeline.ledger_of(cfg)
     result = pipeline.plan(cfg, ledger)
+    if intake.downloader_failing():
+        # Every download went wrong: the downloader is brought up to date now, for the next run.
+        upkeep.weekly(cfg, pipeline._log, force=True)
+        alerts.send(cfg, "failed", "No video could be downloaded in this run. The downloader was brought up to date for the next one.",
+                    once=f"downloads-failing:{datetime.now():%Y-%m-%d}")
     plan_path = cfg.path("out") / result["run"] / "plan.json"
     if result["clips"]:
         _review(cfg, plan_path)
@@ -243,4 +255,13 @@ def main(argv: list[str] | None = None) -> int:
     except config.ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
-    return args.fn(cfg, args)
+    code = args.fn(cfg, args)
+    if args.fn in (cmd_run, cmd_post) and not os.environ.get("CLIPPER_CHANNEL"):
+        # The daily run and the poster go through every further channel as well, each as a process of its own.
+        for channel in channels.listing(cfg.data_root)[1:]:
+            again = [sys.executable, "-m", "clipper", "--data", channel["folder"], *(["--config", args.config] if args.config else []),
+                     *[a for a in (argv if argv is not None else sys.argv[1:]) if a not in ("--data", args.data, "--config", args.config)]]
+            print(f"--- channel: {channel['name']} ---", flush=True)
+            done = subprocess.run(again, env={**os.environ, "CLIPPER_CHANNEL": channel["id"], "CLIPPER_BASE": str(cfg.data_root)})
+            code = code or done.returncode
+    return code

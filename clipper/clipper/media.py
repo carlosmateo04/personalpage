@@ -16,6 +16,18 @@ class MediaError(RuntimeError):
     pass
 
 
+def sound_seconds(path: Path) -> float:
+    """How long a sound file runs; raises when it cannot be read as sound."""
+    out = run(["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)], "ffprobe")
+    info = json.loads(out)
+    if not any(s.get("codec_type") == "audio" for s in info.get("streams", [])):
+        raise MediaError(f"{Path(path).name}: no sound in it")
+    try:
+        return float(info["format"]["duration"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise MediaError(f"{Path(path).name}: its length cannot be read") from exc
+
+
 def run(cmd: list[str], what: str = "") -> str:
     """Run a command; on failure raise with the tail of its error output."""
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")

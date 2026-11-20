@@ -38,6 +38,7 @@ from ..state import now_iso
 from .base import UPLOAD_TIMEOUT, Connector, ConnectorError, Sent
 
 SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "instagram_basic", "instagram_content_publish"]
+COMMENT_SCOPES = ["pages_read_user_content", "pages_manage_engagement", "instagram_manage_comments"]  # only asked for when comments are switched on
 RATE_LIMITS = {4, 17, 32, 341, 613, 80001, 80002}
 REEL_SECONDS = 90  # Facebook Page reels stop here; longer clips go up as Page videos
 
@@ -65,7 +66,7 @@ class Meta(Connector):
         if config:  # Facebook Login for Business: the permissions live in a configuration made in the app dashboard
             query["config_id"] = config
         else:
-            query["scope"] = ",".join(SCOPES)
+            query["scope"] = ",".join(SCOPES + (COMMENT_SCOPES if self.cfg.audience.enabled else []))
         return f"{self.DIALOG}?{urlencode(query)}", {}
 
     def graph(self, method: str, path: str, doing: str, token: str | None = None, **kwargs: Any) -> dict[str, Any]:
@@ -221,6 +222,28 @@ class Facebook(Meta):
         return {"name": kept.get("name", ""), "id": kept["page_id"], "connected": kept["connected"], "expires": kept.get("expires", ""),
                 "problem": kept.get("problem", ""), "pages": kept.get("pages", [])}
 
+    def followers(self) -> int | None:
+        _, page = self.tokens()
+        found = self.graph("GET", f"/{self.remembered()['page_id']}", "reading the Page", token=page, params={"fields": "followers_count"})
+        return int(found["followers_count"]) if str(found.get("followers_count", "")).isdigit() else None
+
+    def comments(self, post: dict) -> list[dict[str, Any]]:
+        _, page = self.tokens()
+        found = self.graph("GET", f"/{post['id']}/comments", "reading the comments", token=page,
+                           params={"fields": "id,message,created_time,from{id},comments.limit(5){from{id}}", "order": "reverse_chronological", "limit": "20"})
+        mine = str(self.remembered().get("page_id", ""))
+        out = []
+        for item in found.get("data") or []:
+            if str((item.get("from") or {}).get("id", "")) == mine:
+                continue
+            answered = any(str((r.get("from") or {}).get("id", "")) == mine for r in (item.get("comments") or {}).get("data") or [])
+            out.append({"id": str(item.get("id", "")), "text": str(item.get("message", ""))[:600], "at": str(item.get("created_time", "")), "answered": answered})
+        return [c for c in out if c["id"] and c["text"]]
+
+    def reply(self, post: dict, comment_id: str, text: str) -> None:
+        _, page = self.tokens()
+        self.graph("POST", f"/{comment_id}/comments", "answering the comment", token=page, params={"message": text[:2000]})
+
     def send(self, clip: dict, video: Path, when: datetime | None) -> Sent:
         user, page_token = self.tokens()
         page = self.remembered()["page_id"]
@@ -297,6 +320,30 @@ class Instagram(Meta):
             return {}
         return {"name": f"@{kept['instagram_name']}" if kept.get("instagram_name") else "Instagram account", "id": kept["instagram_id"],
                 "connected": kept["connected"], "expires": kept.get("expires", ""), "problem": kept.get("problem", "")}
+
+    def followers(self) -> int | None:
+        user, _ = self.tokens()
+        found = self.graph("GET", f"/{self.remembered()['instagram_id']}", "reading the Instagram account", token=user, params={"fields": "followers_count"})
+        return int(found["followers_count"]) if str(found.get("followers_count", "")).isdigit() else None
+
+    def comments(self, post: dict) -> list[dict[str, Any]]:
+        if str(post.get("id", "")).startswith("container:"):
+            return []  # not published yet
+        user, _ = self.tokens()
+        found = self.graph("GET", f"/{post['id']}/comments", "reading the comments", token=user,
+                           params={"fields": "id,text,timestamp,from{id},replies{from{id}}", "limit": "20"})
+        mine = str(self.remembered().get("instagram_id", ""))
+        out = []
+        for item in found.get("data") or []:
+            if str((item.get("from") or {}).get("id", "")) == mine:
+                continue
+            answered = any(str((r.get("from") or {}).get("id", "")) == mine for r in (item.get("replies") or {}).get("data") or [])
+            out.append({"id": str(item.get("id", "")), "text": str(item.get("text", ""))[:600], "at": str(item.get("timestamp", "")), "answered": answered})
+        return [c for c in out if c["id"] and c["text"]]
+
+    def reply(self, post: dict, comment_id: str, text: str) -> None:
+        user, _ = self.tokens()
+        self.graph("POST", f"/{comment_id}/replies", "answering the comment", token=user, params={"message": text[:2000]})
 
     def unfit(self, clip: dict, seconds: float, size: int) -> str:
         if not 3 <= seconds <= 15 * 60:

@@ -50,7 +50,8 @@ def pick(start_at: str, end_at: str, title: str, section: str, score: int) -> di
     return {"start": start_at, "end": end_at, "section": section, "title": title, "hook": title[:40], "why": f"Why: {title.lower()}.", "score": score}
 
 
-CHASE = verdict("Six-star chase ends on the beach", "moments", "They never stood a chance", ["gta 6 police chase", "gta 6 six stars"], 90, cover="1:10")
+CHASE = verdict("Six-star chase ends on the beach", "moments", "They never stood a chance", ["gta 6 police chase", "gta 6 six stars"], 90, cover="1:10",
+                say="Watch the second cruiser: it clips the kerb and that is what ends the chase.")
 GLITCH = verdict("Patrol car launches into the sky", "glitches", "It just took off", ["gta 6 glitch", "gta 6 flying car"], 80,
                  callouts=[{"at": "3:40", "text": "Watch the patrol car"}],
                  # five seconds into the clip as it is cut: YouTube pays nothing for a video that opens on this
@@ -221,6 +222,7 @@ def test_from_the_button_to_four_platforms(world):
         assert not own <= 205.0 < own + 15  # and YouTube's own version does not open on it either
         assert made["seen"]["frozen"] == 0.0 and made["seen"]["height"] == 360
         assert (chase["section"], glitch["section"], chase["score"], glitch["score"]) == ("HIGHLIGHT", "GLITCH", 90, 80)
+        assert chase["say"].startswith("Watch the second cruiser") and not chase["voiceover"]  # what the owner could say over it, drafted by Claude
         assert chase["picked"] == "Why: a chase starts at the lights." and "What happens: patrol car launches into the sky." in glitch["description"]
         assert chase["caption"].startswith("Six-star chase ends on the beach | GTA 6 Gameplay • Credit: RawPlay #gta6highlights #gta6moments #gta6 ")
 
@@ -318,6 +320,21 @@ def test_from_the_button_to_four_platforms(world):
         for clip in call(app, "/api/state")[1]["clips"]:
             assert (clip["posts"]["tiktok"]["state"], clip["posts"]["tiktok"]["via"]) == ("posted", "hand") and clip["links"]["tiktok"].endswith("/video/7")
         assert len(requests_to(FakeTikTok, "POST", "/v2/post/publish/inbox/video/init/")) == 2  # nothing more was sent to TikTok
+
+        # --- 6c. The business around the clips: going live, progress, money, the rights record ------
+        biz = call(app, "/api/state")[1]["business"]
+        steps = {step["key"]: step["done"] for step in biz["launch"]["steps"]}
+        assert steps["claude"] and steps["accounts"] and steps["clip"] and steps["post"] and not steps["auto"] and not biz["launch"]["live"]
+        tube = next(p for p in biz["progress"] if p["platform"] == "youtube")
+        assert tube["views"] == 2468 and (tube["followers"], tube["followers_from"]) == (640, "platform")  # both posts' views; subscribers as YouTube says
+        assert next(p for p in biz["progress"] if p["platform"] == "instagram")["followers"] == 4321
+        assert call(app, "/api/money-add", {"kind": "income", "source": "TikTok rewards", "amount": 12.5, "date": "2026-11-20"})[0] == 200
+        assert call(app, "/api/state")[1]["business"]["money"]["total"]["income"] == 12.5
+        status, body, _ = call(app, "/api/rights-event", {"id": glitch["id"], "kind": "strike", "platform": "youtube", "note": "music claim"})
+        assert status == 200 and body["blocked"] and body["channel"] == "RawPlay"  # one strike: nothing more is taken from that channel
+        assert call(app, "/api/state")[1]["business"]["rights"]["blocked"][0]["channel"] == "RawPlay"
+        made_backup = call(app, "/api/backup", {})[1]["name"]
+        assert made_backup.startswith("clipper-") and (world.data / "backups" / made_backup).exists()
 
         # --- 7. Pressing the button again makes nothing twice ---------------------------------------
         uploads_before = len(requests_to(FakeGoogle, "POST", "/upload/youtube/v3/videos"))

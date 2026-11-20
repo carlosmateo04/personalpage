@@ -61,7 +61,7 @@ def test_what_the_editor_is_shown(lengths, claude_api):
     assert body["model"] == "claude-opus-5-5" and body["output_config"]["effort"] == "low"
     shape = body["output_config"]["format"]["schema"]
     assert shape["required"] == ["keep", "reason", "start", "end", "section", "title", "hook", "summary", "tags", "callouts", "cover", "score",
-                                 "marks", "unsuitable", "graphic"]  # the last three: what the platforms' rules for paying turn on
+                                 "say", "marks", "unsuitable", "graphic"]  # what to say over it, and what the platforms' rules for paying turn on
     assert shape["properties"]["callouts"]["items"]["required"] == ["at", "text"] and shape["additionalProperties"] is False
     assert "pure gameplay only" in body["system"] and "Never cut into a sentence" in body["system"]
     image, text = body["messages"][0]["content"]
@@ -102,7 +102,7 @@ def test_a_kept_clip_gets_claudes_text_and_a_dropped_clip_is_marked(lengths, cla
     # Claude's search phrases lead the YouTube tags: tidied, repeats and banned terms ("casino") removed
     assert meta["youtube"]["tags"][:3] == ["gta 6 police chase", "gta 6 pier jump", "gta 6"]
     assert metadata.proof(cfg, meta) == []
-    assert kept["review"] == {"by": "claude-opus-5-5", "keep": True, "reason": KEEP["reason"], "score": 84, "summary": KEEP["summary"]}
+    assert kept["review"] == {"by": "claude-opus-5-5", "keep": True, "reason": KEEP["reason"], "score": 84, "summary": KEEP["summary"], "say": ""}
     assert (kept["start"], kept["end"], kept["callouts"], kept["cover"]) == (100.0, 190.0, [], None)  # nothing asked for, nothing moved
     assert cut["drop"] is True and cut["review"]["keep"] is False and "webcam" in cut["review"]["reason"] and cut["review"]["score"] == 0
     assert cut["meta"]["title"] == "GTA 6 Highlight"  # untouched

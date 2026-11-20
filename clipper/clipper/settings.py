@@ -38,6 +38,16 @@ EDITABLE: dict[str, set[str]] = {
     "ai": {"enabled", "provider", "model", "aws_profile", "aws_region", "scout", "edit", "direction", "effort", "scout_effort", "callouts",
            "login_profile", "account", "accounts"},
     "render": {"progress_bar", "layout"},
+    "campaign": {"name", "paid", "disclosure_label", "disclosure_tag", "required_hashtags", "credit", "rate_per_1k", "min_payout", "max_payout",
+                 "fee", "counted_platforms", "submit_url", "ends"},
+    "money": {"currency", "monthly_costs"},
+    "learn": {"enabled", "min_clips"},
+    "alerts": {"enabled", "server", "events"},
+    "phone": {"enabled"},
+    "progress": {"followers", "earnings"},
+    "audience": {"enabled", "credit_comment"},
+    "rights": {"claims_before_block", "block_channels"},
+    "launch": {"seen_public"},
 }
 
 
@@ -69,6 +79,11 @@ def update(data_root: Path, changes: dict[str, Any]) -> dict[str, Any]:
                 for s in values if str(s.get("query", "")).strip()
             ]
             continue
+        if section == "captures":  # folders your own gameplay is recorded to
+            if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
+                raise ValueError("captures is a list of folders")
+            current["captures"] = [v.strip() for v in values if v.strip()][:10]
+            continue
         if section == "edits":  # the cut each platform gets: {platform: {min_len, max_len}}
             if not isinstance(values, dict) or any(not isinstance(v, dict) or set(v) - {"min_len", "max_len"} for v in values.values()):
                 raise ValueError("edits: each platform takes min_len and max_len")
@@ -97,6 +112,11 @@ def overlay(base: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
             merged[section].update(values)
         else:
             merged[section] = values
+    if merged.get("captures"):
+        # Your own gameplay: each folder is a source of its own, taken before anything found online.
+        own = [{"type": "folder", "path": folder, "permission": "own footage", "settle": 120, "max_items": 3} for folder in merged["captures"]]
+        merged["sources"] = own + [s for s in merged.get("sources", [{"type": "folder", "path": "inbox", "permission": "own footage"}])
+                                   if not (s.get("type") == "folder" and s.get("path") in merged["captures"])]
     if "searches" in local:
         # The app's search list replaces the online sources; other sources (the inbox) stay.
         kept = [s for s in merged.get("sources", [{"type": "folder", "path": "inbox", "permission": "own footage"}]) if s.get("type") != "ytdlp"]
@@ -141,11 +161,22 @@ def _keyring():
         return None
 
 
+def _scoped(data_root: Path, name: str) -> str:
+    """A secret's name in the computer's credential store. A further channel's secrets carry its id, so two channels never share a sign-in."""
+    mark = data_root / "channel.json"
+    if mark.exists():
+        try:
+            return f"{json.loads(mark.read_text(encoding='utf-8'))['id']}/{name}"
+        except (json.JSONDecodeError, KeyError, OSError):
+            pass
+    return name
+
+
 def get_secret(data_root: Path, name: str) -> str:
     ring = _keyring()
     if ring is not None:
         try:
-            value = ring.get_password(SERVICE, name)
+            value = ring.get_password(SERVICE, _scoped(data_root, name))
             if value:
                 return value
         except Exception:
@@ -165,9 +196,9 @@ def set_secret(data_root: Path, name: str, value: str) -> str:
     if ring is not None:
         try:
             if value:
-                ring.set_password(SERVICE, name, value)
+                ring.set_password(SERVICE, _scoped(data_root, name), value)
             else:
-                ring.delete_password(SERVICE, name)
+                ring.delete_password(SERVICE, _scoped(data_root, name))
             return "Windows Credential Manager"
         except Exception:
             pass

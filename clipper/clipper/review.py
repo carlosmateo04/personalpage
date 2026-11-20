@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from . import claude, media, metadata, moments, monetize, sections, variants
+from . import claude, learn, media, metadata, moments, monetize, sections, variants
 from .captions import mask_profanity
 from .claude import ClaudeError
 from .config import Config
@@ -54,6 +54,7 @@ For a clip you keep, edit it:
 - callouts: up to three short notes shown on screen for a few seconds, each with the time it applies (minutes:seconds in the source video) and at most 28 characters of text. Use them where a viewer could miss what is happening or is about to happen ("Six stars", "Watch the helicopter"), and only where nobody is speaking. An empty list is right for most clips.
 - graphic: every moment of graphic violence in the clip, each with its time (minutes:seconds in the source video) and two or three words on what it is. Graphic means a brutal killing or severe injury shown close, with blood, dismemberment or torn bodies as the focus. Shooting, crashes, explosions and fights in the ordinary course of the game are not graphic. An empty list is right for most clips. Platforms pay less for a video that opens on such a moment, so where you can, set the start so that the first one comes at least 15 seconds in.
 - cover: the time of the frame that would make the best cover image. Never a graphic moment.
+- say: two or three sentences the channel's owner could speak over the clip as their own commentary, in plain spoken words: what to watch for, why it is remarkable, how it is done. It must add something a viewer does not get from the picture alone, never just describe it. No greeting, no sign-off, no asking for likes or follows.
 - score: 0 to 100, how strongly you would back this clip. 80 and up is something you would post without a second look; under 50 is filler.
 
 For a clip you do not keep, leave the other text fields empty and give a score of 0.
@@ -85,6 +86,7 @@ def schema(cfg: Config) -> dict:
             }},
             "cover": {"type": "string"},
             "score": {"type": "integer"},
+            "say": {"type": "string"},
             "marks": {"type": "string"},
             "unsuitable": {"type": "string"},
             "graphic": {"type": "array", "items": {
@@ -95,7 +97,7 @@ def schema(cfg: Config) -> dict:
             }},
         },
         "required": ["keep", "reason", "start", "end", "section", "title", "hook", "summary", "tags", "callouts", "cover", "score",
-                     "marks", "unsuitable", "graphic"],
+                     "say", "marks", "unsuitable", "graphic"],
         "additionalProperties": False,
     }
 
@@ -143,6 +145,9 @@ def brief(cfg: Config, clip: dict, instruction: str = "") -> str:
         f"What the channel wants: {cfg.ai.direction or 'no particular direction'}\n\n"
         f"What is said (times in the source video):\n{_said(_words(clip))}"
     )
+    learned = learn.brief(cfg)
+    if learned:
+        text += f"\n\n{learned}"
     scouted = clip.get("scout") or {}
     if scouted.get("why"):
         text += f"\n\nWhy this stretch was picked: {scouted['why']}"
@@ -279,6 +284,7 @@ def edit(cfg: Config, clip: dict, verdict: dict) -> str:
                                     summary=str(verdict.get("summary", "")).strip()[:300],
                                     tags=verdict.get("tags") if isinstance(verdict.get("tags"), list) else None)
     clip["review"]["summary"] = clip["meta"].get("summary", "")
+    clip["review"]["say"] = mask_profanity(re.sub(r"\s+", " ", str(verdict.get("say", ""))).strip())[:600]
     extras = []
     if moved:
         extras.append(f"cut moved to {media.clock(start)}-{media.clock(end)}")

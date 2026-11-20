@@ -75,6 +75,9 @@ def _folder(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
         sid = file_id(path)
         if ledger.sources.get(sid, {}).get("status") in ("done", "skipped"):
             continue  # a file that failed is tried again, in case it was replaced
+        if src.settle and time.time() - path.stat().st_mtime < src.settle:
+            log(f"  {path.name} is still being recorded; it is left for the next run")
+            continue
         chat = Path(src.chat_file) if src.chat_file else path.with_suffix(".chat.json")
         items.append(Item(path, sid, path.name, src.creator, src.permission or "local file", str(path),
                           chat if chat.exists() else None, section=src.section))
@@ -224,7 +227,9 @@ def _ytdlp(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
     if not entries:
         log(f"nothing listed at {src.url}: {err}")
         return []
-    blocked = {b.lower() for b in cfg.rights.block_channels}
+    from . import rights  # the record of strikes and claims adds to the list
+
+    blocked = {b.lower() for b in cfg.rights.block_channels} | {b["channel"].lower() for b in rights.record(cfg)["blocked"]}
     items: list[Item] = []
     misses = 0
     for entry in entries:
@@ -308,11 +313,25 @@ def _ytdlp(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
 def collect(cfg: Config, ledger: Ledger, log: Log = print) -> list[Item]:
     handlers = {"folder": _folder, "urls": _urls, "ytdlp": _ytdlp}
     items: list[Item] = []
+    last.update(online=0, fetched=0, trouble=0)
     for src in cfg.sources:
+        failing = sum(1 for s in ledger.sources.values() if s.get("status") in ("blocked", "failed"))
         found = handlers[src.type](cfg, src, ledger, log)
         log(f"source {src.type} {src.path or src.file or src.url}: {len(found)} new item(s)")
         items.extend(found)
+        if src.type == "ytdlp":
+            last["online"] += 1
+            last["fetched"] += len(found)
+            last["trouble"] += sum(1 for s in ledger.sources.values() if s.get("status") in ("blocked", "failed")) - failing
     return items
+
+
+last = {"online": 0, "fetched": 0, "trouble": 0}  # what the latest collection came to, for the downloader's upkeep
+
+
+def downloader_failing() -> bool:
+    """Every download of the latest collection went wrong: a sign that the downloader has fallen behind a site's changes."""
+    return last["online"] > 0 and last["fetched"] == 0 and last["trouble"] > 0
 
 
 def load_chat(path: Path | None) -> list[float] | None:

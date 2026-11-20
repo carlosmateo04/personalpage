@@ -127,6 +127,15 @@ function Install-Clipper {
     if (Test-Path $app) { Remove-Item -Recurse -Force $app }
     Move-Item -Path (Join-Path $source.FullName 'clipper') -Destination $app
     Remove-Item -Recurse -Force $unpacked
+    # Which version this is, so the app can say when a newer one is out.
+    try {
+        $headers = @{ 'User-Agent' = 'clipper-installer'; 'Accept' = 'application/vnd.github+json' }
+        if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
+        $commit = (Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/$branch" -Headers $headers).sha
+        Set-Content -Path (Join-Path $app 'VERSION') -Encoding ASCII -Value "$commit`n$repo`n$branch"
+    } catch {
+        Write-Host 'The version could not be noted; the app will not be able to say when an update is out.'
+    }
 
     Step 'Python and its packages'
     if (-not (Test-Path $py)) {

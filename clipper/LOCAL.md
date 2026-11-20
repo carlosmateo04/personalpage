@@ -40,6 +40,9 @@ In the app:
   YouTube, TikTok, Facebook and Instagram each with its own sign-in, optionally
   the posting service, and switches the daily run on or off. What each platform
   allows and the steps are in [ACCOUNTS.md](ACCOUNTS.md).
+- **Business** shows the way to going live, progress to being paid, money in
+  and out, what works, the campaign desk, rights and comments. See
+  [ACCOUNTS.md](ACCOUNTS.md), "Running it as a business".
 - With Claude set up, it picks the moments in each video, checks every clip,
   moves the cut to where the action starts and writes the title, headline and
   notes. "Edit again with Claude" on a clip takes an instruction in your own

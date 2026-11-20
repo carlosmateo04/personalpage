@@ -241,3 +241,133 @@ What the music check cannot do: it hears that music plays, not whose it is.
 The game's own score and a licensed radio track sound alike to it. What the
 violence check cannot do: it relies on Claude seeing the moment in a sheet of
 sixteen frames, so a moment that lasts a fraction of a second can be missed.
+
+## Running it as a business
+
+Everything here is in the app: the **Business** tab, and further panels under
+**Settings**.
+
+### Going live
+
+The Business tab opens with the steps from a fresh install to clips posting by
+themselves: the system check passes, Claude answers, every platform is
+connected, a first clip is made, a first real post is out on each platform,
+you have looked at a post while signed out, automatic posting is on, the daily
+run is on. Each step is read off what is really there; only "seen while signed
+out" is ticked by you. Take them in order. Until the fifth is done, nothing in
+this system has been proven against the real services.
+
+### Your own commentary
+
+Every platform pays only for original videos, and your own commentary is what
+they accept as original. On a ready clip, open "Add your own commentary" and
+press **Record**: the clip plays without sound and your microphone records
+until it ends or you stop. Or choose a recording made elsewhere. With Claude
+set up, the card suggests what you could say. The commentary is put on the
+clip and on each platform's version (the game's sound ducks under your
+voice), and the clip's monetization check then shows originality as met.
+"Take it off" undoes it. Recording needs the app opened on the computer
+itself; from a phone, choose a sound file instead.
+
+### Your own gameplay
+
+Under Settings, "Your own gameplay", add the folders your recordings land in
+(Xbox Game Bar: `Videos\Captures`; NVIDIA and OBS: their own video folders).
+Every run takes new recordings from them first, as your own footage: no credit
+line, the originality rule met outright, and with the game's radio off no
+music to be claimed. A file still being recorded is left for the next run.
+
+### Money in and out
+
+Type in payouts when they arrive and costs when you pay them. Worked out for
+you: Claude's cost from its count of requests (an estimate; the bill is what
+counts), costs that come every month (Settings), campaign payouts marked as
+paid on the campaign desk, and YouTube's own earnings figure if you switch on
+"Read my YouTube earnings" and connect YouTube again (it asks for one further
+permission). TikTok, Facebook and Instagram give an app no earnings figure.
+"Download the year as a sheet" gives every entry of a year for the tax return.
+
+### Progress to being paid
+
+Each programme's bar against your numbers:
+
+| Programme | Bar |
+|---|---|
+| YouTube Partner Program (ads on Shorts) | 1,000 subscribers and 10 million public Shorts views in 90 days |
+| YouTube, earlier tier (fan funding) | 500 subscribers and 3 million public Shorts views in 90 days |
+| TikTok Creator Rewards Program | 10,000 followers and 100,000 views in 30 days (per third-party guides), original videos over a minute |
+| Facebook Content Monetization | by invitation; no public bar |
+| Instagram | no open programme that pays for reel views |
+
+Followers are read from YouTube, Facebook and Instagram; TikTok gives an app
+no count, so type it in. Views are those of posts Clipper sent, so the real
+figure can only be higher.
+
+### What works
+
+Once a section has five clips that have been out for two days, its typical
+views weigh on which clips are made next (between x0.75 and x1.3), and Claude
+is told which clips did best. Posting times are shown by typical views but
+never changed for you.
+
+### Campaign desk
+
+Enter a campaign's rules once (required hashtags, the ad disclosure, the
+credit it asks for, pay per 1,000 views, the cap per post, the fee, where
+links are handed in). They go into every caption made from then on. The desk
+lists each post that is out with what it would earn by the brief, and you
+mark it submitted, approved, rejected or paid; a payout marked as paid goes
+into the money record.
+
+### Rights
+
+Put on file on what basis each channel's footage is used; clips of that
+channel then carry it instead of "no permission on file". Report a claim,
+strike or takedown from the clip it concerns; a post a platform rejects for
+copyright is put on record by itself. After one strike or takedown, or two
+claims on one channel's footage, nothing more is taken from that channel and
+its clips that have not gone out are not sent.
+
+### Comments
+
+Off until you switch on "Read and answer comments" under Settings and connect
+YouTube and Facebook/Instagram again: reading comments needs further
+permissions. "Read the newest comments" then gathers the unanswered ones with
+a reply drafted by Claude. Nothing is sent until you press Send. Commenters'
+names are neither kept nor sent to Claude. TikTok gives an app no way to read
+comments, and YouTube gives an app no way to pin one: "Comment the credit on
+each YouTube post" posts the credit as an ordinary comment.
+
+### Alerts and your phone
+
+**Alerts:** install the ntfy app on your phone, subscribe to a topic with a
+long name nobody could guess, and save the same name under Settings. You then
+get a message when clips are ready, a post or a run fails, a sign-in is about
+to run out, or a claim comes in. Messages say what happened and nothing else.
+Anyone who knows the topic's name can read them, which is why it is kept like
+a password.
+
+**Clipper on your phone:** switch on "Let my phone open Clipper at home",
+close Clipper and open it again, and open the link it shows on your phone.
+It works on your home network only, from home-network addresses only, with
+the private key in the link; ten wrong keys shut an address out for ten
+minutes. It is not encrypted, so use it at home, not on shared Wi-Fi. Windows
+will ask once whether Clipper may accept connections. Off, nothing but the
+computer itself can reach the app.
+
+### Safety
+
+The records (ledger, settings, money, rights) are backed up once a day into
+`backups` in the data folder; the newest 14 are kept, and one can be restored
+from Settings (what is there is backed up first). Keys and sign-ins are never
+in a backup. Settings also shows when a newer Clipper is out and updates it
+with one button, and keeps the video downloader current: once a week, and at
+once when a run could download nothing.
+
+### More than one channel
+
+"New channel" under Settings (or in the channel menu at the top) makes a
+channel with its own accounts, searches, schedule, clips, money and rights:
+a second game, a second brand. It starts with the first channel's clip
+settings and no accounts. The app shows one channel at a time; the daily run
+and the poster go through all of them.

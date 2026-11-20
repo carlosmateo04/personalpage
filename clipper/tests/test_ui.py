@@ -292,3 +292,128 @@ def test_the_monetization_check_and_its_settings_are_on_the_page(app):
     assert got["clips"][0]["unfit"] == {}  # no longer held back from YouTube
     status, body, _ = call(app, "/api/settings", {"monetize": {"music": "mute"}})
     assert status == 400 and "note or hold" in body["error"]
+
+
+# --- the business around the clips ----------------------------------------------------------
+
+def test_the_business_tab_has_its_figures_and_money_is_kept_through_the_app(app):
+    state = call(app, "/api/state")[1]
+    b = state["business"]
+    assert set(b) == {"launch", "progress", "money", "learn", "desk", "rights", "audience"}
+    assert (b["launch"]["done"], b["launch"]["of"], b["launch"]["live"]) == (1, 8, False) and b["launch"]["steps"][3]["key"] == "clip" and b["launch"]["steps"][3]["done"]
+    assert [p["platform"] for p in b["progress"]] == ["youtube", "youtube", "tiktok", "facebook", "instagram"] and not b["desk"]["on"]
+    assert state["channels"] == {"current": "main", "list": [{"id": "main", "name": "First channel"}]}
+
+    assert call(app, "/api/money-add", {"kind": "income", "source": "TikTok rewards", "amount": 41.5, "date": "2026-11-12", "note": "October"})[0] == 200
+    status, body, _ = call(app, "/api/money-add", {"kind": "income", "source": "", "amount": 5})
+    assert status == 400 and "where the money" in body["error"]
+    money = call(app, "/api/state")[1]["business"]["money"]
+    assert money["total"] == {"income": 41.5, "cost": 0.0, "net": 41.5} and money["entries"][0]["source"] == "TikTok rewards"
+    status, sheet, headers = call(app, f"/api/money.csv?year=2026&t={TOKEN}")
+    assert status == 200 and b"2026-11-12,income,TikTok rewards,41.50,October," in sheet and "clipper-money-2026.csv" in headers["Content-Disposition"]
+    assert call(app, "/api/money.csv?year=2026&t=wrong")[0] == 403  # the sheet is not handed to anyone without the page's token
+    assert call(app, "/api/money-remove", {"id": money["entries"][0]["id"]})[0] == 200
+    assert call(app, "/api/state")[1]["business"]["money"]["entries"] == []
+
+    assert call(app, "/api/settings", {"campaign": {"name": "GTA 6 launch", "rate_per_1k": 0.7, "max_payout": 35, "submit_url": "https://example.com/submit"},
+                                        "money": {"monthly_costs": [{"name": "Posting service", "amount": 24, "since": "2026-11"}]}})[0] == 200
+    b = call(app, "/api/state")[1]["business"]
+    assert b["desk"]["on"] and b["desk"]["campaign"]["rate_per_1k"] == 0.7 and b["money"]["total"]["cost"] >= 24
+
+
+def test_rights_are_kept_through_the_app(app):
+    assert call(app, "/api/rights-permit", {"channel": "RawPlay", "note": "their clip policy"})[0] == 200
+    assert call(app, "/api/rights-permit", {"channel": "RawPlay", "note": ""})[0] == 400
+    ledger = Ledger(app.data / "state" / "ledger.json")
+    ledger.clips["c1"]["posts"] = {"youtube": {"state": "posted", "via": "direct", "id": "v1", "link": "https://youtube.example/1"}}
+    ledger.save()
+    status, body, _ = call(app, "/api/rights-event", {"id": "c1", "kind": "strike", "platform": "youtube", "note": "music"})
+    assert status == 200 and body == {"ok": True, "blocked": True, "channel": "RawPlay"}
+    record = call(app, "/api/state")[1]["business"]["rights"]
+    assert record["permissions"][0]["note"] == "their clip policy" and record["events"][0]["kind"] == "strike" and record["blocked"][0]["channel"] == "RawPlay"
+    assert call(app, "/api/state")[1]["clips"][0]["rights"][0]["kind"] == "strike"
+    assert call(app, "/api/rights-event", {"id": "c1", "kind": "curse", "platform": "youtube"})[0] == 400
+    assert call(app, "/api/rights-unblock", {"channel": "RawPlay"})[0] == 200 and call(app, "/api/state")[1]["business"]["rights"]["blocked"] == []
+
+
+def test_a_second_channel_is_made_and_switched_to_in_the_app(app):
+    call(app, "/api/settings", {"brand": {"handle": "@leonidaclips"}})
+    status, body, _ = call(app, "/api/channel-create", {"name": "Red Dead clips"})
+    assert status == 200 and body["id"] == "red-dead-clips"
+    state = call(app, "/api/state")[1]
+    assert state["channels"]["current"] == "red-dead-clips" and [c["name"] for c in state["channels"]["list"]] == ["@leonidaclips", "Red Dead clips"]
+    assert state["clips"] == [] and state["settings"]["handle"] == ""  # a channel of its own: no clips, no handle yet
+    call(app, "/api/settings", {"brand": {"handle": "@reddeadclips"}})
+    assert (app.data / "channels" / "red-dead-clips" / "settings.json").exists()
+    assert call(app, "/api/channel-use", {"id": "main"})[0] == 200
+    state = call(app, "/api/state")[1]
+    assert state["settings"]["handle"] == "@leonidaclips" and len(state["clips"]) == 1  # the first channel is as it was
+    assert call(app, "/api/channel-use", {"id": "nowhere"})[0] == 400 and call(app, "/api/channel-create", {"name": "Red dead clips"})[0] == 400
+    assert call(app, "/api/channel-rename", {"id": "red-dead-clips", "name": "RDR"})[0] == 200
+    status, body, _ = call(app, "/api/channel-unlist", {"id": "red-dead-clips"})
+    assert status == 200 and body["folder"].endswith("red-dead-clips") and len(call(app, "/api/state")[1]["channels"]["list"]) == 1
+
+
+def test_only_this_computer_reaches_the_app_unless_the_phone_is_let_in(app):
+    assert app.allowed("127.0.0.1", "127.0.0.1:8765") and app.allowed("127.0.0.1", "localhost:8765")
+    assert not app.allowed("127.0.0.1", "evil.example:8765")  # a name pointed at this computer by someone else
+    assert not app.allowed("192.168.1.20", "192.168.1.5:8765")  # the phone, while access is off
+    assert call(app, "/api/phone", {"on": True})[0] == 200
+    key = settings.get_secret(app.data, "phone_key")
+    assert len(key) >= 12 and key not in json.dumps(call(app, "/api/state")[1]["clips"])
+    assert app.allowed("192.168.1.20", "192.168.1.5:8765")
+    assert not app.allowed("203.0.113.9", "192.168.1.5:8765") and not app.allowed("8.8.8.8", "192.168.1.5:8765")  # not from the internet
+    assert app.allowed("10.0.0.7", "10.0.0.2:8765") and app.allowed("172.16.4.4", "172.16.0.9:8765") and not app.allowed("172.32.0.1", "172.16.0.9:8765")
+    assert not app.allowed("192.168.1.20", "clipper.example:8765")  # and not by a name
+    assert app.page_key_ok("192.168.1.20", key) and not app.page_key_ok("192.168.1.20", "guess")
+    for _ in range(10):
+        app.page_key_ok("192.168.1.66", "guess")
+    assert not app.page_key_ok("192.168.1.66", key)  # ten wrong guesses shut that address out for a while
+    assert call(app, "/api/phone", {"on": True, "new_key": True})[0] == 200 and settings.get_secret(app.data, "phone_key") != key  # the old link stops working
+    assert call(app, "/api/phone", {"on": False})[0] == 200
+    assert not app.allowed("192.168.1.20", "192.168.1.5:8765") and settings.get_secret(app.data, "phone_key") == ""
+    assert call(app, "/api/state")[1]["settings"]["phone"] == {"enabled": False, "listening": False, "link": ""}
+
+
+def test_backups_alerts_and_updates_through_the_app(app):
+    status, body, _ = call(app, "/api/backup", {})
+    assert status == 200 and body["name"].startswith("clipper-") and call(app, "/api/state")[1]["upkeep"]["backups"][0]["name"] == body["name"]
+    call(app, "/api/drop", {"id": "c1"})
+    assert call(app, "/api/restore", {"name": body["name"]})[0] == 200
+    assert call(app, "/api/state")[1]["clips"][0]["state"] == "ready"  # the clip is back as it was
+    assert call(app, "/api/restore", {"name": "nothing.zip"})[0] == 400
+
+    assert call(app, "/api/alerts-test", {})[0] == 400  # nothing set up yet
+    assert call(app, "/api/alerts-topic", {"topic": " clipper-7f3k9q2m "})[0] == 200
+    assert call(app, "/api/settings", {"alerts": {"enabled": True, "server": "http://127.0.0.1:9", "events": ["ready"]}})[0] == 200
+    state = call(app, "/api/state")[1]
+    assert state["settings"]["alerts"]["has_topic"] and "clipper-7f3k9q2m" not in json.dumps(state)  # the topic is kept like a password
+    status, body, _ = call(app, "/api/alerts-test", {})
+    assert status == 400 and "could not be sent" in body["error"]  # nothing listens at that address
+
+    assert call(app, "/api/update-check", {})[1]["available"] is False
+    status, body, _ = call(app, "/api/update", {})
+    assert status == 400 and "Windows install" in body["error"] or status == 400
+
+
+def test_a_recording_is_taken_by_the_app_and_a_bad_one_is_said_on_the_clip(app):
+    import time
+    import urllib.request
+
+    def send(body: bytes, clip: str = "c1"):
+        req = urllib.request.Request(f"{app.url}/api/voiceover?id={clip}", data=body, headers={"X-Clipper-Token": TOKEN, "Content-Type": "audio/webm"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    assert send(b"") == 400 and send(b"x" * 5000, "missing") == 400
+    assert send(b"x" * 5000) == 200  # taken; the work is done in the background
+    for _ in range(50):
+        clip = call(app, "/api/state")[1]["clips"][0]
+        if not clip["busy"]:
+            break
+        time.sleep(0.2)
+    assert "no longer on this computer" in clip["edit_error"] and clip["voiceover"] is False  # this test clip has no source video to render from
+    assert clip["say"] == ""

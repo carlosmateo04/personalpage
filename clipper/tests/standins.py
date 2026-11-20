@@ -140,10 +140,19 @@ class FakeGoogle(Recorder):
     """
 
     calls: list = []
+    earned: list = [["2026-10", 3.5], ["2026-11", 12.25]]  # what YouTube Analytics says the channel earned, per month
+    said: list = []  # the comments and replies the channel made
+    threads: list = [  # the newest comments on a video: one unanswered, one the channel answered, one of the channel's own
+        {"snippet": {"topLevelComment": {"id": "yc-1", "snippet": {"textDisplay": "How did you get the tank?", "authorChannelId": {"value": "UCviewer"},
+                                                                   "publishedAt": "2026-11-20T12:00:00Z"}}, "totalReplyCount": 0}},
+        {"snippet": {"topLevelComment": {"id": "yc-2", "snippet": {"textDisplay": "first", "authorChannelId": {"value": "UCother"}, "publishedAt": "2026-11-20T11:00:00Z"}}},
+         "replies": {"comments": [{"snippet": {"authorChannelId": {"value": "UC123"}}}]}},
+        {"snippet": {"topLevelComment": {"id": "yc-3", "snippet": {"textDisplay": "Credit: RawPlay", "authorChannelId": {"value": "UC123"}, "publishedAt": "2026-11-20T10:00:00Z"}}}},
+    ]
     challenge = ""
     scope = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
     refresh_token = "rt-good"
-    channel: dict | None = {"id": "UC123", "snippet": {"title": "Leonida Clips", "customUrl": "@leonidaclips"}}
+    channel: dict | None = {"id": "UC123", "snippet": {"title": "Leonida Clips", "customUrl": "@leonidaclips"}, "statistics": {"subscriberCount": "640", "hiddenSubscriberCount": False}}
     fail: dict = {}
     drop_after = 0
     stored = b""
@@ -157,8 +166,9 @@ class FakeGoogle(Recorder):
         cls.calls, cls.fail, cls.stored, cls.total, cls.tokens, cls.drop_after, cls.made_private = [], {}, b"", 0, 0, 0, False
         cls.scope = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
         cls.refresh_token, cls.challenge = "rt-good", ""
-        cls.channel = {"id": "UC123", "snippet": {"title": "Leonida Clips", "customUrl": "@leonidaclips"}}
+        cls.channel = {"id": "UC123", "snippet": {"title": "Leonida Clips", "customUrl": "@leonidaclips"}, "statistics": {"subscriberCount": "640", "hiddenSubscriberCount": False}}
         cls.video = {"status": {"uploadStatus": "processed", "privacyStatus": "public"}, "statistics": {"viewCount": "1234"}}
+        cls.said = []
 
     def refuse(self, step: str) -> bool:
         """Answer with the error set for this step, once."""
@@ -204,6 +214,11 @@ class FakeGoogle(Recorder):
                 return
             cls.stored, cls.total = b"", int(self.headers["X-Upload-Content-Length"])
             self.reply(200, None, {"Location": f"http://{self.headers['Host']}/upload/session/1"})
+        elif path in ("/youtube/v3/comments", "/youtube/v3/commentThreads"):
+            if not self.authorised():
+                return
+            cls.said.append(json.loads(body))
+            self.reply(200, {"id": f"reply-{len(cls.said)}"})
         elif path == "/youtube/v3/playlistItems":
             if not self.refuse("playlist") and self.authorised():
                 self.reply(200, {"id": "PLitem1"})
@@ -260,6 +275,16 @@ class FakeGoogle(Recorder):
         elif path == "/youtube/v3/videos":
             if not self.refuse("videos"):
                 self.reply(200, {"items": [{"id": query.get("id"), **cls.video}] if cls.video else []})
+        elif path == "/v2/reports":  # YouTube Analytics: what the channel earned, per month
+            if "yt-analytics-monetary.readonly" not in cls.scope:
+                self.reply(403, {"error": {"code": 403, "message": "Insufficient Permission", "errors": [{"reason": "insufficientPermissions"}]}})
+            else:
+                self.reply(200, {"columnHeaders": [{"name": "month"}, {"name": "estimatedRevenue"}], "rows": cls.earned})
+        elif path == "/youtube/v3/commentThreads":
+            if "youtube.force-ssl" not in cls.scope:
+                self.reply(403, {"error": {"code": 403, "message": "Insufficient Permission", "errors": [{"reason": "insufficientPermissions"}]}})
+            else:
+                self.reply(200, {"items": cls.threads})
         else:
             self.reply(404, {"error": {"code": 404, "message": "not found"}})
 
@@ -371,6 +396,7 @@ class FakeMeta(Recorder):
     container: list = []
     video_status: dict = {}
     insights = True
+    said: list = []  # the replies made to comments
 
     @classmethod
     def reset(cls) -> None:
@@ -415,7 +441,14 @@ class FakeMeta(Recorder):
             if not self.refuse("accounts") and self.token(query, ("long-1",)):
                 self.reply(200, {"data": cls.pages})
         elif path == "/178":
-            self.reply(200, {"username": "leonidaclips", "id": "178"})
+            self.reply(200, {"followers_count": 4321, "id": "178"} if query.get("fields") == "followers_count" else {"username": "leonidaclips", "id": "178"})
+        elif path == "/111":
+            self.reply(200, {"followers_count": 987, "id": "111"})
+        elif path == "/m-1/comments":  # Instagram: one unanswered comment, one the account answered
+            self.reply(200, {"data": [{"id": "ic-1", "text": "Where is this spot?", "timestamp": "2026-11-20T12:30:00+0000", "from": {"id": "555"}},
+                                      {"id": "ic-2", "text": "nice", "timestamp": "2026-11-20T09:00:00+0000", "from": {"id": "556"}, "replies": {"data": [{"from": {"id": "178"}}]}}]})
+        elif path in ("/900/comments", "/901/comments"):  # Facebook
+            self.reply(200, {"data": [{"id": "fc-1", "message": "Which mission is that?", "created_time": "2026-11-20T13:00:00+0000", "from": {"id": "777"}}]})
         elif path in ("/900", "/901"):
             if not self.refuse("status") and self.token(query, ("page-1",)):
                 status = {**cls.video_status, "uploading_phase": {"status": "in_progress", "bytes_transfered": len(cls.stored)}}
@@ -486,5 +519,8 @@ class FakeMeta(Recorder):
         elif path == "/178/media_publish":
             if not self.refuse("publish"):
                 self.reply(200, {"id": "m-1"})
+        elif path in ("/ic-1/replies", "/fc-1/comments"):
+            cls.said.append((path, (sent or query).get("message", "")))
+            self.reply(200, {"id": "r-1"})
         else:
             self.error(100, "Unsupported post request.", 404)

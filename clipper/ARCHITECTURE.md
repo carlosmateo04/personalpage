@@ -103,6 +103,21 @@ Credential Manager; a sign-in with Claude in Anthropic's own folder
 (`%APPDATA%\Anthropic`), written by its sign-in tool and read by its SDK; Claude's request count in `state/ai_usage.json`. On Windows
 all of it is under `clipper-run\data`.
 
+## Around the run
+
+What sits beside the three lanes and is described in ACCOUNTS.md under "Running it as a business":
+
+| Part | When it acts | Settings |
+|---|---|---|
+| Own gameplay | Stage 1: capture folders are taken first, as own footage | `captures` (Settings) |
+| What works | Stage 6 and 7: section weights on the ranking; told to Claude in stages 6 and 9 | `[learn]` |
+| Rights record | Stage 1 (blocked channels are skipped), stage 8 (permission on file), stage 14 (blocked footage is not sent), stage 15 (a rejection for copyright goes on record) | `[rights] claims_before_block = 2` |
+| Commentary | After stage 10, on the owner's word: every version is rendered again with the voice | the clip card |
+| Alerts | After a run, on a failed post, a sign-in running out, a claim | `[alerts]`; the topic is a secret |
+| Backups, updates, downloader | Start of each run; "Safety" under Settings | 14 backups kept; downloader weekly |
+| Channels | The daily run and the poster go through each | `channels.json` in the first channel's folder |
+| Money, progress, campaign desk, comments | On the Business tab | `[money]`, `[progress]`, `[campaign]`, `[audience]` |
+
 ## Connections to outside services
 
 | Service | Used for | Needed? | Cost |
@@ -113,6 +128,9 @@ all of it is under `clipper-run\data`.
 | Meta Graph API | Posting to Facebook and Instagram, with your own Meta app | For direct posting to those two | Free |
 | TikTok Content Posting API | A draft in the TikTok inbox, a private post, or a public post once TikTok has audited the app, with your own TikTok app | For direct delivery to TikTok | Free |
 | Upload-Post | Posting through a service whose apps the platforms approved | Optional; the way to public, hands-off TikTok posts | Free plan: 10 uploads a month, no TikTok. Basic: $24 a month |
+| ntfy | Alerts to the owner's phone | Optional. A topic name the owner chooses; no account | Free |
+| YouTube Analytics API | The channel's earnings figure, for the money record | Optional; one further permission | Free |
+| GitHub (public page of the code) | Whether a newer Clipper is out | Asked at most every six hours; nothing about this computer is sent | Free |
 
 What each platform lets a self-registered app do, and how to connect it, is in
 [ACCOUNTS.md](ACCOUNTS.md).
