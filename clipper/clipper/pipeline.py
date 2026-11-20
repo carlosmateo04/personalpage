@@ -140,6 +140,9 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
                 reasons = ["overlaps a stretch where someone talks about the game"]
             if not reasons and not whole:  # a passage of a long video gets its own look
                 reasons = presenter.check(cfg, item.path, cand.start, cand.end, cand.text)
+            elif not reasons and cfg.filters.no_cutscenes:  # a short video used whole was checked for faces and talk above
+                found, why = presenter.cutscene(cfg, presenter.frames(item.path, cand.start, cand.end, cfg.filters.facecam_frames))
+                reasons = [f"story cutscene ({why})"] if found else []
             if not reasons and kept >= cfg.moments.max_per_source:
                 reasons = ["over the per-video limit"]
             text = gates.normalise(cand.text)

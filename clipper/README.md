@@ -87,6 +87,18 @@ its rule-based title; if the key is refused, the review stops and the run goes
 on. The model is `claude-opus-5-5` with the API's server-side fallback switched
 on; at a dozen clips a day the cost is tens of cents.
 
+## Story playthroughs and cutscenes are left out
+
+Found by running on real GTA 6 footage: most of what a "no commentary" search
+returns is full story walkthroughs, hours long, and the loudest moments in them
+are cutscenes, which give the plot away. Two things keep them out:
+
+- The searches skip titles that say "walkthrough", "full game", "mission",
+  "ending", "cutscene" or "movie" (`title_none` in each source).
+- A passage is checked for the black bars the game puts above and below a
+  cutscene (`filters.no_cutscenes`). A clip with bars in 40% of its frames or
+  more is left out; the report says so.
+
 ## Search check
 
 Every caption names the game and what people search for in that section

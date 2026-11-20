@@ -124,7 +124,7 @@ class App:
                 "platforms": cfg.publish.platforms, "profile": cfg.publish.profile,
                 "auto_post": cfg.publish.mode == "live" and not cfg.publish.hold_for_review,
                 "tiktok_post_mode": cfg.publish.tiktok_post_mode, "youtube_privacy": cfg.publish.youtube_privacy,
-                "no_facecam": cfg.filters.no_facecam, "no_commentary": cfg.filters.no_commentary,
+                "no_facecam": cfg.filters.no_facecam, "no_commentary": cfg.filters.no_commentary, "no_cutscenes": cfg.filters.no_cutscenes,
                 "keep_downloads_days": cfg.housekeeping.keep_downloads_days, "keep_clips_days": cfg.housekeeping.keep_clips_days,
                 "progress_bar": cfg.render.progress_bar, "searches": searches,
                 "sections": [{"name": s.name, "label": s.label, "color": s.color} for s in cfg.sections],

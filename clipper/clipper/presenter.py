@@ -72,14 +72,44 @@ def _faces(image: np.ndarray) -> list[tuple[int, int, int, int]]:
     return [] if found is None else [tuple(int(v) for v in row[:4]) for row in found if row[2] >= 28]
 
 
-def facecam(cfg: Config, path: Path, start: float, end: float) -> tuple[bool, str]:
+def bars(shot: np.ndarray) -> tuple[float, float]:
+    """How much of a frame's height is solid black at the top and at the bottom (0 to 1 each).
+
+    A row counts as black when three quarters of it are, so a channel's logo or
+    a subtitle sitting on a bar does not hide it.
+    """
+    dark = np.percentile(shot.max(axis=2), 75, axis=1) < 10
+    height = len(dark)
+    top = next((i for i, d in enumerate(dark) if not d), height)
+    bottom = next((i for i, d in enumerate(dark[::-1]) if not d), height)
+    return top / height, bottom / height
+
+
+def cutscene(cfg: Config, shots: list[np.ndarray]) -> tuple[bool, str]:
+    """Whether these frames are a story cutscene, and why.
+
+    The game shows cutscenes with a black bar above and below the picture and
+    plays without them. A frame counts when both bars are there and equally
+    thick; a dark sky or a night street is neither. A recording that is black
+    all the way down (a fade) is not counted either.
+    """
+    if len(shots) < 4:
+        return False, ""
+    barred = sum(1 for top, bottom in map(bars, shots) if 0.03 <= top <= 0.2 and 0.03 <= bottom <= 0.2 and abs(top - bottom) <= 0.015)
+    share = barred / len(shots)
+    if share < cfg.filters.cutscene_share:
+        return False, ""
+    return True, f"black bars above and below in {share:.0%} of the frames"
+
+
+def facecam(cfg: Config, path: Path, start: float, end: float, shots: list[np.ndarray] | None = None) -> tuple[bool, str]:
     """Whether a face holds one spot through the footage, and where.
 
     A streamer's webcam face stays within a few percent of the frame for the whole
     clip. Characters in the game move with the camera and the cuts, so they only
     line up at one spot for a few frames.
     """
-    shots = frames(path, start, end, cfg.filters.facecam_frames)
+    shots = frames(path, start, end, cfg.filters.facecam_frames) if shots is None else shots
     if len(shots) < 4:
         return False, ""
     height = shots[0].shape[0]
@@ -163,8 +193,13 @@ def check(cfg: Config, path: Path, start: float, end: float, text: str, title: s
         said = talk(cfg, text)
         if said:
             reasons.append(f"someone is talking over the game (says: {', '.join(said[:4])})")
+    shots = frames(path, start, end, f.facecam_frames) if f.no_facecam or f.no_cutscenes else []  # decoded once for both
     if f.no_facecam:
-        found, where = facecam(cfg, path, start, end)
+        found, where = facecam(cfg, path, start, end, shots)
         if found:
             reasons.append(f"streamer facecam ({where})")
+    if f.no_cutscenes:
+        found, why = cutscene(cfg, shots)
+        if found:
+            reasons.append(f"story cutscene ({why})")
     return reasons

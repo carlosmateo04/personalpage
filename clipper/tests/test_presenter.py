@@ -161,3 +161,46 @@ def test_clips_meet_the_length_the_platforms_pay_for(tmp_path):
     assert any("too short" in r for r in gates.check(real, short, "s", Ledger(tmp_path / "l.json"), whole=True))
     ok = moments.Candidate(0.0, 92.0, 40.0, 3.0, [])
     assert gates.check(real, ok, "s", Ledger(tmp_path / "l.json"), whole=True) == []
+
+
+def _frame(top: float = 0.0, bottom: float = 0.0, level: int = 120, height: int = 270, width: int = 480) -> np.ndarray:
+    """A frame of even brightness with black bars taking the given shares of its height."""
+    shot = np.full((height, width, 3), level, dtype=np.uint8)
+    shot[: int(height * top)] = 0
+    if bottom:
+        shot[height - int(height * bottom):] = 0
+    return shot
+
+
+def test_cutscenes_are_recognised_by_their_black_bars(cfg):
+    """Shares measured on real footage: a GTA 6 story cutscene has bars of 5.4 to 5.6 percent, free play has none."""
+    assert presenter.bars(_frame(0.056, 0.056)) == (15 / 270, 15 / 270)
+    barred, plain = _frame(0.056, 0.055), _frame()
+    assert presenter.cutscene(cfg, [barred] * 5 + [plain] * 3) == (True, "black bars above and below in 62% of the frames")
+    assert presenter.cutscene(cfg, [barred] * 2 + [plain] * 6) == (False, "")  # a short cutscene inside two minutes of play
+    assert presenter.cutscene(cfg, [plain] * 8) == (False, "")
+    assert presenter.cutscene(cfg, [barred] * 3) == (False, "")  # too few frames to judge
+
+    # A channel's logo sitting on the bar does not hide it; a bar at the top only is a title strip, not a cutscene.
+    logo = _frame(0.056, 0.056)
+    logo[2:12, 400:470] = 200
+    assert presenter.cutscene(cfg, [logo] * 8)[0]
+    assert not presenter.cutscene(cfg, [_frame(0.065, 0.0)] * 8)[0]
+    # A night scene is dark, not black, all the way down; a fade to black has no picture between bars.
+    assert not presenter.cutscene(cfg, [_frame(level=14)] * 8)[0]
+    assert not presenter.cutscene(cfg, [_frame(level=0)] * 8)[0]
+    # A 21:9 film (bars of a quarter of the height in all) is beyond what the game shows.
+    assert not presenter.cutscene(cfg, [_frame(0.24, 0.24)] * 8)[0]
+
+
+def test_a_cutscene_passage_is_left_out_and_the_switch_turns_it_off(cfg, tmp_path, monkeypatch):
+    import subprocess
+
+    video = tmp_path / "scene.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x320:rate=10:duration=20",
+         "-vf", "pad=640:360:0:20:black", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(video)], check=True)
+    monkeypatch.setattr(presenter, "_faces", lambda image: [])
+    assert presenter.check(cfg, video, 0.0, 20.0, "") == ["story cutscene (black bars above and below in 100% of the frames)"]
+    cfg.filters.no_cutscenes = False
+    assert presenter.check(cfg, video, 0.0, 20.0, "") == []

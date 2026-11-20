@@ -72,6 +72,11 @@ youtube_playlist_id = ""
 # they have no commentary, and each video is then checked for a streamer's
 # facecam and for commentator talk before it is used.
 #
+# Story playthroughs are left out by title ("walkthrough", "full game", "mission",
+# ...): they are hours long, most of what they hold is cutscenes and plot, and
+# they crowd out the free-roam, chase and discovery videos these clips are for.
+# Take the words out of title_none to allow them.
+#
 # YouTube refuses automated downloads from cloud machines, so these sources
 # produce clips only when the run happens on a home connection.
 
@@ -79,12 +84,13 @@ youtube_playlist_id = ""
 type = "ytdlp"
 url = "https://www.youtube.com/results?search_query=gta+6+no+commentary+gameplay&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+              "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
 section = "moments"
 min_views = 2000
 min_minutes = 3
 max_minutes = 240
-look_at = 25
+look_at = 40
 max_items = 2
 max_hours = 0.5                  # only the first half hour of a long video is fetched
 
@@ -92,12 +98,13 @@ max_hours = 0.5                  # only the first half hour of a long video is f
 type = "ytdlp"
 url = "https://www.youtube.com/results?search_query=gta+6+free+roam+open+world+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+              "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
 section = "moments"
 min_views = 500
 min_minutes = 3
 max_minutes = 240
-look_at = 25
+look_at = 40
 max_items = 1
 max_hours = 0.5
 
@@ -105,12 +112,13 @@ max_hours = 0.5
 type = "ytdlp"
 url = "https://www.youtube.com/results?search_query=gta+6+police+chase+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+              "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
 section = "moments"
 min_views = 500
 min_minutes = 1
 max_minutes = 60
-look_at = 25
+look_at = 40
 max_items = 1
 max_hours = 0.5
 
@@ -118,48 +126,52 @@ max_hours = 0.5
 type = "ytdlp"
 url = "https://www.youtube.com/results?search_query=gta+6+easter+egg+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+              "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
 section = "findings"
 min_views = 200
 min_minutes = 1
 max_minutes = 30
-look_at = 25
+look_at = 40
 max_items = 1
 
 [[sources]]
 type = "ytdlp"
 url = "https://www.youtube.com/results?search_query=gta+6+secret+location+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+              "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
 section = "findings"
 min_views = 200
 min_minutes = 1
 max_minutes = 30
-look_at = 25
+look_at = 40
 max_items = 1
 
 [[sources]]
 type = "ytdlp"
 url = "https://www.youtube.com/results?search_query=gta+6+how+to+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+              "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
 section = "tricks"
 min_views = 200
 min_minutes = 1
 max_minutes = 30
-look_at = 25
+look_at = 40
 max_items = 1
 
 [[sources]]
 type = "ytdlp"
 url = "https://www.youtube.com/results?search_query=gta+6+glitch+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+              "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
 section = "glitches"
 min_views = 200
 min_minutes = 1
 max_minutes = 30
-look_at = 25
+look_at = 40
 max_items = 1
 
 # Your own recordings: drop video files into clipper/inbox/.
@@ -172,6 +184,7 @@ permission = "own footage"
 [filters]
 no_facecam = true                # leave out footage with a streamer's webcam on it
 no_commentary = true             # leave out footage where someone talks about the game over it
+no_cutscenes = true              # leave out story cutscenes (the game shows them with black bars above and below)
 require_speech = false           # clips may have no speech at all
 
 # The automatic review. It only runs when a Claude API key is saved in the app

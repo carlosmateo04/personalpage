@@ -22,7 +22,8 @@ SECRETS = "secrets.json"
 SERVICE = "clipper"
 THIS_WEEK = "EgIIAw%253D%253D"  # YouTube's "uploaded this week" search filter
 SEARCH_TITLE_ANY = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
-SEARCH_TITLE_NONE = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+SEARCH_TITLE_NONE = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak",
+                     "walkthrough", "full game", "mission", "ending", "cutscene", "movie"]  # the last six: story playthroughs
 
 # What the app may change: section -> setting names.
 EDITABLE: dict[str, set[str]] = {
@@ -30,7 +31,7 @@ EDITABLE: dict[str, set[str]] = {
     "moments": {"min_len", "max_len", "max_per_source", "whole_clip_min", "whole_clip_max"},
     "schedule": {"timezone", "slots"},
     "publish": {"mode", "profile", "platforms", "tiktok_post_mode", "youtube_privacy", "hold_for_review", "facebook_page_id"},
-    "filters": {"no_facecam", "no_commentary"},
+    "filters": {"no_facecam", "no_commentary", "no_cutscenes"},
     "housekeeping": {"keep_downloads_days", "keep_clips_days"},
     "review": {"enabled"},
     "render": {"progress_bar", "layout"},
@@ -103,7 +104,7 @@ def search_source(query: str, section: str) -> dict[str, Any]:
         "min_views": 200,
         "min_minutes": 1,
         "max_minutes": 240,
-        "look_at": 25,
+        "look_at": 40,
         "max_items": 1,
         "max_hours": 0.5,
     }

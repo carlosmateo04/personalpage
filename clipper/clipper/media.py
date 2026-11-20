@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,17 +70,21 @@ def extract_audio(src: Path, dst: Path, rate: int = 16000) -> Path:
 def contact_sheet(src: Path, start: float, end: float, out: Path, shots: int = 4) -> Path:
     """One image with frames taken evenly across a stretch of video, in reading order, for a quick look.
 
-    Up to four frames sit side by side; more are laid out in rows of four.
+    Up to four frames sit side by side; more are laid out in rows of four. Each
+    frame is fetched by jumping to its moment, so a minute and a half of 4K
+    footage costs a few frames' worth of decoding, not all of it.
     """
     out.parent.mkdir(parents=True, exist_ok=True)
     span = max(end - start, 0.5)
     cols = min(shots, 4)
     rows = -(-shots // cols)
-    run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.2f}", "-t", f"{span:.2f}", "-i", str(src),
-         "-vf", f"fps={shots / span:.5f},scale=400:-2,tile={cols}x{rows}", "-frames:v", "1", "-q:v", "5", str(out)],
-        "contact sheet",
-    )
+    with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
+        for n in range(shots):
+            at = start + (n + 0.5) * span / shots  # the middle of each equal part
+            run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{at:.2f}", "-i", str(src), "-frames:v", "1",
+                 "-vf", "scale=400:-2", "-q:v", "4", str(Path(tmp) / f"{n:02d}.jpg")], "contact sheet")
+        run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "1", "-i", str(Path(tmp) / "%02d.jpg"),
+             "-vf", f"tile={cols}x{rows}", "-frames:v", "1", "-q:v", "5", str(out)], "contact sheet")
     return out
 
 

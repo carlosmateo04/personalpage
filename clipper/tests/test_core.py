@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import soundfile as sf
 
-from clipper import gates, metadata, moments, schedule
+from clipper import config, gates, metadata, moments, schedule
 from clipper.transcribe import words_from_tokens
 from conftest import speak
 
@@ -238,3 +238,86 @@ def test_youtube_tags_stay_under_the_limit(cfg):
     cfg.seo.youtube_tags = [f"gta 6 tag number {n} with some extra words" for n in range(40)]
     meta = metadata.compose(cfg, "c1", "RawPlay", cfg.section("moments"), "Tank against a six-star chase", "Tank time")
     assert 300 < sum(len(t) + 1 for t in meta["youtube"]["tags"]) <= 500 and metadata.proof(cfg, meta) == []
+
+
+def test_shipped_searches_leave_out_story_playthroughs_and_keep_free_roam():
+    """Titles as YouTube listed them on 20 November 2026 for the shipped searches."""
+    from clipper import intake
+
+    shipped = [s for s in config.load().sources if s.type == "ytdlp"]
+    assert len(shipped) == 7 and all(s.look_at == 40 for s in shipped)
+    story = [
+        ("GTA 6 Gameplay Walkthrough Part 2 FULL GAME [4K PS5 PRO] - No Commentary", 955725, 139),
+        ("The Strip Club Standoff in GTA 6 Mission 17 Gameplay Walkthrough No Commentary (Grand Theft Auto 6)", 325314, 27),
+        ("GTA 6 Mission 2 Full Walkthrough (No Commentary 4K) Grand Theft Auto 6", 79762, 29),
+        ("GTA 6 ENDING - All Cutscenes Movie (No Commentary)", 500000, 90),
+    ]
+    wanted = [
+        ("GTA 6: 1 HOUR of PURE Open World Gameplay! (NO SPOILERS / NO COMMENTARY)", 48266, 60),
+        ("Evading the Police at 3 Stars in GTA 6 Gameplay! (Grand Theft Auto 6 No Commentary 4K)", 46040, 10),
+        ("GTA 6 Secret Bigfoot Easter Egg Encounter! (Grand Theft Auto 6 Gameplay No Commentary)", 34546, 2),
+    ]
+    entry = lambda t: {"title": t[0], "view_count": t[1], "duration": t[2] * 60}  # noqa: E731
+    for src in shipped:
+        assert not any(intake.wanted(src, entry(t)) for t in story), src.url
+    assert all(any(intake.wanted(src, entry(t)) for src in shipped) for t in wanted)
+    assert settings_search()["title_none"][-6:] == ["walkthrough", "full game", "mission", "ending", "cutscene", "movie"]
+
+
+def settings_search() -> dict:
+    from clipper import settings
+
+    return settings.search_source("gta 6 stunt jumps no commentary", "moments")
+
+
+def test_a_game_characters_line_is_not_put_in_the_channels_mouth(cfg):
+    from clipper import metadata, moments
+
+    words = speak("Let's go, you scallywaggers! Hey, you boys ready? Hell yeah, we are ready to dive.")
+    cand = moments.Candidate(0.0, 90.0, 3.0, 4.0, words)
+    titles = {metadata.build(cfg, cand, f"c{n}", "GTA Series Videos", cfg.section("moments"), "Mission 9", "", whole=False)["title"] for n in range(40)}
+    assert titles and not any(t.startswith("GTA Series Videos:") for t in titles)  # gameplay only: the speaker is a character
+    cfg.filters.no_commentary = False  # a streamer's channel: the quote is theirs
+    titles = {metadata.build(cfg, cand, f"c{n}", "Kai", cfg.section("moments"), "stream", "", whole=False)["title"] for n in range(40)}
+    assert any(t.startswith("Kai: ") for t in titles)
+
+    # A long source title is the headline in full (it wraps onto three lines), not cut off with an ellipsis.
+    quiet = moments.Candidate(0.0, 90.0, 3.0, 2.0, [])
+    meta = metadata.build(cfg, quiet, "c1", "GameV", cfg.section("moments"), "Can a TANK Survive a 6-STAR Police Chase in GTA 6? | PS5 Pro Gameplay", "", whole=False)
+    assert meta["hook"] == meta["title"] == "Can a TANK Survive a 6-STAR Police Chase in GTA 6?"
+
+
+def test_keys_go_to_the_credential_store_when_there_is_one_and_to_a_private_file_otherwise(tmp_path, monkeypatch):
+    from clipper import settings
+
+    class Vault:
+        def __init__(self):
+            self.kept = {}
+
+        def get_password(self, service, name):
+            return self.kept.get((service, name))
+
+        def set_password(self, service, name, value):
+            if len(value) > 1200:  # the Windows Credential Manager refuses long values
+                raise OSError("stub received bad data")
+            self.kept[(service, name)] = value
+
+        def delete_password(self, service, name):
+            del self.kept[(service, name)]
+
+    assert str(settings.set_secret(tmp_path, "a_key", "s3cret")).endswith("secrets.json") and settings.get_secret(tmp_path, "a_key") == "s3cret"
+    assert (tmp_path / "secrets.json").stat().st_mode & 0o077 == 0 or __import__("os").name == "nt"  # nobody else can read it
+    settings.set_secret(tmp_path, "a_key", "")
+    assert settings.get_secret(tmp_path, "a_key") == ""
+
+    vault = Vault()
+    monkeypatch.setattr(settings, "_keyring", lambda: vault)
+    assert settings.set_secret(tmp_path, "b_key", "in the vault") == "Windows Credential Manager"
+    assert vault.kept == {("clipper", "b_key"): "in the vault"} and not (tmp_path / "secrets.json").read_text().count("vault")
+    assert settings.get_secret(tmp_path, "b_key") == "in the vault"
+    settings.set_secret(tmp_path, "b_key", "")
+    assert settings.get_secret(tmp_path, "b_key") == "" and vault.kept == {}
+    # A value the store refuses still gets saved, in the private file.
+    long_value = "t" * 3000
+    settings.set_secret(tmp_path, "c_key", long_value)
+    assert settings.get_secret(tmp_path, "c_key") == long_value and ("clipper", "c_key") not in vault.kept

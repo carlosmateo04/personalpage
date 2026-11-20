@@ -127,6 +127,7 @@
       <div class="row" style="margin-top:14px">
         <label class="check"><input type="checkbox" id="s-facecam"> Leave out videos with a streamer on camera</label>
         <label class="check"><input type="checkbox" id="s-talk"> Leave out videos with someone talking over the game</label>
+        <label class="check"><input type="checkbox" id="s-cut"> Leave out story cutscenes</label>
         <label class="check"><input type="checkbox" id="s-bar"> Progress bar across the top of each clip</label>
       </div>
     </div>
@@ -412,7 +413,7 @@ function searchRow(s) {
 function fillSettings() {
   const s = S.settings;
   $("s-min").value = s.min_len; $("s-max").value = s.max_len; $("s-per").value = s.max_per_source; $("s-handle").value = s.handle;
-  $("s-facecam").checked = s.no_facecam; $("s-talk").checked = s.no_commentary; $("s-bar").checked = s.progress_bar;
+  $("s-facecam").checked = s.no_facecam; $("s-talk").checked = s.no_commentary; $("s-cut").checked = s.no_cutscenes; $("s-bar").checked = s.progress_bar;
   $("s-slots").value = s.slots.join(", "); $("s-tz").value = s.timezone; $("s-tiktok").value = s.tiktok_post_mode; $("s-youtube").value = s.youtube_privacy;
   $("s-auto").checked = s.auto_post; $("s-keep-dl").value = s.keep_downloads_days; $("s-keep-clips").value = s.keep_clips_days;
   $("s-platforms").innerHTML = "";
@@ -425,7 +426,7 @@ function readSettings() {
   return {
     brand: {handle: $("s-handle").value.trim()},
     moments: {min_len: num("s-min"), max_len: num("s-max"), max_per_source: num("s-per"), whole_clip_min: num("s-min"), whole_clip_max: num("s-max")},
-    filters: {no_facecam: $("s-facecam").checked, no_commentary: $("s-talk").checked},
+    filters: {no_facecam: $("s-facecam").checked, no_commentary: $("s-talk").checked, no_cutscenes: $("s-cut").checked},
     render: {progress_bar: $("s-bar").checked},
     schedule: {slots: $("s-slots").value.split(",").map(x => x.trim()).filter(Boolean), timezone: $("s-tz").value.trim()},
     publish: {tiktok_post_mode: $("s-tiktok").value, youtube_privacy: $("s-youtube").value, platforms: [...$("s-platforms").querySelectorAll("input:checked")].map(x => x.value)},

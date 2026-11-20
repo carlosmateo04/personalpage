@@ -227,6 +227,13 @@ def test_frames_for_a_long_clip_come_as_a_grid(tmp_path):
                     "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(video)], check=True)
     sheet = media.probe(media.contact_sheet(video, 0, 90, tmp_path / "sheet.jpg", shots=8))
     assert sheet.width == 1600 and 440 <= sheet.height <= 460  # two rows of four 400-wide frames
+    import cv2
+
+    grid = cv2.imread(str(tmp_path / "sheet.jpg")).astype(int)
+    tiles = [grid[row * 225 : row * 225 + 225, col * 400 : col * 400 + 400] for row in range(2) for col in range(4)]
+    assert all(tile.std() > 20 for tile in tiles)  # every place holds a real frame, the last included
+    assert all(abs(a - b).mean() > 3 for a, b in zip(tiles, tiles[1:]))  # and each is a different moment of the video
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["sheet.jpg", "v.mp4"]  # the single frames are cleaned up
 
 
 def test_the_app_saves_a_working_key_and_refuses_a_bad_one(claude, tmp_path, monkeypatch):

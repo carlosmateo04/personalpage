@@ -84,6 +84,8 @@ class Filters:
 
     no_facecam: bool = True
     no_commentary: bool = True
+    no_cutscenes: bool = True  # leave out story cutscenes: stretches shown with black bars above and below
+    cutscene_share: float = 0.4  # a clip with bars in this share of its frames is a cutscene
     facecam_frames: int = 16  # frames looked at per clip
     facecam_share: float = 0.6  # a face in the same spot in this share of the frames is a facecam
     require_speech: bool = False  # gameplay-only clips often have no speech at all

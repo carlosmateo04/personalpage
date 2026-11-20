@@ -113,13 +113,13 @@ def build(cfg: Config, cand: Candidate, clip_id: str, creator: str, section: Sec
     else:
         quote = given if len(given.split()) >= 2 else f"{game} {section.label.title()}"
     variant = _pick(clip_id, 3)
-    if creator and said and variant == 1 and creator.lower() not in quote.lower():
-        title = f"{creator}: {quote}"
+    if creator and said and variant == 1 and creator.lower() not in quote.lower() and not cfg.filters.no_commentary:
+        title = f"{creator}: {quote}"  # a streamer's own words; in gameplay-only footage the speaker is a game character
     elif variant == 2 and not _names(quote, game):
         title = f"{quote} ({game})"
     else:
         title = quote
-    return compose(cfg, clip_id, creator, section, title, _shorten(quote, 48), origin)
+    return compose(cfg, clip_id, creator, section, title, _shorten(quote, 64), origin)  # the headline wraps onto three lines
 
 
 def named(cfg: Config, title: str, section: Section) -> str:

@@ -12,6 +12,21 @@ from clipper.state import Ledger  # noqa: E402
 from clipper.transcribe import Word  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def no_real_credential_store(monkeypatch):
+    """Tests never read or write the computer's own credential store.
+
+    On Windows the app keeps keys in the Windows Credential Manager, which belongs to
+    the person logged in, not to a test's temporary folder: a key saved by one test
+    would still be there for the next test, and for the real app afterwards.
+    """
+    from clipper import settings
+
+    monkeypatch.setattr(settings, "_keyring", lambda: None)
+    for name in ("UPLOAD_POST_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def cfg(tmp_path):
     c = config.Config()
