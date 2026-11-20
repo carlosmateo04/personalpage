@@ -46,8 +46,7 @@ def js_runtime() -> tuple[str, str]:
 def models_dir() -> Path:
     config = ROOT / "config.toml"
     if config.exists():
-        with config.open("rb") as fh:
-            configured = tomllib.load(fh).get("paths", {}).get("models", "")
+        configured = tomllib.loads(config.read_text(encoding="utf-8-sig")).get("paths", {}).get("models", "")
         if configured:
             return Path(configured).expanduser()
     return Path(os.environ.get("CLIPPER_MODELS", "~/.cache/clipper/models")).expanduser()

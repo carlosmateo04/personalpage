@@ -317,8 +317,8 @@ def load(path: str | Path | None = None) -> Config:
     path = Path(path) if path else ROOT / "config.toml"
     data: dict[str, Any] = {}
     if path.exists():
-        with path.open("rb") as fh:
-            data = tomllib.load(fh)
+        # utf-8-sig: Windows editors (Notepad, PowerShell) put a byte-order mark at the start of the file.
+        data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     cfg = _fill(Config, data, "config")
     validate(cfg)
     return cfg

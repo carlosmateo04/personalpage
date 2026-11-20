@@ -163,3 +163,12 @@ def test_paid_campaign_must_be_named_before_going_live(cfg):
     config.validate(cfg)
     cfg.campaign.name, cfg.publish.mode = "", "dry_run"
     config.validate(cfg)  # fine while nothing is posted
+
+
+def test_config_saved_by_a_windows_editor_still_loads(tmp_path):
+    from clipper import config
+
+    path = tmp_path / "config.toml"
+    path.write_bytes(b"\xef\xbb\xbf" + b'[brand]\r\nname = "Test"\r\n\r\n[[sources]]\r\ntype = "folder"\r\npath = "inbox"\r\n')  # byte-order mark, Windows line ends
+    cfg = config.load(path)
+    assert cfg.brand.name == "Test" and cfg.sources[0].type == "folder"
