@@ -49,6 +49,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'ant has no "auth login" command' }
           $help = (& $ant.FullName auth login --help 2>&1 | Out-String)
           foreach ($flag in '--profile', '--no-browser', '--callback-port') { if ($help -notmatch [regex]::Escape($flag)) { Write-Host "::warning::ant auth login --help does not mention $flag" } }
+          # The app's own sign-in code with the real tool, as far as it goes without a person:
+          # the tool must start, take the options the app passes, and give the address of the page to sign in on.
+          $env:ANTHROPIC_CONFIG_DIR = Join-Path $root 'ant-test'
+          $code = @'
+          import time
+          from clipper import signin
+          login = signin.Login("clipper-ci").start()
+          deadline = time.time() + 40
+          while not login.url and not login.done and time.time() < deadline:
+              time.sleep(0.2)
+          print("the tool said:", [line[:90] for line in login.lines])
+          print("page to sign in on:", login.url[:70])
+          login.cancel()
+          raise SystemExit(0 if login.url.startswith("https://") else 1)
+          '@
+          $code = ($code -split "`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
+          $code | & (Join-Path $root 'venv\Scripts\python.exe') -
+          if ($LASTEXITCODE -ne 0) { throw 'the app got no sign-in address from the real sign-in tool' }
 
       - name: Run the tests
         shell: powershell
