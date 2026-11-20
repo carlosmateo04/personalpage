@@ -310,3 +310,26 @@ def test_a_clip_with_a_voiceover_keeps_one_version(cfg, ledger, footage):
     assert pipeline.approve(cfg, ledger, [cid], {cid: str(voice)}, NOW, quiet) == 1
     assert "cuts" not in ledger.clips[cid]  # the voice was recorded for the whole clip
     assert len(list((cfg.path("out") / plan["run"]).glob("*.mp4"))) == 1
+
+
+# --- the platforms' rules for paying ---------------------------------------------------
+
+def test_a_finished_clip_is_measured_against_the_rules_for_paying(cfg, ledger, footage):
+    quiet = lambda m: None
+    cfg.publish.hold_for_review = True
+    cfg.publish.platforms = ["tiktok", "youtube"]
+    cfg.edits = {}
+    said: list[str] = []
+    plan = pipeline.plan(cfg, ledger, NOW, quiet)
+    pipeline.execute(cfg, ledger, now=NOW, log=said.append)
+    rec = Ledger(ledger.path).clips[plan["clips"][0]["id"]]
+    assert rec["seen"]["frozen"] == 0.0 and rec["seen"]["height"] == 720 and rec["graphic"] == [] and rec["strong"] == []
+    found = {name: {line["rule"]: line["level"] for line in lines} for name, lines in rec["money"].items()}
+    # Without Claude nobody looked at the picture: the two rules that need eyes are reported as not checked.
+    assert found["youtube"]["opening"] == "warn" and found["youtube"]["marks"] == "warn" and found["tiktok"]["original"] == "warn"
+    assert found["tiktok"]["language"] == "ok" and found["tiktok"]["picture"] == "ok" and found["tiktok"]["hashtags"] == "ok"
+    assert any("monetization check: to know: marks, opening, original" in line or "monetization check: to know: marks, music, opening, original" in line for line in said)
+
+    cfg.monetize.enabled = False  # switched off: clips are made as before and carry no check
+    pipeline.money_check(cfg, plan["clips"][0], rec, quiet)
+    assert "money" not in rec

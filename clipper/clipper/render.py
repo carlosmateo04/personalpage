@@ -60,8 +60,11 @@ def video_graph(cfg: Config, ass: Path, duration: float = 0.0) -> str:
     return graph + ",setsar=1,format=yuv420p[v]"  # square pixels: scaling can leave them a hair off
 
 
-def audio_graph(cfg: Config, voiceover: bool) -> str:
+def audio_graph(cfg: Config, voiceover: bool, mute: list[tuple[float, float]] | None = None) -> str:
     norm = f"loudnorm=I={cfg.render.loudness}:TP=-1.5:LRA=11,aresample=48000"
+    if mute:  # the clip's own sound is silenced during these stretches (strong language)
+        when = "+".join(f"between(t\\,{a:.3f}\\,{b:.3f})" for a, b in mute)
+        norm = f"volume=volume=0:enable='{when}'," + norm
     if not voiceover:
         return f"[0:a]{norm}[a]"
     # The clip's own audio ducks under the voiceover while it is speaking.
@@ -73,14 +76,15 @@ def audio_graph(cfg: Config, voiceover: bool) -> str:
     )
 
 
-def render(cfg: Config, src: Path, start: float, end: float, ass: Path, out: Path, voiceover: Path | None = None) -> Path:
+def render(cfg: Config, src: Path, start: float, end: float, ass: Path, out: Path, voiceover: Path | None = None,
+           mute: list[tuple[float, float]] | None = None) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     r = cfg.render
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(src)]
     if voiceover:
         cmd += ["-i", str(voiceover)]
     cmd += [
-        "-filter_complex", video_graph(cfg, ass, end - start) + ";" + audio_graph(cfg, voiceover is not None),
+        "-filter_complex", video_graph(cfg, ass, end - start) + ";" + audio_graph(cfg, voiceover is not None, mute),
         "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-preset", r.preset, "-crf", str(r.crf), "-r", str(r.fps), "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "160k", "-ar", "48000",

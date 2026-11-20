@@ -52,7 +52,9 @@ def pick(start_at: str, end_at: str, title: str, section: str, score: int) -> di
 
 CHASE = verdict("Six-star chase ends on the beach", "moments", "They never stood a chance", ["gta 6 police chase", "gta 6 six stars"], 90, cover="1:10")
 GLITCH = verdict("Patrol car launches into the sky", "glitches", "It just took off", ["gta 6 glitch", "gta 6 flying car"], 80,
-                 callouts=[{"at": "3:40", "text": "Watch the patrol car"}])
+                 callouts=[{"at": "3:40", "text": "Watch the patrol car"}],
+                 # five seconds into the clip as it is cut: YouTube pays nothing for a video that opens on this
+                 graphic=[{"at": "3:25", "what": "driver thrown through the windscreen"}], marks="none", unsuitable="")
 # The video is five minutes long: speech gets loud at 0:45 and there is a burst of noise at 3:35.
 SCOUT = {"usable": True, "problem": "", "moments": [pick("0:30", "2:00", "A chase starts at the lights", "moments", 90),
                                                     pick("3:20", "4:50", "A patrol car takes off", "glitches", 80)]}
@@ -185,7 +187,9 @@ def test_from_the_button_to_four_platforms(world):
         for step in ("looking for videos", f"downloading: {TITLE}", "transcribing", "Claude is looking at the whole video (57 frames)",
                      "Claude picked 2 moment(s): 0:30 A chase starts at the lights; 3:20 A patrol car takes off", "2 moment(s) found, 2 passed the checks",
                      "Claude is checking and editing the planned clips", "kept [moments, 90/100]: Six-star chase ends on the beach",
-                     "kept [glitches, 80/100]: Patrol car launches into the sky (1 on-screen note(s))", "also cut to 59 seconds for youtube",
+                     "kept [glitches, 80/100]: Patrol car launches into the sky (cut moved to 3:10-4:44, opening kept clear of a graphic moment, 1 on-screen note(s))",
+                     "also cut to 59 seconds for youtube", "also cut to 59 seconds for youtube; 90 seconds for facebook",
+                     "monetization check: to know: original, picture",
                      "rendered and held for review", "Finished."):
             assert step in log, f"missing from the run's log: {step}\n{log}"
 
@@ -195,11 +199,27 @@ def test_from_the_button_to_four_platforms(world):
             assert clip["state"] == "ready" and 85 <= clip["seconds"] <= 96 and clip["seo"] == [] and clip["creator"] == "RawPlay" and clip["posts"] == {}
             assert call(app, clip["media"], headers={"Range": "bytes=0-99"})[0] == 206 and call(app, clip["cover"])[0] == 200  # the app plays it and shows its cover
             # Each platform's rule: TikTok over a minute, Facebook and Instagram the clip as it is, YouTube under a minute.
-            whole, short = clip["versions"]
-            assert whole["platforms"] == ["tiktok", "instagram", "facebook"] and whole["media"] == clip["media"] and whole["seconds"] == clip["seconds"]
+            whole, short, *more = clip["versions"]
+            assert whole["media"] == clip["media"] and whole["seconds"] == clip["seconds"]
             assert (short["platforms"], short["seconds"]) == (["youtube"], 59) and call(app, short["media"], headers={"Range": "bytes=0-99"})[0] == 206
+            if clip["seconds"] <= 90:
+                assert whole["platforms"] == ["tiktok", "instagram", "facebook"] and not more
+            else:  # the clip whose start went back is 95 seconds long: Facebook, where reels stop at 90, gets a version of its own
+                assert whole["platforms"] == ["tiktok", "instagram"] and [(v["platforms"], v["seconds"]) for v in more] == [(["facebook"], 90)]
             assert clip["unfit"] == {}
+            # The platforms' rules for paying, measured on the finished clip: nothing broken, and the one thing no edit can meet is said.
+            assert set(clip["money"]) == {"tiktok", "instagram", "youtube", "facebook"}
+            for name, lines in clip["money"].items():
+                found = {line["rule"]: line["level"] for line in lines}
+                assert "fail" not in found.values() and found["original"] == "warn" and found["language"] == "ok" and found["marks"] == "ok", (name, lines)
+                assert found["picture"] == "warn" and found["hashtags"] == "ok" and found["music"] in ("ok", "warn")  # the test video is 360 lines high
+            assert {line["rule"]: line["level"] for line in clip["money"]["youtube"]}["opening"] == "ok"
         chase, glitch = clips["Six-star chase ends on the beach"], clips["Patrol car launches into the sky"]
+        made = Ledger(world.data / "state" / "ledger.json").clips[glitch["id"]]
+        assert made["graphic"] == [205.0] and made["start"] == 189.5  # the start went back so the moment at 3:25 comes 15 seconds in
+        own = made["cuts"]["youtube"]["start"]
+        assert not own <= 205.0 < own + 15  # and YouTube's own version does not open on it either
+        assert made["seen"]["frozen"] == 0.0 and made["seen"]["height"] == 360
         assert (chase["section"], glitch["section"], chase["score"], glitch["score"]) == ("HIGHLIGHT", "GLITCH", 90, 80)
         assert chase["picked"] == "Why: a chase starts at the lights." and "What happens: patrol car launches into the sky." in glitch["description"]
         assert chase["caption"].startswith("Six-star chase ends on the beach | GTA 6 Gameplay • Credit: RawPlay #gta6highlights #gta6moments #gta6 ")
@@ -218,7 +238,7 @@ def test_from_the_button_to_four_platforms(world):
             assert (info.width, info.height) == (540, 960) and info.has_audio and abs(info.duration - 59) < 1 and info.pixel_shape == "1:1"
             assert pipeline.cover_of(video).exists()
         shown = {p.stem: p.read_text(encoding="utf-8").split("[Events]")[1] for p in (world.data / "work" / "captions").glob("*.ass")}
-        assert len(shown) == 4 and all("Hook," in events for events in shown.values())  # every version opens with the headline
+        assert len(shown) == 5 and all("Hook," in events for events in shown.values())  # every version opens with the headline
         assert sum("Callout," in events and "WATCH THE PATROL CAR" in events for stem, events in shown.items() if "." not in stem) == 1  # Claude's on-screen note is on the clip
 
         scout_asked, *editor_asked = [seen["body"]["messages"][0]["content"] for seen in FakeClaude.seen]

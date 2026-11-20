@@ -7,7 +7,7 @@
 # Everything goes into one folder in your user profile (default: clipper-run):
 #   tools\   uv (installs Python), ffmpeg (video), deno (needed by the YouTube downloader), ant (Anthropic's sign-in tool, optional)
 #   app\     the clipper code            venv\    Python and its packages
-#   models\  the speech model            data\    downloads, finished clips (data\out), ledger, reports
+#   models\  the speech and sound models  data\    downloads, finished clips (data\out), ledger, reports
 # Delete that folder to remove everything. Running the line again updates the code and
 # keeps the data. Afterwards, use the Clipper shortcut on the desktop. In the folder:
 #   Clipper.cmd    open the app              run.cmd        make clips without the app

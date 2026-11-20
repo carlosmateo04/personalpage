@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import connectors, publish, variants
+from . import connectors, monetize, publish, variants
 from .config import Config
 from .connectors import ConnectorError
 from .state import Ledger, Lock, now_iso
@@ -86,6 +86,7 @@ def enqueue(cfg: Config, ledger: Ledger, rec: dict, when: datetime | None, platf
     if not video.exists():
         raise publish.PublishError("the clip file is no longer on this computer")
     how = routes(cfg)
+    barred = monetize.blocked(cfg, rec)
     posts = rec.setdefault("posts", {})
     queued: list[str] = []
     skipped: dict[str, str] = {}
@@ -98,6 +99,8 @@ def enqueue(cfg: Config, ledger: Ledger, rec: dict, when: datetime | None, platf
             skipped[name] = "no account is connected"
         elif name in (rec.get("unfit") or {}):
             skipped[name] = rec["unfit"][name]  # the clip does not meet the length set for this platform
+        elif name in barred:
+            skipped[name] = barred[name]  # it breaks one of the platform's rules for paying
         else:
             shown, cut = variants.view(rec, name)  # the platform's own cut of the clip, where it has one
             if not cut.exists():

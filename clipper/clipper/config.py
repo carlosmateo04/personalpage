@@ -288,6 +288,19 @@ class Gates:
     )
 
 
+@dataclass
+class Monetize:
+    """What the platforms ask of a video before they pay for it, beyond its length. See clipper/monetize.py."""
+
+    enabled: bool = True
+    calm_open: float = 15.0  # seconds at the start of every version kept free of graphic violence (YouTube: 7 = no ads, 15 = limited ads)
+    mute_profanity: bool = True  # strong language is silenced in the sound, as it is masked in the captions
+    music: str = "note"  # note: say so on the clip | hold: a clip with music waits for you instead of posting by itself
+    music_share: float = 0.5  # with "hold": the share of the clip with music from which it waits
+    min_height: int = 720  # a source picture lower than this is reported as blurry
+    strict: bool = True  # a platform whose rule a clip breaks is not sent that clip
+
+
 def default_edits() -> dict[str, dict[str, float]]:
     """The cut each platform gets, in seconds; 0 means no limit. Why each number is what it is:
 
@@ -310,6 +323,7 @@ class Config:
     rights: Rights = field(default_factory=Rights)
     filters: Filters = field(default_factory=Filters)
     housekeeping: Housekeeping = field(default_factory=Housekeeping)
+    monetize: Monetize = field(default_factory=Monetize)
     transcribe: Transcribe = field(default_factory=Transcribe)
     moments: Moments = field(default_factory=Moments)
     captions: Captions = field(default_factory=Captions)
@@ -406,6 +420,10 @@ def load(path: str | Path | None = None) -> Config:
 def validate(cfg: Config) -> None:
     if cfg.publish.mode not in ("dry_run", "live"):
         raise ConfigError("publish.mode must be dry_run or live")
+    if cfg.monetize.music not in ("note", "hold"):
+        raise ConfigError("monetize.music must be note or hold")
+    if not 0 <= cfg.monetize.calm_open <= 30:
+        raise ConfigError("monetize.calm_open is seconds, 0 to 30")
     if cfg.publish.tiktok_direct not in ("draft", "private", "public"):
         raise ConfigError("publish.tiktok_direct must be draft, private or public")
     for name, rule in cfg.edits.items():

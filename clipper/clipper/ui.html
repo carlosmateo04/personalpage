@@ -178,6 +178,20 @@
       <div class="cuts" id="s-edits"></div>
     </div>
     <div class="panel">
+      <h2>Rules for being paid</h2>
+      <p class="sub">Beyond length, each platform has rules a video must meet before it earns anything. These are built into every clip as it is cut, and each clip shows a “Monetization check” per platform. One rule no edit can meet: all four pay only for original videos, meaning your own footage or your own commentary. A clip of another channel's gameplay says so in its check.</p>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="s-m-on"> Apply the rules to every clip</label>
+        <label class="check"><input type="checkbox" id="s-m-mute"> Silence strong language in the sound</label>
+        <label class="check"><input type="checkbox" id="s-m-strict"> Do not send a clip to a platform whose rule it breaks</label>
+      </div>
+      <div class="form" style="margin-top:14px">
+        <div><label>Seconds at the start kept free of graphic violence</label><input type="number" id="s-m-calm" min="0" max="30"></div>
+        <div><label>A clip with music playing</label><select id="s-m-music"><option value="note">Post it, and say so on the clip</option><option value="hold">Hold it for me when music plays for half of it or more</option></select></div>
+      </div>
+      <p class="meta" id="s-m-note" style="margin-top:10px"></p>
+    </div>
+    <div class="panel">
       <h2>Searches</h2><p class="sub">What the clipper looks for on YouTube. Only videos labelled “no commentary” are taken.</p>
       <div id="searches"></div>
       <button class="btn small" id="btn-add-search">Add a search</button>
@@ -364,6 +378,23 @@ function buildCard(c) {
         const link = prompt("Paste the link to the TikTok post, or leave empty:", "");
         if (link !== null) act("/api/posted-by-hand", {id: c.id, platform: "tiktok", link}, "Marked as posted on TikTok");
       }}))) : null;
+  // What each platform's rules for paying make of this clip: what all of them say first, then each one's own.
+  const money = Object.entries(c.money || {});
+  const worst = lines => lines.some(l => l.level === "fail") ? "off" : lines.some(l => l.level === "warn") ? "warn" : "on";
+  const open = money.map(([p, lines]) => [p, lines.filter(l => l.level !== "ok")]);
+  const shared = open.length > 1 ? open[0][1].filter(l => open.every(([, ls]) => ls.some(x => x.text === l.text))) : [];
+  const line = l => h("div", {class: "meta", style: l.level === "fail" ? "color:var(--bad)" : "color:var(--warn)", text: l.text});
+  const groups = new Map();  // the same finding on several platforms is said once, with their names
+  open.forEach(([p, lines]) => lines.filter(l => !shared.some(x => x.text === l.text)).forEach(l => {
+    if (!groups.has(l.text)) groups.set(l.text, {names: [], line: l});
+    groups.get(l.text).names.push(NAMES[p] || p); }));
+  const grouped = [...groups.entries()];
+  const moneyBox = money.length ? h("details", {},
+    h("summary", {}, "Monetization check ", money.map(([p, lines]) => h("span", {class: "chip", style: "font-size:11px;padding:2px 7px;margin-left:4px",
+      title: lines.map(l => (l.level === "ok" ? "✓ " : l.level === "fail" ? "✗ " : "! ") + l.text).join("\n")}, h("span", {class: "dot " + worst(lines)}), NAMES[p] || p))),
+    shared.length ? h("div", {style: "margin-top:8px"}, h("div", {class: "meta"}, h("b", {text: "Every platform"})), shared.map(line)) : null,
+    grouped.map(([text, g]) => h("div", {style: "margin-top:8px"}, h("div", {class: "meta"}, h("b", {text: g.names.join(", ")})), line(g.line))),
+    !shared.length && !grouped.length ? h("div", {class: "meta", style: "margin-top:8px", text: "Every rule is met on every platform."}) : null) : null;
   const rest = !ready && ["queued", "posted"].includes(c.state) ? linked().filter(p => !(c.posts || {})[p] && !(c.unfit || {})[p]) : [];
   const again = () => {
     const ask = prompt("What should Claude change? Leave empty to let it look again.\nFor example: start a little later; a calmer title.", "");
@@ -380,7 +411,7 @@ function buildCard(c) {
     h("details", {}, h("summary", {text: "YouTube description"}), desc),
     h("div", {class: "meta"}, "Footage: " + (c.creator || "unknown") + " · " + (c.permission || "no permission on file"),
       c.origin && c.origin.startsWith("http") ? [" · ", h("a", {href: c.origin, target: "_blank", rel: "noopener", text: "original"})] : null),
-    versions, unfit,
+    versions, unfit, moneyBox,
     posts.length ? h("div", {class: "posts"}, posts) : null,
     notes,
     c.busy ? h("div", {class: "meta", style: "color:var(--info)", text: c.busy + "…"}) : null,
@@ -688,6 +719,10 @@ function fillSettings() {
     h("input", {type: "number", min: 0, max: 600, value: rule.min_len, "data-edit": p, "data-k": "min_len", "aria-label": NAMES[p] + ": shortest, in seconds"}),
     h("input", {type: "number", min: 0, max: 600, value: rule.max_len, "data-edit": p, "data-k": "max_len", "aria-label": NAMES[p] + ": longest, in seconds"}),
     h("span", {class: "meta", text: CUT_WHY[p] || ""})); });
+  $("s-m-on").checked = s.monetize.enabled; $("s-m-mute").checked = s.monetize.mute_profanity; $("s-m-strict").checked = s.monetize.strict;
+  $("s-m-calm").value = s.monetize.calm_open; $("s-m-music").value = s.monetize.music;
+  $("s-m-note").textContent = s.monetize.listens ? "Graphic moments and other platforms' watermarks are found by Claude; music is heard by a small model on this computer."
+    : "The model that hears music is not installed, so that check is skipped. Run the installer again to add it.";
   $("s-auto").checked = s.auto_post; $("s-keep-dl").value = s.keep_downloads_days; $("s-keep-clips").value = s.keep_clips_days;
   $("s-platforms").innerHTML = "";
   Object.keys(NAMES).forEach(p => $("s-platforms").append(h("label", {class: "check"}, h("input", {type: "checkbox", value: p, checked: s.platforms.includes(p)}), NAMES[p])));
@@ -706,6 +741,7 @@ function readSettings() {
     publish: {tiktok_post_mode: $("s-tiktok").value, tiktok_direct: $("s-tiktok-direct").value, tiktok_privacy_level: $("s-tiktok-audience").value,
       tiktok_comments: $("s-tiktok-comments").checked, tiktok_duet: $("s-tiktok-duet").checked, tiktok_stitch: $("s-tiktok-stitch").checked, youtube_privacy: $("s-youtube").value, platforms: [...$("s-platforms").querySelectorAll("input:checked")].map(x => x.value)},
     housekeeping: {keep_downloads_days: num("s-keep-dl"), keep_clips_days: num("s-keep-clips")},
+    monetize: {enabled: $("s-m-on").checked, mute_profanity: $("s-m-mute").checked, strict: $("s-m-strict").checked, calm_open: num("s-m-calm"), music: $("s-m-music").value},
     searches: [...$("searches").children].map(r => ({query: r.children[0].value.trim(), section: r.children[1].value})).filter(x => x.query),
     auto_post: $("s-auto").checked,
   };

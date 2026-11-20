@@ -190,7 +190,7 @@ def compose(cfg: Config, clip_id: str, creator: str, section: Section, title: st
         "credit": credit,
         "playlist": section.youtube_playlist_id,
         "tiktok": {"title": caption(5)},
-        "instagram": {"title": caption(8)},
+        "instagram": {"title": caption(5)},  # Instagram takes five hashtags at most since December 2025
         "facebook": {"title": caption(4)},
         "youtube": {
             "title": youtube_title(cfg, title, section),
@@ -210,7 +210,7 @@ def tags_length(tags: list[str]) -> int:
 
 _HASHTAG = re.compile(r"(?<!\w)#(\w+)")
 # Longest caption and most hashtags each platform takes; past YouTube's 15 it ignores every hashtag.
-_LIMITS = {"tiktok": (2200, 10), "instagram": (2200, 30), "facebook": (2200, 10)}
+_LIMITS = {"tiktok": (2200, 10), "instagram": (2200, 5), "facebook": (2200, 5)}
 
 
 def proof(cfg: Config, meta: dict) -> list[str]:

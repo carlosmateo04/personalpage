@@ -264,3 +264,31 @@ def test_a_clip_posted_by_hand_is_marked_and_the_others_can_still_be_sent(app, m
     posts = call(app, "/api/state")[1]["clips"][0]["posts"]
     assert (posts["tiktok"]["via"], posts["youtube"]["state"], posts["youtube"]["via"]) == ("hand", "processing", "service")
     api.shutdown()
+
+
+def test_the_monetization_check_and_its_settings_are_on_the_page(app):
+    from clipper import monetize
+
+    state = call(app, "/api/state")[1]
+    assert state["clips"][0]["money"] == {}  # a clip made before the check existed
+    assert state["settings"]["monetize"] == {"enabled": True, "calm_open": 15.0, "mute_profanity": True, "music": "note", "strict": True,
+                                             "listens": monetize.tagger_ready(app.cfg())}
+    ledger = Ledger(app.data / "state" / "ledger.json")
+    rec = ledger.clips["c1"]
+    rec.update(review={"keep": True}, graphic=[13.0], strong=[], seen={"music": [0.0] * 18, "frozen": 0.0, "height": 1080})
+    rec["money"] = monetize.check(app.cfg(), rec)
+    ledger.save()
+    clip = call(app, "/api/state")[1]["clips"][0]
+    opening = next(line for line in clip["money"]["youtube"] if line["rule"] == "opening")
+    assert opening["level"] == "fail" and "YouTube" not in clip["unfit"] and "first 7 seconds" in clip["unfit"]["youtube"]  # and it is not sent there
+
+    call(app, "/api/clip", {"id": "c1", "caption": "Car falls through the map #gta6 #a #b #c #d #e #f"})  # an edit by hand is checked again
+    lines = call(app, "/api/state")[1]["clips"][0]["money"]["instagram"]
+    assert next(line for line in lines if line["rule"] == "hashtags")["level"] == "fail"
+
+    assert call(app, "/api/settings", {"monetize": {"music": "hold", "calm_open": 10, "strict": False, "mute_profanity": False}})[0] == 200
+    got = call(app, "/api/state")[1]
+    assert (got["settings"]["monetize"]["music"], got["settings"]["monetize"]["calm_open"], got["settings"]["monetize"]["strict"]) == ("hold", 10, False)
+    assert got["clips"][0]["unfit"] == {}  # no longer held back from YouTube
+    status, body, _ = call(app, "/api/settings", {"monetize": {"music": "mute"}})
+    assert status == 400 and "note or hold" in body["error"]

@@ -60,7 +60,8 @@ def test_what_the_editor_is_shown(lengths, claude_api):
     body = claude_api.seen[0]["body"]
     assert body["model"] == "claude-opus-5-5" and body["output_config"]["effort"] == "low"
     shape = body["output_config"]["format"]["schema"]
-    assert shape["required"] == ["keep", "reason", "start", "end", "section", "title", "hook", "summary", "tags", "callouts", "cover", "score"]
+    assert shape["required"] == ["keep", "reason", "start", "end", "section", "title", "hook", "summary", "tags", "callouts", "cover", "score",
+                                 "marks", "unsuitable", "graphic"]  # the last three: what the platforms' rules for paying turn on
     assert shape["properties"]["callouts"]["items"]["required"] == ["at", "text"] and shape["additionalProperties"] is False
     assert "pure gameplay only" in body["system"] and "Never cut into a sentence" in body["system"]
     image, text = body["messages"][0]["content"]

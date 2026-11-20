@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from . import claude, media, metadata, moments, sections
+from . import claude, media, metadata, moments, monetize, sections, variants
 from .captions import mask_profanity
 from .claude import ClaudeError
 from .config import Config
@@ -38,7 +38,10 @@ First decide whether the clip should be posted at all (keep). The channel posts 
 - it is a story cutscene, an ending, or gives away the plot;
 - most of it is a menu, a map, a loading screen, or nothing happening;
 - it is not gameplay of the game named with the clip;
-- it contains slurs, promotes gambling or politics, or shows someone's personal information.
+- it contains slurs, promotes gambling or politics, or shows someone's personal information;
+- the picture carries the watermark, logo or QR code of another platform or channel (a TikTok, Instagram, CapCut or Kwai mark, a channel's logo in a corner, a "subscribe" overlay). Say which in marks. The game's own on-screen display does not count;
+- it shows something no platform pays for at any point in a video: sexual content or nudity, sexual violence, torture, an attack motivated by hate, violence against children, or an attack on a real named person. Say which in unsuitable.
+Leave marks and unsuitable empty when there is nothing of the kind.
 Give a short reason for the decision either way. If you cannot tell what happens in the clip, say so and do not keep it rather than guess.
 
 For a clip you keep, edit it:
@@ -49,7 +52,8 @@ For a clip you keep, edit it:
 - summary: one sentence saying what the viewer sees.
 - tags: three to five short phrases someone would type into search to find this exact clip, lower case, each starting with the game's name as given with the clip ("gta 6 police chase"). Only things that are in the clip.
 - callouts: up to three short notes shown on screen for a few seconds, each with the time it applies (minutes:seconds in the source video) and at most 28 characters of text. Use them where a viewer could miss what is happening or is about to happen ("Six stars", "Watch the helicopter"), and only where nobody is speaking. An empty list is right for most clips.
-- cover: the time of the frame that would make the best cover image.
+- graphic: every moment of graphic violence in the clip, each with its time (minutes:seconds in the source video) and two or three words on what it is. Graphic means a brutal killing or severe injury shown close, with blood, dismemberment or torn bodies as the focus. Shooting, crashes, explosions and fights in the ordinary course of the game are not graphic. An empty list is right for most clips. Platforms pay less for a video that opens on such a moment, so where you can, set the start so that the first one comes at least 15 seconds in.
+- cover: the time of the frame that would make the best cover image. Never a graphic moment.
 - score: 0 to 100, how strongly you would back this clip. 80 and up is something you would post without a second look; under 50 is filler.
 
 For a clip you do not keep, leave the other text fields empty and give a score of 0.
@@ -81,8 +85,17 @@ def schema(cfg: Config) -> dict:
             }},
             "cover": {"type": "string"},
             "score": {"type": "integer"},
+            "marks": {"type": "string"},
+            "unsuitable": {"type": "string"},
+            "graphic": {"type": "array", "items": {
+                "type": "object",
+                "properties": {"at": {"type": "string"}, "what": {"type": "string"}},
+                "required": ["at", "what"],
+                "additionalProperties": False,
+            }},
         },
-        "required": ["keep", "reason", "start", "end", "section", "title", "hook", "summary", "tags", "callouts", "cover", "score"],
+        "required": ["keep", "reason", "start", "end", "section", "title", "hook", "summary", "tags", "callouts", "cover", "score",
+                     "marks", "unsuitable", "graphic"],
         "additionalProperties": False,
     }
 
@@ -173,6 +186,12 @@ def _cut(cfg: Config, clip: dict, verdict: dict) -> tuple[float, float] | None:
     return window
 
 
+def _named(value) -> str:
+    """What Claude named in a field that is empty when there is nothing: "none", "no" and the like count as nothing."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip().strip(".")
+    return "" if text.lower() in ("", "none", "no", "nothing", "n/a", "na", "none seen", "none visible") else text[:120]
+
+
 def _callouts(cfg: Config, verdict: dict, start: float, end: float, words: list[Word]) -> list[dict]:
     """On-screen notes that fit: short, inside the clip, clear of speech and of each other."""
     if not cfg.ai.callouts:
@@ -208,6 +227,14 @@ def edit(cfg: Config, clip: dict, verdict: dict) -> str:
     except (TypeError, ValueError):
         score = 0
     clip["review"] = {"by": cfg.ai.model, "keep": verdict["keep"], "reason": reason, "score": score}
+    if verdict["keep"] and cfg.monetize.enabled:
+        # What no platform pays for, or shows to new viewers, is not posted whatever else the clip has going for it.
+        marks, unsuitable = _named(verdict.get("marks")), _named(verdict.get("unsuitable"))
+        if marks or unsuitable:
+            reason = (f"it shows {unsuitable}, which no platform pays for" if unsuitable
+                      else f"another platform's or channel's mark is on the picture ({marks})")
+            clip["review"].update(keep=False, reason=reason)
+            verdict = {**verdict, "keep": False}
     if not verdict["keep"]:
         clip["drop"] = True
         return f"dropped: {reason}"
@@ -219,6 +246,25 @@ def edit(cfg: Config, clip: dict, verdict: dict) -> str:
         kept = [w for w in _words(clip) if w.s >= moved[0] - 0.01 and w.e <= moved[1] + 0.01]
         clip["words"] = [{"w": w.w, "s": w.s, "e": w.e} for w in kept]
         clip["text"] = " ".join(w.w for w in kept)
+    # Graphic moments, in seconds of the source video, and an opening that is clear of them.
+    context = clip.get("context") or {}
+    times = [media.seconds(note.get("at")) for note in verdict.get("graphic") or [] if isinstance(note, dict)]
+    clip["graphic"] = sorted({round(t, 1) for t in times if t is not None and context.get("from", clip["start"]) <= t <= context.get("to", clip["end"])})
+    calmed = None
+    quiet = monetize.calm(cfg)
+    if quiet and clip["graphic"] and not clip.get("whole"):
+        low = max(0.0, context.get("from", clip["start"]), clip["start"] - cfg.ai.margin)
+        calmed = variants.calm_start(clip["start"], clip["end"], clip["graphic"], quiet, low, clip["end"], cfg.moments.max_len, cfg.moments.min_len)
+        if calmed and calmed != (clip["start"], clip["end"]):
+            clip["review"].setdefault("cut", [clip["start"], clip["end"]])
+            clip["review"]["calm"] = True
+            clip["start"], clip["end"] = calmed
+            kept = [w for w in _words(clip) if w.s >= calmed[0] - 0.01 and w.e <= calmed[1] + 0.01]
+            clip["words"] = [{"w": w.w, "s": w.s, "e": w.e} for w in kept]
+            clip["text"] = " ".join(w.w for w in kept)
+            moved = calmed
+        else:
+            calmed = None
     start, end = clip["start"], clip["end"]
     own = [Word(w["w"], w["s"], w["e"]) for w in clip.get("words") or []]
     clip["callouts"] = _callouts(cfg, verdict, start, end, own)
@@ -236,6 +282,8 @@ def edit(cfg: Config, clip: dict, verdict: dict) -> str:
     extras = []
     if moved:
         extras.append(f"cut moved to {media.clock(start)}-{media.clock(end)}")
+    if calmed:
+        extras.append("opening kept clear of a graphic moment")
     if clip["callouts"]:
         extras.append(f"{len(clip['callouts'])} on-screen note(s)")
     return f"kept [{section.name}, {score}/100]: {title}" + (f" ({', '.join(extras)})" if extras else "")

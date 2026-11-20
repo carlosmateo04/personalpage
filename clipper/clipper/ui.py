@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import check, claude, config, connectors, metadata, outbox, pipeline, publish, review, settings, signin, variants
+from . import check, claude, config, connectors, metadata, monetize, outbox, pipeline, publish, review, settings, signin, variants
 from .connectors import tiktok
 from .connectors import ConnectorError
 from .config import ROOT
@@ -253,7 +253,8 @@ class App:
                 "busy": self.jobs.get(rec["id"], ""), "edit_error": self.job_errors.get(rec["id"], ""),
                 "versions": [{"seconds": v["seconds"], "platforms": v["platforms"], "media": self._media(out, Path(v["file"]))}
                              for v in variants.versions(rec, cfg.publish.platforms)],
-                "unfit": rec.get("unfit", {}), "tiktok": rec.get("tiktok", {}),
+                "unfit": {**monetize.blocked(cfg, rec), **rec.get("unfit", {})}, "tiktok": rec.get("tiktok", {}),
+                "money": rec.get("money", {}),
             })
         latest = cfg.path("reports") / "latest.md"
         searches = [{"query": settings.search_text(s.url), "section": s.section or "moments"}
@@ -281,6 +282,8 @@ class App:
                 "tiktok_duet": cfg.publish.tiktok_duet, "tiktok_stitch": cfg.publish.tiktok_stitch,
                 "edits": {name: {"min_len": rule.get("min_len", 0), "max_len": rule.get("max_len", 0)} for name, rule in cfg.edits.items()
                           if name in publish.PLATFORMS},
+                "monetize": {"enabled": cfg.monetize.enabled, "calm_open": cfg.monetize.calm_open, "mute_profanity": cfg.monetize.mute_profanity,
+                             "music": cfg.monetize.music, "strict": cfg.monetize.strict, "listens": monetize.tagger_ready(cfg)},
                 "no_facecam": cfg.filters.no_facecam, "no_commentary": cfg.filters.no_commentary, "no_cutscenes": cfg.filters.no_cutscenes,
                 "keep_downloads_days": cfg.housekeeping.keep_downloads_days, "keep_clips_days": cfg.housekeeping.keep_clips_days,
                 "progress_bar": cfg.render.progress_bar, "searches": searches,

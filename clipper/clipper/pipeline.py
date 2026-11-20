@@ -20,7 +20,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import (captions, claude, gates, intake, media, metadata, moments, outbox, presenter, publish, render, report, review, schedule,
-               scout, sections, transcribe, variants)
+               monetize, scout, sections, transcribe, variants)
 from .config import Config
 from .state import Ledger, now_iso
 from .transcribe import Word
@@ -277,13 +277,31 @@ def render_clip(cfg: Config, clip: dict, run_dir: Path, cut: list[float] | None 
         cfg, rel, end - start, hook=meta.get("hook", ""), label=meta.get("label", ""),
         badge=section.label, badge_color=section.color, credit=meta.get("credit", ""), callouts=notes,
     ), encoding="utf-8")
-    render.render(cfg, Path(clip["source_path"]), start, end, ass, out, voice)
+    # Strong language is silenced in the sound, as it is masked in the captions (see clipper/monetize.py).
+    render.render(cfg, Path(clip["source_path"]), start, end, ass, out, voice, monetize.mute_spans(cfg, rel))
     got = media.probe(out)
     if abs(got.duration - (end - start)) > 1.0 or not got.has_audio:
         raise media.MediaError(f"render check failed: {got.duration:.1f}s, audio={got.has_audio}")
-    # The cover: the frame the editor chose, else one a third of the way in (past the headline).
-    media.grab(out, (end - start) / 3 if at is None else float(at), cover_of(out), width=720)
+    # The cover: the frame the editor chose, else one a third of the way in (past the headline); never a graphic moment.
+    gory = [g - start for g in clip.get("graphic") or [] if start <= g <= end] if cfg.monetize.enabled else []
+    media.grab(out, monetize.safe_cover(end - start, at, gory), cover_of(out), width=720)
     return out
+
+
+def money_check(cfg: Config, clip: dict, rec: dict, log: Log = _log, look: bool = True) -> None:
+    """Measure a finished clip against each platform's rules for paying, and keep the result on its record."""
+    if not cfg.monetize.enabled:
+        rec.pop("money", None)
+        return
+    rec["graphic"] = clip.get("graphic") or []
+    rec["strong"] = monetize.strong_words(clip.get("words") or [])
+    rec["voiceover"] = bool(clip.get("voiceover"))
+    if look or "seen" not in rec:
+        rec["seen"] = monetize.look(cfg, clip)
+    rec["money"] = monetize.check(cfg, rec)
+    said = monetize.summary(rec["money"])
+    if said != "every rule met":
+        log(f"  {clip['id']} monetization check: {said}")
 
 
 def render_versions(cfg: Config, clip: dict, run_dir: Path, rec: dict, log: Log = _log) -> None:
@@ -374,6 +392,10 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
             if clip.get("scout"):
                 rec["scout"] = clip["scout"]
             rec["seo"] = text_problems(cfg, ledger, rec, clip["meta"])  # an empty list means the title, captions and tags pass
+            if clip.get("review"):
+                rec["review"] = clip["review"]
+            money_check(cfg, clip, rec, log)
+            waits = monetize.holds(cfg, rec)
             video.with_suffix(".txt").write_text(report.post_kit(cfg, clip, rec["slot"]), encoding="utf-8")  # the text to post with it
             if cfg.publish.hold_for_review:
                 rec["status"] = "held"
@@ -381,6 +403,9 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
             elif rec["seo"]:
                 rec["status"] = "held"  # nothing with a weak title or a broken caption is posted by itself
                 log(f"  {rec['id']} rendered but not posted, its text needs a look: {'; '.join(rec['seo'])}")
+            elif waits:
+                rec["status"] = "held"
+                log(f"  {rec['id']} rendered but not posted by itself: {waits}")
             else:
                 try:
                     _send(cfg, ledger, rec, clip["meta"], video, now, log)
@@ -479,6 +504,8 @@ def update_clip(cfg: Config, ledger: Ledger, clip_id: str, fields: dict) -> dict
             kept["audience"] = chosen["audience"]
         rec["tiktok"] = {**rec.get("tiktok", {}), **kept}
     rec["seo"] = text_problems(cfg, ledger, rec, meta)
+    if cfg.monetize.enabled and "money" in rec:
+        rec["money"] = monetize.check(cfg, rec)  # the hashtags and the wording are part of it
     _kit(cfg, rec)
     ledger.save()
     return rec
@@ -580,6 +607,7 @@ def reedit(cfg: Config, ledger: Ledger, clip_id: str, instruction: str = "", log
     rec.update(file=str(video), meta=draft["meta"], title=draft["meta"]["title"], section=cfg.section(draft.get("section", "")).name,
                start=draft["start"], end=draft["end"], text=gates.normalise(draft.get("text", "")), cover=draft.get("cover"), review=draft["review"])
     rec["seo"] = text_problems(cfg, ledger, rec, draft["meta"])
+    money_check(cfg, draft, rec, log)
     _kit(cfg, rec)
     data["clips"] = [draft if c["id"] == clip_id else c for c in data["clips"]]
     plan_path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")

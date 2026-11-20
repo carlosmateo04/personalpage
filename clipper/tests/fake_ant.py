@@ -28,12 +28,6 @@ if "--version" in args:
     print("Apache Ant(TM) version 1.10.14" if mode == "apache" else "ant version 2.9.0")
 elif args[:2] == ["auth", "login"]:
     profile, port = value("--profile"), int(value("--callback-port"))
-    print("To sign in, open this page in your browser:", flush=True)
-    print(f"https://platform.claude.com/oauth/authorize?client_id=ant&redirect_uri=http%3A%2F%2Flocalhost%3A{port}%2Fcallback&state=xyz", flush=True)
-    if mode == "timeout":
-        time.sleep(float(os.environ.get("FAKE_ANT_WAIT", "1")))
-        print("Error: timed out waiting for authorization", flush=True)
-        sys.exit(1)
 
     class Back(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -45,9 +39,20 @@ elif args[:2] == ["auth", "login"]:
             self.wfile.write(b"You are signed in. You can close this tab.")
             self.server.approved = True
 
-    server = HTTPServer(("127.0.0.1", port), Back)
-    server.approved = False
-    server.timeout = 20
+    # Like the real tool (as seen with ant 2.12.1): it listens for the browser first, then says where to sign in.
+    server = None
+    if mode != "timeout":
+        server = HTTPServer(("127.0.0.1", port), Back)
+        server.approved = False
+        server.timeout = 20
+    print(f'Creating profile "{profile}".', flush=True)
+    print("Authorization URL (open on the machine where your SSH session originates):", flush=True)
+    print(f"https://platform.claude.com/oauth/authorize?client_id=ant&redirect_uri=http%3A%2F%2Flocalhost%3A{port}%2Fcallback&state=xyz", flush=True)
+    print(f"Waiting for callback on http://localhost:{port}/callback ...", flush=True)
+    if mode == "timeout":
+        time.sleep(float(os.environ.get("FAKE_ANT_WAIT", "1")))
+        print("Error: timed out waiting for authorization", flush=True)
+        sys.exit(1)
     while not server.approved:
         server.handle_request()
     (root / "configs").mkdir(parents=True, exist_ok=True)

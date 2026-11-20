@@ -18,6 +18,36 @@ from .config import Config
 SAME = 0.75  # seconds: cuts closer than this to the clip's own are the clip itself
 
 
+def calm_start(a: float, b: float, graphic: list[float], calm: float, low: float, high: float,
+               longest: float = 0.0, shortest: float = 0.0) -> tuple[float, float] | None:
+    """Move a cut so that no graphic moment falls in its first `calm` seconds; None when that cannot be done.
+
+    First choice: start earlier (no earlier than `low`), so the moment stays in the clip and simply comes
+    later. Second choice: start just after it. `high` is as far as the end may reach, `longest` and
+    `shortest` the lengths allowed (0 = no limit).
+    """
+    early = [g for g in graphic if a <= g < a + calm]
+    if calm <= 0 or not early:
+        return a, b
+    a2 = min(early) - calm - 0.5
+    if a2 >= low:
+        b2 = min(b, a2 + longest) if longest else b
+        if b2 > max(early) + 2 and not any(a2 <= g < a2 + calm for g in graphic):
+            return round(a2, 2), round(b2, 2)
+    a2 = a
+    for _ in range(6):
+        hit = [g for g in graphic if a2 <= g < a2 + calm]
+        if not hit:
+            break
+        a2 = max(hit) + 2.0
+    else:
+        return None
+    b2 = min(high, a2 + longest) if longest else b
+    if b2 - a2 >= max(shortest, 15.0):
+        return round(a2, 2), round(b2, 2)
+    return None
+
+
 def cut_for(cfg: Config, clip: dict, platform: str) -> tuple[tuple[float, float] | None, str]:
     """(start, end) of this platform's cut in the source video, or (None, why it cannot take the clip)."""
     rule = cfg.edits.get(platform) or {}
@@ -34,7 +64,10 @@ def cut_for(cfg: Config, clip: dict, platform: str) -> tuple[tuple[float, float]
                 a = word["e"]
             if word["s"] < b < word["e"]:
                 b = word["s"]
-        start, end = a, b
+        # Every version opens calm: no graphic moment in its first seconds (see clipper/monetize.py).
+        quiet = float(cfg.monetize.calm_open) if cfg.monetize.enabled else 0.0
+        moved = calm_start(a, b, clip.get("graphic") or [], quiet, start, end, longest, shortest)
+        start, end = moved or (a, b)
     if end - start < shortest - 0.5:
         return None, f"the clip is {end - start:.0f} seconds; {platform} is set to take {shortest:.0f} or more"
     return (round(start, 2), round(end, 2)), ""

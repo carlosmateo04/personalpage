@@ -208,3 +208,36 @@ captions and headlines do not make someone else's gameplay original in the
 platforms' eyes; your own gameplay, or footage you have permission to use with
 something of your own added, is what those rules are about. See
 `reports/GTA 6 paid clipping feasibility.md`.
+
+## Rules for being paid
+
+Length is one rule of several. These are the others, as the platforms' pages
+and press reports of their updates had them on 20 November 2026, and what
+Clipper does about each. They are applied when a clip is cut and rendered, and
+every finished clip shows a **Monetization check** per platform on its card.
+Settings are under Settings, "Rules for being paid".
+
+| Rule | Whose | What Clipper does |
+|---|---|---|
+| No graphic violence at the start | YouTube: in the first 7 seconds no ads, in seconds 8 to 15 limited ads (September 2026). Graphic means brutal killings or severe injuries shown close; ordinary shooting, crashes and fights do not count | Claude marks such moments. The start of the clip, and of each platform's own version, is moved so that none falls in the first 15 seconds. The cover is never taken from one |
+| Never paid at any point | All: sexual content, sexual violence, torture, hate-motivated attacks, violence against children, attacks on real named people | Claude drops the clip |
+| Strong language | YouTube (titles, thumbnails, heavy use), Meta (a restricted category) | Masked in captions and titles; silenced in the sound |
+| No other app's mark | TikTok (not shown to new viewers), Instagram, Facebook: another platform's or channel's watermark, logo or QR code | Claude drops the clip |
+| Music | All: its owner can claim it; the ad money then goes to them, or the clip is muted or blocked. YouTube blocks a claimed Short over a minute | Heard by a small model on this computer and reported with how long it plays. A setting holds such clips back. YouTube's version is kept under a minute |
+| A moving picture | Facebook, Instagram: static, looping and slideshow videos are not paid | A clip that is mostly a still picture is not sent |
+| A sharp picture | TikTok, Instagram: blurry video is recommended less | Reported when the source is under 720 lines |
+| Hashtags | Instagram: five at most (since December 2025); Facebook: few | Five at most on both; checked again after an edit by hand |
+| No asking for likes | Facebook, Instagram: "like and share", "follow for more" | Never written; flagged if typed in |
+| Paid posts | TikTok: sponsored videos earn nothing from the Creator Rewards Program | Reported |
+| **Originality** | All four: reposted footage is not paid, and captions, headlines, cropping and your own watermark do not make it original | **No edit meets this.** Reported on every clip. Your own gameplay, or your own commentary on the clip, is what the rule asks for |
+
+How to read the check: green means the rule is met; yellow means a risk, or
+that nobody could check (the two rules that need eyes are only checked when
+Claude is set up, and music only when the listening model is installed, which
+the installer adds); red means the clip breaks that platform's rule, and it is
+then not sent there unless you switch that off.
+
+What the music check cannot do: it hears that music plays, not whose it is.
+The game's own score and a licensed radio track sound alike to it. What the
+violence check cannot do: it relies on Claude seeing the moment in a sheet of
+sixteen frames, so a moment that lasts a fraction of a second can be missed.

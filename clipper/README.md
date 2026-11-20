@@ -117,6 +117,31 @@ changeable under Settings. They are format rules: whether a channel is paid
 also depends on the platform accepting the videos as original, which no edit
 settles (see ACCOUNTS.md).
 
+## Rules for being paid
+
+`[monetize]` in `config.toml`; `clipper/monetize.py`, which lists every rule,
+whose it is and what is done about it. Beyond length, the platforms' rules are
+built into each clip:
+
+- **A calm opening.** Claude marks graphic moments; the clip's start, and the
+  start of each platform's own version, is moved so that none falls in the
+  first 15 seconds (YouTube pays nothing for one in the first 7, and less for
+  one in seconds 8 to 15). The cover frame is never taken from one.
+- **Dropped outright:** clips showing what no platform pays for at any point,
+  or carrying another platform's or channel's watermark, logo or QR code.
+- **Strong language** is silenced in the sound, as it is masked in the text.
+- **Music** is heard by a small sound-recognition model on this computer and
+  reported with how long it plays; a setting holds such clips back.
+- **A still or blurry picture** is measured on the source.
+- **Hashtags** are capped at five for Instagram and Facebook, and captions are
+  checked for requests for likes and follows.
+
+Each finished clip then carries a check per platform (`money` in the ledger,
+"Monetization check" on its card): met, at risk or not checkable, or broken.
+With `strict`, a platform whose rule a clip breaks is not sent it. The one
+rule no edit meets, originality, is reported on every clip of another
+channel's footage.
+
 ## Posting
 
 `clipper/outbox.py` and `clipper/connectors/`. This is the clipper's own
@@ -347,7 +372,10 @@ service's documentation says and records what it was sent: `test_claude.py`
 Accounts tab end to end), `test_signin.py` and `test_claude_accounts.py`
 (signing in with Claude through a stand-in for Anthropic's sign-in tool, whose
 stored sign-in the real SDK then reads; adding, switching and removing
-accounts), `test_variants.py` (the cut each platform gets).
+accounts), `test_variants.py` (the cut each platform gets), `test_monetize.py`
+(the rules for being paid: the rendered sound really is silent where strong
+language is spoken, music and still pictures are told apart on generated
+video, the check per platform, the editor's drops and moved openings).
 
 `tests/test_system.py` runs the whole system as one. The four accounts and
 Claude are connected through the app; "Make clips now" starts a real run that
@@ -375,6 +403,12 @@ the real services, as of this writing:
   and a Console account; the first sign-in on the user's computer is the test.
   The Windows test machine checks that the installer fetches the real tool and
   that it has the commands the app runs.
+- **The rules for being paid:** read from the platforms' pages through web
+  search and press reports, because those pages could not be opened from the
+  machine this was built on; YouTube's seconds for graphic violence come from
+  press reports of its September 2026 update. Whether Claude spots a graphic
+  moment or a watermark in real footage has not been seen with a real key.
+  The music listener was run on two real GTA 6 videos and heard music in both.
 - **TikTok public posts:** refused by TikTok until it has audited the app,
   which it does not do for tools posting to their owner's accounts; the code
   path is exercised against the stand-in only.

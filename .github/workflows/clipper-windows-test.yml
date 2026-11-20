@@ -68,6 +68,13 @@ jobs:
           $code | & (Join-Path $root 'venv\Scripts\python.exe') -
           if ($LASTEXITCODE -ne 0) { throw 'the app got no sign-in address from the real sign-in tool' }
 
+      - name: The model that hears music was installed
+        shell: powershell
+        run: |
+          $model = Join-Path $env:CLIPPER_DIR 'models\sherpa-onnx-zipformer-small-audio-tagging-2024-04-15\model.int8.onnx'
+          if (-not (Test-Path $model)) { throw 'the installer did not fetch the sound-recognition model, so the music check would be skipped' }
+          Get-Item $model | Select-Object Name, Length
+
       - name: Run the tests
         shell: powershell
         run: |

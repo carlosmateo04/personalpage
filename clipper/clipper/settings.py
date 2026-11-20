@@ -34,6 +34,7 @@ EDITABLE: dict[str, set[str]] = {
                 "hold_for_review", "facebook_page_id", "prefer_service"},
     "filters": {"no_facecam", "no_commentary", "no_cutscenes"},
     "housekeeping": {"keep_downloads_days", "keep_clips_days"},
+    "monetize": {"enabled", "calm_open", "mute_profanity", "music", "music_share", "min_height", "strict"},
     "ai": {"enabled", "provider", "model", "aws_profile", "aws_region", "scout", "edit", "direction", "effort", "scout_effort", "callouts",
            "login_profile", "account", "accounts"},
     "render": {"progress_bar", "layout"},

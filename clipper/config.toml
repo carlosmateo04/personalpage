@@ -289,3 +289,17 @@ max_len = 90    # Page reels stop at 90 seconds
 [edits.instagram]
 min_len = 0
 max_len = 180   # longer reels are not recommended to new viewers
+
+# What the platforms ask of a video before they pay for it, beyond its length.
+# These are built into every clip; each finished clip then carries a check per
+# platform. The rules, where each comes from and what is done about it are in
+# ACCOUNTS.md under "Rules for being paid".
+[monetize]
+enabled = true
+calm_open = 15          # seconds at the start of every version kept free of graphic violence
+                        # (YouTube: in the first 7 seconds it earns no ads, in seconds 8 to 15 limited ads)
+mute_profanity = true   # strong language is silenced in the sound, as it is masked in the captions
+music = "note"          # a clip with music playing: "note" posts it and says so; "hold" keeps it for you
+music_share = 0.5       # with "hold": the share of the clip with music from which it is held
+min_height = 720        # a source picture lower than this is reported as blurry
+strict = true           # a platform whose rule a clip breaks is not sent that clip

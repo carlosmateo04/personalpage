@@ -21,6 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 ASR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+TAGGER_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models"
+TAGGER = "sherpa-onnx-zipformer-small-audio-tagging-2024-04-15"
 MODULES = {  # import name -> what to install
     "numpy": "numpy", "soundfile": "soundfile", "sherpa_onnx": "sherpa-onnx", "upload_post": "upload-post",
     "requests": "requests", "yt_dlp": "yt-dlp", "yt_dlp_ejs": "yt-dlp-ejs", "cv2": "opencv-python-headless",
@@ -99,6 +101,18 @@ def ensure_models(folder: Path) -> None:
         archive.unlink()
     if not (folder / "silero_vad.onnx").exists():
         fetch(f"{BASE}/silero_vad.onnx", folder / "silero_vad.onnx")
+    if not (folder / TAGGER / "model.int8.onnx").exists():
+        # Hears whether music plays in a clip (a copyright owner can claim it). Optional: without it that check is skipped.
+        try:
+            print("downloading the sound-recognition model (about 110 MB)")
+            archive = folder / "tagger.tar.bz2"
+            fetch(f"{TAGGER_BASE}/{TAGGER}.tar.bz2", archive)
+            with tarfile.open(archive, "r:bz2") as tar:
+                tar.extractall(folder, filter="data")
+            archive.unlink()
+            (folder / TAGGER / "model.onnx").unlink(missing_ok=True)  # the larger copy of the same model is not used
+        except (SystemExit, OSError, tarfile.TarError) as exc:
+            print(f"the sound-recognition model could not be downloaded ({exc}); clips are made without the music check")
 
 
 def main(argv: list[str]) -> int:
