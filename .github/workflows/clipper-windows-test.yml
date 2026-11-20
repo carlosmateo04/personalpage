@@ -72,6 +72,31 @@ jobs:
           $clips = @(Get-ChildItem -Recurse (Join-Path $env:CLIPPER_DATA 'out') -Filter *.mp4)
           if ($clips.Count -lt 1) { throw 'no clip was made' }
 
+      - name: Daily run script and the schedule switch
+        shell: powershell
+        run: |
+          $root = $env:CLIPPER_DIR
+          $env:CLIPPER_CONFIG = Join-Path $root 'test-config.toml'
+          $inbox = Join-Path $root 'data\inbox'
+          $sample = Join-Path $root 'models\sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8\test_wavs\0.wav'
+          $ff = (Get-ChildItem -Path (Join-Path $root 'tools') -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
+          & $ff -y -loglevel error -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=20" -stream_loop 2 -i $sample -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest (Join-Path $inbox 'second clip.mp4')
+          if ($LASTEXITCODE -ne 0) { throw 'could not make the second test video' }
+          # The same script the daily schedule runs: it writes a log instead of printing.
+          powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'run.ps1') -Daily
+          $log = Get-ChildItem (Join-Path $root 'data\logs') -Filter *.log | Select-Object -First 1
+          if (-not $log) { throw 'the daily run wrote no log' }
+          Get-Content $log.FullName -Encoding UTF8
+          $clips = @(Get-ChildItem -Recurse (Join-Path $root 'data\out') -Filter *.mp4)
+          if ($clips.Count -lt 2) { throw 'the daily run made no new clip' }
+          # Switching the schedule on and off.
+          powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'schedule.ps1') -At '06:30'
+          $task = Get-ScheduledTask -TaskName 'Clipper daily run'
+          $task.Actions | Select-Object Execute, Arguments | Format-List
+          $task.Triggers | Select-Object StartBoundary | Format-List
+          powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'schedule.ps1') -Off
+          if (Get-ScheduledTask -TaskName 'Clipper daily run' -ErrorAction SilentlyContinue) { throw 'the daily task was not removed' }
+
       - name: Keep the finished test clip
         if: always()
         uses: actions/upload-artifact@v4

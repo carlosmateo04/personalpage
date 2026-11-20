@@ -172,3 +172,36 @@ def test_config_saved_by_a_windows_editor_still_loads(tmp_path):
     path.write_bytes(b"\xef\xbb\xbf" + b'[brand]\r\nname = "Test"\r\n\r\n[[sources]]\r\ntype = "folder"\r\npath = "inbox"\r\n')  # byte-order mark, Windows line ends
     cfg = config.load(path)
     assert cfg.brand.name == "Test" and cfg.sources[0].type == "folder"
+
+
+def test_cleanup_deletes_only_old_files_in_its_own_folders(cfg):
+    import os
+
+    from clipper import pipeline
+
+    now = datetime(2026, 12, 1, tzinfo=timezone.utc)
+
+    def make(path, age_days, size=10):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
+        stamp = now.timestamp() - age_days * 86400
+        os.utime(path, (stamp, stamp))
+        return path
+
+    work, out = cfg.path("work"), cfg.path("out")
+    old_video = make(work / "downloads" / "old.mp4", 5, 1000)
+    new_video = make(work / "downloads" / "new.mp4", 1)
+    old_audio = make(work / "audio" / "old.wav", 3)
+    other = make(work / "notes" / "keep.txt", 99)  # not a folder the clipper cleans
+    make(out / "20261001-000000" / "plan.json", 61)
+    old_clip = make(out / "20261001-000000" / "c1.mp4", 61)
+    make(out / "20261125-000000" / "plan.json", 6)
+    new_clip = make(out / "20261125-000000" / "c2.mp4", 6)
+    outbox = make(out / "outbox.json", 99)
+    inbox = make(cfg.path("inbox") / "mine.mp4", 99)
+
+    result = pipeline.cleanup(cfg, now, lambda m: None)
+    assert not old_video.exists() and not old_audio.exists() and not old_clip.exists()
+    assert not (out / "20261001-000000").exists()  # the emptied run folder goes too
+    assert new_video.exists() and new_clip.exists() and other.exists() and outbox.exists() and inbox.exists()
+    assert result["files"] == 4 and result["bytes"] == 1000 + 10 + 10 + 10

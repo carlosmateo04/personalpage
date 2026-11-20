@@ -9,7 +9,9 @@
 #   app\     the clipper code            venv\    Python and its packages
 #   models\  the speech model            data\    downloads, finished clips (data\out), ledger, reports
 # Delete that folder to remove everything. Running the line again updates the code and
-# keeps the data.
+# keeps the data. In that folder afterwards:
+#   run.cmd        make clips again          daily-on.cmd   make them every morning by itself
+#   daily-off.cmd  stop the daily run
 #
 # Optional environment variables:
 #   CLIPPER_DIR       install somewhere else
@@ -95,19 +97,8 @@ function Install-Clipper {
     }
     Invoke-Step 'installing the Python packages' { uv pip install --python $py -r (Join-Path $app 'requirements.txt') }
 
-    # A script to make clips again later: double-click run.cmd in the install folder.
-    $runScript = @"
-`$env:PATH = "$toolPath;`$env:PATH"
-`$env:CLIPPER_DATA = "$data"
-`$env:CLIPPER_MODELS = "$(Join-Path $root 'models')"
-Set-Location "$app"
-& "$py" -m clipper status
-& "$py" -m clipper plan
-& "$py" -m clipper execute
-Start-Process explorer.exe "$(Join-Path $data 'out')"
-"@
-    Set-Content -Path (Join-Path $root 'run.ps1') -Value $runScript -Encoding UTF8
-    Set-Content -Path (Join-Path $root 'run.cmd') -Value "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0run.ps1`"`r`npause" -Encoding ASCII
+    # Scripts for later: run.cmd makes clips again, daily-on.cmd and daily-off.cmd switch the daily run.
+    Copy-Item -Path (Join-Path $app 'windows\*') -Destination $root -Force
 
     $env:CLIPPER_DATA = $data
     $env:CLIPPER_MODELS = Join-Path $root 'models'
@@ -133,6 +124,7 @@ Start-Process explorer.exe "$(Join-Path $data 'out')"
         Write-Host ''
         Write-Host "Done. Clips and their post text are in $out" -ForegroundColor Green
         Write-Host "To make clips again later, double-click run.cmd in $root"
+        Write-Host "To have it run by itself every morning, double-click daily-on.cmd in $root"
         if (Test-Path $out) { Start-Process explorer.exe $out }
     } finally {
         Pop-Location

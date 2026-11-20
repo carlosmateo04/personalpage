@@ -97,6 +97,12 @@ class Filters:
 
 
 @dataclass
+class Housekeeping:
+    keep_downloads_days: int = 2  # downloaded videos and working files are deleted after this
+    keep_clips_days: int = 30  # finished clips and their post text are deleted after this
+
+
+@dataclass
 class Rights:
     block_channels: list[str] = field(default_factory=lambda: ["Rockstar Games", "Take-Two Interactive"])  # never taken from
     credit_format: str = "Credit: {creator}"  # shown on the clip and in every caption
@@ -246,6 +252,7 @@ class Config:
     sections: list[Section] = field(default_factory=default_sections)
     rights: Rights = field(default_factory=Rights)
     filters: Filters = field(default_factory=Filters)
+    housekeeping: Housekeeping = field(default_factory=Housekeeping)
     transcribe: Transcribe = field(default_factory=Transcribe)
     moments: Moments = field(default_factory=Moments)
     captions: Captions = field(default_factory=Captions)

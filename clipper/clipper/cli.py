@@ -106,6 +106,11 @@ def cmd_status(cfg, args) -> int:
     return 0
 
 
+def cmd_cleanup(cfg, args) -> int:
+    pipeline.cleanup(cfg)
+    return 0
+
+
 def cmd_report(cfg, args) -> int:
     print(report.build(cfg, pipeline.ledger_of(cfg)))
     return 0
@@ -134,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--voiceover", action="append", metavar="CLIP_ID=FILE")
     p.set_defaults(fn=cmd_approve)
     sub.add_parser("status", help="refresh post links and views, rewrite the report").set_defaults(fn=cmd_status)
+    sub.add_parser("cleanup", help="delete old downloads and old clips").set_defaults(fn=cmd_cleanup)
     sub.add_parser("report", help="print the report").set_defaults(fn=cmd_report)
     args = parser.parse_args(argv)
     try:

@@ -292,6 +292,44 @@ def approve(cfg: Config, ledger: Ledger, ids: list[str], voiceovers: dict[str, s
     return count
 
 
+def cleanup(cfg: Config, now: datetime | None = None, log: Log = _log) -> dict:
+    """Delete old downloads, working files and finished clips so the disk does not fill up.
+
+    Only the clipper's own folders are touched: work/downloads, work/audio,
+    work/transcripts, work/captions, and the dated run folders inside out/.
+    """
+    now = now or datetime.now(timezone.utc)
+    h = cfg.housekeeping
+    freed, removed = 0, 0
+
+    def too_old(path: Path, days: int) -> bool:
+        return now.timestamp() - path.stat().st_mtime > days * 86400
+
+    work = cfg.path("work")
+    for name in ("downloads", "audio", "transcripts", "captions"):
+        folder = work / name
+        if not folder.is_dir():
+            continue
+        for f in folder.iterdir():
+            if f.is_file() and too_old(f, h.keep_downloads_days):
+                freed += f.stat().st_size
+                f.unlink()
+                removed += 1
+    out = cfg.path("out")
+    if out.is_dir():
+        for run in out.iterdir():
+            if run.is_dir() and (run / "plan.json").exists() and too_old(run / "plan.json", h.keep_clips_days):
+                for f in run.iterdir():
+                    if f.is_file():
+                        freed += f.stat().st_size
+                        f.unlink()
+                        removed += 1
+                if not any(run.iterdir()):
+                    run.rmdir()
+    log(f"cleanup: {removed} old file(s) deleted, {freed / 1e6:.0f} MB freed")
+    return {"files": removed, "bytes": freed}
+
+
 def refresh(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _log) -> int:
     """Pull post links and view counts for scheduled clips; mark them posted once links exist."""
     now = now or datetime.now(timezone.utc)
