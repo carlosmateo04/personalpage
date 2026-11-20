@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from . import captions, gates, intake, media, metadata, moments, presenter, publish, render, report, schedule, sections, transcribe
+from . import (captions, claude, gates, intake, media, metadata, moments, outbox, presenter, publish, render, report, review, schedule,
+               scout, sections, transcribe)
 from .config import Config
 from .state import Ledger, now_iso
 from .transcribe import Word
@@ -90,7 +91,10 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
     pool: list[dict] = []
     rejected: list[dict] = []
     problems: list[str] = []
+    notes: list[str] = []  # things worth knowing that are not failures
     seen: list[tuple[str, str]] = []
+    scouting = cfg.ai.scout and claude.available(cfg)  # Claude picks the moments in long videos
+    editing = review.available(cfg)  # and will be shown each clip afterwards
     # Clips planned by a run that never finished are forgotten; their footage is analysed again.
     for stale in [k for k, c in ledger.clips.items() if c.get("status") == "planned"]:
         del ledger.clips[stale]
@@ -133,6 +137,22 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
                 continue
             if verdict == "parts":
                 log(f"  someone talks about the game around {spots}; those parts are skipped")
+        if scouting and not whole:
+            try:
+                picked = scout.find(cfg, item.path, item.title or item.name, item.creator, duration, found.words,
+                                    cfg.path("work") / "audio" / f"{item.source_id}.wav", cands, cfg.path("work") / "boards", item.source_id, log)
+            except (claude.ClaudeError, media.MediaError) as exc:
+                notes.append(f"{item.name}: Claude could not look at the video ({exc}); the loudness finder was used")
+                log(f"  Claude could not look at this video ({exc}); using the loudness finder")
+                scouting = scouting and not getattr(exc, "fatal", False)
+            else:
+                if not picked.usable:
+                    leave_out(f"Claude: {picked.problem or 'this video is not usable gameplay'}")
+                    continue
+                for line in picked.skipped:
+                    log(f"  a pick was not used ({line})")
+                cands = picked.cands
+                log(f"  Claude picked {len(cands)} moment(s)" + (": " + "; ".join(f"{media.clock(c.start)} {c.ai['title']}" for c in cands) if cands else ""))
         kept = 0
         for cand in cands:
             reasons = gates.check(cfg, cand, item.source_id, ledger, whole)
@@ -141,8 +161,8 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
             if not reasons and not whole:  # a passage of a long video gets its own look
                 reasons = presenter.check(cfg, item.path, cand.start, cand.end, cand.text)
             elif not reasons and cfg.filters.no_cutscenes:  # a short video used whole was checked for faces and talk above
-                found, why = presenter.cutscene(cfg, presenter.frames(item.path, cand.start, cand.end, cfg.filters.facecam_frames))
-                reasons = [f"story cutscene ({why})"] if found else []
+                barred, why = presenter.cutscene(cfg, presenter.frames(item.path, cand.start, cand.end, cfg.filters.facecam_frames))
+                reasons = [f"story cutscene ({why})"] if barred else []
             if not reasons and kept >= cfg.moments.max_per_source:
                 reasons = ["over the per-video limit"]
             text = gates.normalise(cand.text)
@@ -155,8 +175,8 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
                 continue
             kept += 1
             seen.append((text, item.source_id))
-            section = sections.classify(cfg, cand.text, item.title, item.section)
-            pool.append({"cand": cand, "item": item, "section": section, "whole": whole})
+            section = cfg.section(cand.ai["section"]) if cand.ai else sections.classify(cfg, cand.text, item.title, item.section)
+            pool.append({"cand": cand, "item": item, "section": section, "whole": whole, "duration": duration, "words": found.words})
         ledger.sources[item.source_id] = {
             "name": item.name, "origin": item.origin, "creator": item.creator, "permission": item.permission,
             "duration": round(duration, 1), "candidates": len(cands), "kept": kept, "status": "planned", "processed": now_iso(),
@@ -174,12 +194,21 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
             "origin": item.origin, "creator": item.creator, "permission": item.permission, "section": section.name,
             "start": cand.start, "end": cand.end, "peak": cand.peak, "score": cand.score,
             "text": cand.text, "words": [asdict(w) for w in cand.words],
-            "meta": metadata.build(cfg, cand, clip_id, item.creator, section, item.title, item.origin, entry["whole"]),
-            "slot": slot.isoformat(), "voiceover": "", "drop": False,
+            "meta": (metadata.compose(cfg, clip_id, item.creator, section, cand.ai["title"], cand.ai["hook"], item.origin, summary=cand.ai["why"])
+                     if cand.ai else metadata.build(cfg, cand, clip_id, item.creator, section, item.title, item.origin, entry["whole"])),
+            "slot": slot.isoformat(), "voiceover": "", "drop": False, "whole": entry["whole"],
         }
-        try:  # a strip of frames, so whoever reviews the plan can see what happens in the clip
-            shots = cfg.review.frames if cand.end - cand.start >= 40 else min(4, cfg.review.frames)
-            clip["sheet"] = str(media.contact_sheet(item.path, cand.start, cand.end, run_dir / f"{clip_id}.jpg", shots))
+        if cand.ai:
+            clip["scout"] = cand.ai
+        # What surrounds the clip: the editor may move the cut into it.
+        margin = 0.0 if entry["whole"] else cfg.ai.margin
+        low, high = max(0.0, cand.start - margin), min(entry["duration"], cand.end + margin)
+        clip["context"] = {"from": round(low, 2), "to": round(high, 2),
+                           "words": [asdict(w) for w in entry["words"] if w.s >= low and w.e <= high]}
+        try:  # frames with their times, for the editor and for anyone who looks at the plan
+            count = cfg.ai.frames if editing else 8
+            times = [low + (k + 0.5) * (high - low) / count for k in range(count)]
+            clip["sheet"] = media.sheets(item.path, times, run_dir, clip_id, cols=4, rows=-(-count // 4))[0]["path"]
         except media.MediaError:
             clip["sheet"] = ""
         clips.append(clip)
@@ -193,7 +222,7 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
         cand, item = entry["cand"], entry["item"]
         rejected.append({"source": item.name, "start": cand.start, "end": cand.end, "score": cand.score, "reasons": ["no free posting slot in the scheduling window"]})
 
-    result = {"run": run_id, "created": now_iso(), "clips": clips, "rejected": rejected, "problems": problems}
+    result = {"run": run_id, "created": now_iso(), "clips": clips, "rejected": rejected, "problems": problems, "notes": notes}
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "plan.json").write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
     ledger.save()
@@ -229,7 +258,7 @@ def render_clip(cfg: Config, clip: dict, run_dir: Path) -> Path:
     ass.parent.mkdir(parents=True, exist_ok=True)
     ass.write_text(captions.build(
         cfg, rel, end - start, hook=meta.get("hook", ""), label=meta.get("label", ""),
-        badge=section.label, badge_color=section.color, credit=meta.get("credit", ""),
+        badge=section.label, badge_color=section.color, credit=meta.get("credit", ""), callouts=clip.get("callouts"),
     ), encoding="utf-8")
     voice = Path(clip["voiceover"]) if clip.get("voiceover") else None
     if voice and not voice.exists():
@@ -238,10 +267,18 @@ def render_clip(cfg: Config, clip: dict, run_dir: Path) -> Path:
     got = media.probe(out)
     if abs(got.duration - (end - start)) > 1.0 or not got.has_audio:
         raise media.MediaError(f"render check failed: {got.duration:.1f}s, audio={got.has_audio}")
+    # The cover: the frame the editor chose, else one a third of the way in (past the headline).
+    at = clip.get("cover")
+    media.grab(out, (end - start) / 3 if at is None else float(at), cover_of(out), width=720)
     return out
 
 
-def _send(cfg: Config, ledger: Ledger, pub, rec: dict, clip_meta: dict, video: Path, now: datetime, log: Log) -> None:
+def cover_of(video: Path) -> Path:
+    return video.with_name(video.stem + ".cover.jpg")
+
+
+def _send(cfg: Config, ledger: Ledger, rec: dict, clip_meta: dict, video: Path, now: datetime, log: Log) -> None:
+    """Give a finished clip its posting time and put it in the outbox (or, in a dry run, write down what would be sent)."""
     slot = datetime.fromisoformat(rec["slot"])
     if slot <= now:
         fresh = schedule.next_slots(cfg.schedule, now, ledger.taken_slots(), 1)
@@ -249,10 +286,15 @@ def _send(cfg: Config, ledger: Ledger, pub, rec: dict, clip_meta: dict, video: P
             raise publish.PublishError("no free posting slot")
         slot = fresh[0]
         rec["slot"] = slot.isoformat()
-    rec["publish"] = pub.publish({"id": rec["id"], "meta": clip_meta}, video, slot)
-    rec["status"] = "scheduled"
-    local = slot.astimezone(ZoneInfo(cfg.schedule.timezone))
-    log(f"  {rec['id']} scheduled for {local.strftime('%a %d %b %H:%M %Z')} ({pub.name})")
+    local = slot.astimezone(ZoneInfo(cfg.schedule.timezone)).strftime("%a %d %b %H:%M %Z")
+    if cfg.publish.mode == "live":
+        result = outbox.enqueue(cfg, ledger, rec, slot, now=now)
+        left = "".join(f"; not {name} ({why})" for name, why in result["skipped"].items())
+        log(f"  {rec['id']} scheduled for {local} (live: {', '.join(result['queued'])}{left})")
+    else:
+        rec["publish"] = publish.DryRun(cfg).publish({"id": rec["id"], "meta": clip_meta}, video, slot)
+        rec["status"] = "scheduled"
+        log(f"  {rec['id']} scheduled for {local} (dry_run)")
 
 
 def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: datetime | None = None, log: Log = _log) -> dict:
@@ -262,7 +304,6 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
         raise FileNotFoundError("no plan.json found; run `plan` first")
     data = json.loads(plan_path.read_text(encoding="utf-8"))
     run_dir = plan_path.parent
-    pub = publish.publisher(cfg)
     done = failed = 0
     for clip in data["clips"]:
         rec = ledger.clips.get(clip["id"])
@@ -285,6 +326,10 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
         try:
             video = render_clip(cfg, clip, run_dir)
             rec["file"], rec["meta"] = str(video), clip["meta"]
+            # The editor may have moved the cut; the ledger keeps what was actually made.
+            rec.update(start=clip["start"], end=clip["end"], text=gates.normalise(clip.get("text", "")), cover=clip.get("cover"))
+            if clip.get("scout"):
+                rec["scout"] = clip["scout"]
             rec["seo"] = text_problems(cfg, ledger, rec, clip["meta"])  # an empty list means the title, captions and tags pass
             video.with_suffix(".txt").write_text(report.post_kit(cfg, clip, rec["slot"]), encoding="utf-8")  # the text to post with it
             if cfg.publish.hold_for_review:
@@ -294,7 +339,12 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
                 rec["status"] = "held"  # nothing with a weak title or a broken caption is posted by itself
                 log(f"  {rec['id']} rendered but not posted, its text needs a look: {'; '.join(rec['seo'])}")
             else:
-                _send(cfg, ledger, pub, rec, clip["meta"], video, now, log)
+                try:
+                    _send(cfg, ledger, rec, clip["meta"], video, now, log)
+                except publish.PublishError as exc:  # the clip is made; it only could not be queued
+                    rec["status"], rec["error"] = "held", str(exc)[:400]
+                    data.setdefault("notes", []).append(f"{clip['id']} was made but not queued for posting: {exc}")
+                    log(f"  {rec['id']} rendered but not queued for posting: {exc}")
             done += 1
         except (media.MediaError, publish.PublishError) as exc:
             rec["status"], rec["error"] = "failed", str(exc)[:400]
@@ -305,7 +355,11 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
     for src in ledger.sources.values():
         if src.get("status") == "planned":
             src["status"] = "done"
-    summary = {"run": data["run"], "mode": pub.name, "clips": done, "failed": failed, "rejected": len(data.get("rejected", [])), "problems": data.get("problems", [])}
+    ledger.save()
+    if cfg.publish.mode == "live":
+        outbox.deliver(cfg, ledger, now, log)  # hand over what the platforms can hold until its time
+    summary = {"run": data["run"], "mode": cfg.publish.mode, "clips": done, "failed": failed, "rejected": len(data.get("rejected", [])),
+               "problems": data.get("problems", []), "notes": data.get("notes", [])}
     ledger.log_run(summary)
     ledger.save()
     return summary
@@ -314,10 +368,9 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
 def approve(cfg: Config, ledger: Ledger, ids: list[str], voiceovers: dict[str, str] | None = None, now: datetime | None = None, log: Log = _log) -> int:
     """Schedule clips that were held for review; re-render first when a voiceover is supplied."""
     now = now or datetime.now(timezone.utc)
-    pub = publish.publisher(cfg)
     voiceovers = voiceovers or {}
     count = 0
-    for rec in ledger.clips.values():
+    for rec in list(ledger.clips.values()):
         if rec.get("status") != "held" or (ids and rec["id"] not in ids):
             continue
         video = Path(rec["file"])
@@ -326,9 +379,11 @@ def approve(cfg: Config, ledger: Ledger, ids: list[str], voiceovers: dict[str, s
             clip = next(c for c in json.loads(plan_path.read_text(encoding="utf-8"))["clips"] if c["id"] == rec["id"])
             clip["voiceover"] = voiceovers[rec["id"]]
             video = render_clip(cfg, clip, plan_path.parent)
-        _send(cfg, ledger, pub, rec, rec["meta"], video, now, log)
+        _send(cfg, ledger, rec, rec["meta"], video, now, log)
         ledger.save()
         count += 1
+    if count and cfg.publish.mode == "live":
+        outbox.deliver(cfg, ledger, now, log)
     return count
 
 
@@ -386,29 +441,83 @@ def drop_clip(cfg: Config, ledger: Ledger, clip_id: str) -> dict:
 
 
 def post_clip(cfg: Config, ledger: Ledger, clip_id: str, when: str = "now", platforms: list[str] | None = None,
-              now: datetime | None = None) -> dict:
-    """Send a ready clip to the connected accounts: straight away ("now") or in the next free slot ("next")."""
+              now: datetime | None = None, log: Log = _log) -> dict:
+    """Send a ready clip to the connected accounts: straight away ("now") or at the next free posting time ("next")."""
     now = now or datetime.now(timezone.utc)
     rec = ledger.clips[clip_id]
     if clip_state(rec) != "ready":
         raise publish.PublishError("this clip has already been sent or dropped")
-    video = Path(rec.get("file", ""))
-    if not video.exists():
-        raise publish.PublishError("the clip file is no longer on this computer")
-    pub = publish.UploadPost(cfg)
     slot = None
     if when == "next":
         free = schedule.next_slots(cfg.schedule, now, ledger.taken_slots() - {rec.get("slot")}, 1)
         if not free:
             raise publish.PublishError("no free posting slot in the scheduling window")
         slot = free[0]
-        rec["slot"] = slot.isoformat()
-    sent = pub.publish({"id": rec["id"], "meta": rec["meta"]}, video, slot, platforms)
-    rec["publish"] = {**sent, "platforms": platforms or list(cfg.publish.platforms), "sent": now_iso()}
-    rec["status"] = "scheduled" if slot else "posted"
-    if not slot:
-        rec["slot"] = now.isoformat()
+    rec.pop("publish", None)  # whatever a dry run wrote down
+    outbox.enqueue(cfg, ledger, rec, slot, platforms, now)
+    outbox.deliver(cfg, ledger, now, log, only=clip_id)
+    if rec["status"] == "failed":
+        raise publish.PublishError(rec.get("error") or "the clip could not be sent")
+    return rec
+
+
+def retry_clip(cfg: Config, ledger: Ledger, clip_id: str, now: datetime | None = None, log: Log = _log) -> dict:
+    """Send a clip's failed posts again."""
+    now = now or datetime.now(timezone.utc)
+    rec = ledger.clips[clip_id]
+    if not outbox.retry(cfg, ledger, rec, now):
+        raise publish.PublishError("nothing to send again: connect the account first")
+    outbox.deliver(cfg, ledger, now, log, only=clip_id)
+    return rec
+
+
+def take_back(cfg: Config, ledger: Ledger, clip_id: str) -> dict:
+    """Take a clip out of the queue, as far as it has not been handed to a platform yet."""
+    rec = ledger.clips[clip_id]
+    if not outbox.take_back(cfg, ledger, rec):
+        raise publish.PublishError("every post of this clip is already with its platform; change it there")
+    return rec
+
+
+def reedit(cfg: Config, ledger: Ledger, clip_id: str, instruction: str = "", log: Log = _log) -> dict:
+    """Have Claude edit a finished clip again, with an instruction from the app, and render it anew.
+
+    The text may have been changed by hand since; Claude starts from the clip as it is now.
+    Nothing is changed unless the whole thing succeeds.
+    """
+    rec = ledger.clips[clip_id]
+    if clip_state(rec) != "ready":
+        raise publish.PublishError("only a clip that has not been sent can be edited again")
+    why = review.unavailable(cfg)
+    if why:
+        raise publish.PublishError(f"Claude cannot be used: {why}")
+    plan_path = cfg.path("out") / str(rec.get("run", "")) / "plan.json"
+    data = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.exists() else {"clips": []}
+    clip = next((c for c in data["clips"] if c["id"] == clip_id), None)
+    if clip is None or not Path(clip["source_path"]).exists():
+        raise publish.PublishError("the video this clip was cut from is no longer on this computer, so it cannot be cut again")
+    draft = json.loads(json.dumps(clip))
+    draft["meta"] = json.loads(json.dumps(rec["meta"]))
+    draft.pop("review", None)
+    try:
+        verdict = review.ask(cfg, draft, instruction)
+    except claude.ClaudeError as exc:
+        raise publish.PublishError(f"Claude could not be asked: {exc}") from exc
+    if not verdict["keep"]:
+        raise publish.PublishError(f"Claude would not keep this clip ({str(verdict.get('reason', '')).strip()[:200]}). Nothing was changed.")
+    done = review.edit(cfg, draft, verdict)
+    try:
+        video = render_clip(cfg, draft, plan_path.parent)
+    except media.MediaError as exc:
+        raise publish.PublishError(f"the clip could not be rendered again: {str(exc)[:200]}") from exc
+    rec.update(file=str(video), meta=draft["meta"], title=draft["meta"]["title"], section=cfg.section(draft.get("section", "")).name,
+               start=draft["start"], end=draft["end"], text=gates.normalise(draft.get("text", "")), cover=draft.get("cover"), review=draft["review"])
+    rec["seo"] = text_problems(cfg, ledger, rec, draft["meta"])
+    _kit(cfg, rec)
+    data["clips"] = [draft if c["id"] == clip_id else c for c in data["clips"]]
+    plan_path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
     ledger.save()
+    log(f"  {clip_id} {done}")
     return rec
 
 
@@ -426,7 +535,7 @@ def cleanup(cfg: Config, now: datetime | None = None, log: Log = _log) -> dict:
         return now.timestamp() - path.stat().st_mtime > days * 86400
 
     work = cfg.path("work")
-    for name in ("downloads", "audio", "transcripts", "captions"):
+    for name in ("downloads", "audio", "transcripts", "captions", "boards"):
         folder = work / name
         if not folder.is_dir():
             continue
@@ -451,29 +560,5 @@ def cleanup(cfg: Config, now: datetime | None = None, log: Log = _log) -> dict:
 
 
 def refresh(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _log) -> int:
-    """Pull post links and view counts for scheduled clips; mark them posted once links exist."""
-    now = now or datetime.now(timezone.utc)
-    pub = publish.publisher(cfg)
-    changed = 0
-    for rec in ledger.clips.values():
-        if rec.get("status") not in ("scheduled", "posted") or rec.get("publish", {}).get("mode") != "live":
-            continue
-        if rec.get("links") and rec.get("status") == "posted" and (now - datetime.fromisoformat(rec["slot"])).days > 7:
-            continue  # old posts are not asked about again
-        age = now - datetime.fromisoformat(rec["slot"])
-        if age.total_seconds() < 0 or age.days > 30:
-            continue
-        got = pub.refresh(rec)
-        if got.get("links"):
-            rec["links"] = {**rec.get("links", {}), **got["links"]}
-            rec["status"] = "posted"
-        if got.get("views"):
-            rec["views"] = got["views"]
-        if got.get("state"):
-            rec["publish"]["state"] = got["state"]
-        if got.get("error"):
-            rec["publish"]["status_error"] = got["error"]
-        changed += bool(got)
-    ledger.save()
-    log(f"status refreshed for {changed} clip(s)")
-    return changed
+    """Ask the platforms what became of the posts: whether they are out, their links and their views."""
+    return outbox.refresh(cfg, ledger, now, log)

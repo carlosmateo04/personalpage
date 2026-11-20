@@ -17,6 +17,9 @@ _PROFANITY = re.compile(r"\b(f+u+c+k+\w*|s+h+i+t+\w*|b+i+t+c+h+\w*|a+s+s+h+o+l+e
 _SENTENCE_END = re.compile(r"[.!?]$")
 
 
+CALLOUT_SECONDS = 2.8  # how long an on-screen note stays up
+
+
 def mask_profanity(text: str) -> str:
     return _PROFANITY.sub(lambda m: m.group(0)[0] + "*" * (len(m.group(0)) - 1), text)
 
@@ -100,12 +103,14 @@ def _readable_on(hex_color: str) -> str:
 
 
 def build(cfg: Config, words: list[Word], clip_len: float, hook: str = "", label: str = "",
-          badge: str = "", badge_color: str = "#FF2E93", credit: str = "") -> str:
+          badge: str = "", badge_color: str = "#FF2E93", credit: str = "", callouts: list[dict] | None = None) -> str:
     """The complete ASS file for one clip. `words` must be timed relative to the clip start.
 
     badge: the section name shown top-left; label: the paid-partnership notice shown
     top-right; hook: a headline shown for the first seconds; credit: who the footage
-    is from, shown under the captions for the whole clip.
+    is from, shown under the captions for the whole clip; callouts: short notes
+    ({"at": seconds into the clip, "text": ...}) shown where the headline was, each
+    for a few seconds.
     """
     c, r = cfg.captions, cfg.render
     W, H = r.width, r.height
@@ -118,6 +123,8 @@ def build(cfg: Config, words: list[Word], clip_len: float, hook: str = "", label
         f"Style: Label,{c.font},{int(c.size * 0.36)},&H00FFFFFF,&H00FFFFFF,&H60000000,&H60000000,0,0,0,0,100,100,0,0,3,10,0,7,40,40,0,1",
         f"Style: Badge,{c.font},{int(c.size * 0.42)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,12,0,7,40,40,0,1",
         f"Style: Handle,{c.font},{int(c.size * 0.4)},&H50FFFFFF,&H50FFFFFF,&H50000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,5,40,40,0,1",
+        # The headline's twin in reverse: white on black, so a note is not mistaken for the headline.
+        f"Style: Callout,{c.font},{int(c.size * 0.56)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,14,0,5,40,40,0,1",
     ]
     x, y = W // 2, int(H * c.y)
     active_tag = "&H" + active[4:] + "&"  # inline colour tags take &HBBGGRR&
@@ -137,6 +144,14 @@ def build(cfg: Config, words: list[Word], clip_len: float, hook: str = "", label
     if hook:
         text = hook.upper() if c.uppercase else hook
         event(0, min(r.hook_seconds, clip_len), "Hook", rf"{{\an5\pos({x},{int(H * 0.138)})\fad(120,200)}}{_wrap(text, 24)}", 2)
+    shown_until = min(r.hook_seconds, clip_len) if hook else 0.0
+    for note in sorted(callouts or [], key=lambda n: n["at"]):
+        text = re.sub(r"[{}\\]", "", str(note["text"])).strip()
+        begin = max(float(note["at"]), shown_until + 0.2)  # never over the headline or the note before
+        finish = min(begin + CALLOUT_SECONDS, clip_len)
+        if text and finish - begin >= 1.0:
+            event(begin, finish, "Callout", rf"{{\an5\pos({x},{int(H * 0.138)})\fad(120,200)}}{_wrap(text.upper() if c.uppercase else text, 24)}", 2)
+            shown_until = finish
     footer = "  \u2022  ".join(t for t in (re.sub(r"[{}\\]", "", credit), cfg.brand.handle) if t)
     if footer:
         event(0, clip_len, "Handle", rf"{{\an5\pos({x},{min(H - 60, y + int(c.size * 1.9))})}}{footer}", 1)

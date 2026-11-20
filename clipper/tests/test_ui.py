@@ -104,7 +104,8 @@ def test_posting_needs_a_connection_then_sends_the_edited_text(app, monkeypatch)
     from upload_post import UploadPostClient
 
     status, body, _ = call(app, "/api/post", {"id": "c1", "when": "now"})
-    assert status == 400 and "profile" in body["error"]  # not connected yet
+    assert status == 400 and "tiktok: no account is connected" in body["error"]  # not connected yet
+    assert call(app, "/api/state")[1]["clips"][0]["state"] == "ready"  # and the clip is still waiting, unharmed
 
     api = ThreadingHTTPServer(("127.0.0.1", 0), FakeApi)
     threading.Thread(target=api.serve_forever, daemon=True).start()
@@ -125,8 +126,9 @@ def test_posting_needs_a_connection_then_sends_the_edited_text(app, monkeypatch)
         assert fields["platform[]"] == ["tiktok", "youtube"] and "scheduled_date" not in fields  # now, to the ticked accounts only
         assert fields["tiktok_title"] == ["Edited caption #gta6"] and "instagram_title" not in fields
         rec = Ledger(app.data / "state" / "ledger.json").clips["c1"]
-        assert rec["status"] == "posted" and rec["publish"]["request_id"] == "req-1"
-        assert call(app, "/api/state")[1]["clips"][0]["state"] == "posted"
+        assert {name: (post["state"], post["via"], post["id"]) for name, post in rec["posts"].items()} == {
+            "tiktok": ("processing", "service", "req-1"), "youtube": ("processing", "service", "req-1")}
+        assert call(app, "/api/state")[1]["clips"][0]["state"] == "queued"  # with the service until it reports the links
         assert call(app, "/api/post", {"id": "c1", "when": "now"})[0] == 400  # not twice
         assert call(app, "/api/drop", {"id": "c1"})[0] == 400  # and a sent clip cannot be dropped
 

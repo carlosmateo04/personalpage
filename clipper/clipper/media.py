@@ -88,6 +88,119 @@ def contact_sheet(src: Path, start: float, end: float, out: Path, shots: int = 4
     return out
 
 
+def clock(seconds: float) -> str:
+    """A time in a video the way a player shows it: 7:05, or 1:02:03 past the hour."""
+    total = max(0, int(round(seconds)))
+    hours, rest = divmod(total, 3600)
+    return f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours else f"{rest // 60}:{rest % 60:02d}"
+
+
+def seconds(text: object) -> float | None:
+    """The reverse of `clock`: "7:05" is 425.0. A bare number is taken as seconds. None if it is neither."""
+    if isinstance(text, (int, float)) and not isinstance(text, bool):
+        return float(text) if text >= 0 else None
+    parts = str(text).strip().lower().removesuffix("s").strip().split(":")
+    try:
+        numbers = [float(p) for p in parts]
+    except ValueError:
+        return None
+    if not 1 <= len(numbers) <= 3 or any(n < 0 for n in numbers):
+        return None
+    total = 0.0
+    for n in numbers:
+        total = total * 60 + n
+    return total
+
+
+def grab(src: Path, at: float, out: Path, width: int = 480, exact: bool = True) -> bool:
+    """One frame of a video as a JPEG; False if there is no frame there.
+
+    `exact=False` takes the keyframe just before the moment asked for. That is a few
+    seconds out at most and many times faster, which is what a storyboard of a whole
+    video needs.
+    """
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    if not exact:
+        cmd.append("-noaccurate_seek")
+    cmd += ["-ss", f"{max(0.0, at):.2f}", "-i", str(src), "-frames:v", "1", "-vf", f"scale={width}:-2", "-q:v", "4", str(out)]
+    done = subprocess.run(cmd, capture_output=True)
+    return done.returncode == 0 and out.exists() and out.stat().st_size > 0
+
+
+def _tile(shots: list[tuple[float, object]], out_dir: Path, name: str, cols: int, rows: int, width: int) -> list[dict]:
+    """Lay frames out on sheets, each frame with its time written on it. `shots` is (seconds, image or None)."""
+    import cv2
+    import numpy as np
+
+    first = next((shot for _, shot in shots if shot is not None), None)
+    if first is None:
+        raise MediaError("no frames could be read")
+    height = first.shape[0]
+    blank = np.zeros((height, width, 3), dtype=np.uint8)
+    per = cols * rows
+    made: list[dict] = []
+    for page in range(0, len(shots), per):
+        chunk = shots[page:page + per]
+        tiles = []
+        for at, shot in chunk:
+            tile = blank.copy() if shot is None or shot.shape != blank.shape else shot.copy()
+            label = clock(at)
+            (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+            cv2.rectangle(tile, (0, 0), (w + 14, h + 16), (0, 0, 0), -1)
+            cv2.putText(tile, label, (7, h + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+            tiles.append(tile)
+        used_cols = min(cols, len(tiles))
+        while len(tiles) % used_cols:
+            tiles.append(blank.copy())
+        grid = np.vstack([np.hstack(tiles[r:r + used_cols]) for r in range(0, len(tiles), used_cols)])
+        path = out_dir / f"{name}-{page // per + 1:02d}.jpg"
+        cv2.imwrite(str(path), grid, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        made.append({"path": str(path), "from": chunk[0][0], "to": chunk[-1][0], "frames": len(chunk)})
+    return made
+
+
+def sheets(src: Path, times: list[float], out_dir: Path, name: str, cols: int = 4, rows: int = 5, width: int = 480,
+           exact: bool = True) -> list[dict]:
+    """Frames of a video at the given moments, laid out on sheets with each frame's time written on it.
+
+    Returns one entry per sheet: {"path", "from", "to", "frames"}. Frames run left to
+    right, then top to bottom.
+    """
+    import cv2
+    from concurrent.futures import ThreadPoolExecutor
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
+        paths = [Path(tmp) / f"{n:04d}.jpg" for n in range(len(times))]
+        with ThreadPoolExecutor(max_workers=4) as pool:  # each frame is its own short ffmpeg run
+            got = list(pool.map(lambda pair: grab(src, pair[0], pair[1], width, exact), zip(times, paths)))
+        shots = [(at, cv2.imread(str(path)) if ok else None) for at, ok, path in zip(times, got, paths)]
+        return _tile(shots, out_dir, name, cols, rows, width)
+
+
+def storyboard(src: Path, duration: float, step: float, out_dir: Path, name: str, cols: int = 5, rows: int = 5, width: int = 480) -> list[dict]:
+    """A whole video as sheets of small frames, one every `step` seconds, each with its time on it.
+
+    One pass that decodes only the keyframes, so half an hour of video takes seconds
+    rather than minutes; each frame is the keyframe nearest its moment. A sheet of 5 by 5
+    frames is 2400 pixels wide, inside what Claude reads at full resolution. If the fast
+    pass comes back short (a file with very few keyframes), each frame is fetched by itself.
+    """
+    import cv2
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    wanted = max(1, int(duration // step))
+    with tempfile.TemporaryDirectory(dir=out_dir) as tmp:
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-skip_frame", "nokey", "-i", str(src), "-an",
+                        "-vf", f"fps=1/{step:.3f},scale={width}:-2", "-q:v", "4", str(Path(tmp) / "%04d.jpg")], capture_output=True)
+        found = sorted(Path(tmp).glob("*.jpg"))
+        if len(found) >= 0.6 * wanted:
+            shots = [(min(duration, n * step), cv2.imread(str(path))) for n, path in enumerate(found[:wanted + 1])]
+            return _tile(shots, out_dir, name, cols, rows, width)
+    times = [min(duration - 0.5, n * step + step / 2) for n in range(wanted)]
+    return sheets(src, times, out_dir, name, cols, rows, width, exact=False)
+
+
 def file_id(path: Path) -> str:
     """Stable id for a file: its size plus the first and last 4 MB."""
     size = path.stat().st_size

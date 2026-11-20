@@ -187,15 +187,31 @@ no_commentary = true             # leave out footage where someone talks about t
 no_cutscenes = true              # leave out story cutscenes (the game shows them with black bars above and below)
 require_speech = false           # clips may have no speech at all
 
-# The automatic review. It only runs when a Claude API key is saved in the app
-# (Accounts) or given as ANTHROPIC_API_KEY; the key itself never goes in this file.
-# For each planned clip, Claude sees frames from it and its transcript, drops it if
-# it is not pure gameplay, picks the section and writes the title and headline.
-[review]
+# Claude, built in. It runs when Claude can be reached: with an Anthropic API key
+# saved in the app (Accounts) or given as ANTHROPIC_API_KEY, or through Amazon
+# Bedrock with an AWS profile on this computer. No key goes in this file.
+#   scout  for each long video, Claude is shown frames from the whole video, what
+#          is said and where the sound gets loud, and picks the moments to clip.
+#   edit   for each clip, Claude is shown frames from it, decides whether it is
+#          pure gameplay worth posting, moves the cut to where the action starts,
+#          and writes the title, the headline, the search tags and on-screen notes.
+# Without Claude, the loudness-based finder and rule-based titles are used.
+[ai]
 enabled = true
+provider = "anthropic"           # anthropic (an API key) or bedrock (an AWS profile on this computer)
 model = "claude-opus-5-5"
-effort = "low"                   # low, medium or high: how long it thinks about each clip
-frames = 8                       # frames shown per clip
+aws_profile = ""                 # bedrock only: e.g. "bedrock-sso"
+aws_region = "us-east-1"         # bedrock only
+scout = true
+edit = true
+scout_effort = "medium"          # low, medium, high, xhigh or max: how long it thinks about a whole video
+effort = "low"                   # the same, for one clip
+frames = 16                      # frames of a clip shown to the editor
+max_frames = 100                 # frames of a whole video shown to the scout
+margin = 15                      # seconds before and after a clip the editor may move the cut into
+callouts = true                  # short on-screen notes where nothing is said
+# What the channel wants, in plain words. Change it in the app (Accounts, Claude).
+direction = "Chases that escalate, stunts, crashes, fights that turn, glitches, secrets and details people have not seen, and tricks that are useful. Nothing from the story."
 
 [rights]
 block_channels = ["Rockstar Games", "Take-Two Interactive"]   # never taken from

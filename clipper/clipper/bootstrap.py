@@ -24,7 +24,8 @@ ASR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
 MODULES = {  # import name -> what to install
     "numpy": "numpy", "soundfile": "soundfile", "sherpa_onnx": "sherpa-onnx", "upload_post": "upload-post",
     "requests": "requests", "yt_dlp": "yt-dlp", "yt_dlp_ejs": "yt-dlp-ejs", "cv2": "opencv-python-headless",
-    "anthropic": "anthropic",
+    "anthropic": "anthropic[bedrock]",
+    "botocore": "anthropic[bedrock]",  # Claude through Amazon Bedrock signs its requests with AWS credentials
 }
 
 

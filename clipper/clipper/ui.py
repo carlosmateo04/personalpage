@@ -27,7 +27,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import check, config, metadata, pipeline, publish, review, settings
+from . import check, claude, config, metadata, pipeline, publish, review, settings
 from .config import ROOT
 
 PAGE = Path(__file__).with_name("ui.html")
@@ -254,9 +254,9 @@ class App:
         key = key.strip()
         if not key:
             raise Problem("Paste the key first.")
-        if review.unavailable(cfg).startswith("the anthropic package"):
-            raise Problem("The automatic review is not installed yet. Run the installer again, then add the key.")
-        why = review.check_key(key, cfg.review.model)
+        if claude.unavailable(cfg).startswith("the anthropic package"):
+            raise Problem("Claude is not installed yet. Run the installer again, then add the key.")
+        why = claude.test(cfg, key)
         if why:
             raise Problem(why)
         settings.set_secret(cfg.data_root, "anthropic_api_key", key)

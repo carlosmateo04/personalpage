@@ -8,7 +8,7 @@ Every part is tried for real, on this computer and this internet connection:
   lookup   the first online source is asked what it lists, and the title, views and length rules are applied
   fetch    the first 15 seconds of one listed video are downloaded
   clip     a short test video is transcribed, captioned and rendered as a vertical clip
-  review   one real request goes to Claude and must come back in the expected form (needs the key; costs a cent or two)
+  review   one real request goes to Claude and must come back in the expected form (needs a key or an AWS profile; costs a cent or two)
   posting  the posting service accepts the key and the chosen profile has the four accounts connected (nothing is posted)
 
 Nothing is added to the ledger and nothing is posted.
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
-from . import captions, intake, media, publish, render, review, settings, transcribe
+from . import captions, claude, intake, media, publish, render, review, settings, transcribe
 from .bootstrap import js_runtime
 from .config import Config
 
@@ -32,7 +32,7 @@ PARTS = [
     ("lookup", "Finding videos"),
     ("fetch", "Downloading a video"),
     ("clip", "Cutting, captions and rendering"),
-    ("review", "Automatic review"),
+    ("review", "Claude, built in"),
     ("posting", "Posting connection"),
 ]
 OK, PROBLEM, SKIPPED = "ok", "problem", "skipped"
@@ -162,7 +162,7 @@ def _review(b: _Bench) -> Outcome:
     except review.ReviewError as exc:
         return PROBLEM, f"the request to Claude failed: {exc}"
     said = "would keep" if verdict["keep"] else "rightly dropped"
-    return OK, f"{b.cfg.review.model} answered in the expected form (it {said} the test pattern: {str(verdict.get('reason', ''))[:110]})"
+    return OK, f"{claude.model_id(b.cfg)} answered in the expected form (it {said} the test pattern: {str(verdict.get('reason', ''))[:110]})"
 
 
 def _posting(b: _Bench) -> Outcome:

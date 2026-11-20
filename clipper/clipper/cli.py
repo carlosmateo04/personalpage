@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import check, config, media, pipeline, publish, report, review, sections, transcribe
+from . import check, claude, config, media, outbox, pipeline, report, review, sections, transcribe
 from .bootstrap import js_runtime
 from .captions import build as build_captions
 from .metadata import build as build_meta
@@ -33,12 +33,14 @@ def cmd_doctor(cfg, args) -> int:
     print(f"     sections: {', '.join(sec.name for sec in cfg.sections)}")
     print(f"     posting slots: {', '.join(cfg.schedule.slots)} {cfg.schedule.timezone}")
     print(f"     campaign: {cfg.campaign.name or '-'} (paid: {cfg.campaign.paid})")
-    try:
-        line(True, publish.publisher(cfg).check())
-    except publish.PublishError as exc:
-        line(False, str(exc))
-    why = review.unavailable(cfg)
-    print(f"     automatic review: {'off: ' + why if why else 'on, ' + cfg.review.model}")
+    if cfg.publish.mode == "live":
+        how = outbox.routes(cfg)
+        ways = {"direct": "connected directly", "service": "through the posting service", "": "NOT CONNECTED"}
+        line(any(how.values()), "posting: " + ", ".join(f"{name} {ways[way]}" for name, way in how.items()))
+    else:
+        print("     posting: dry run, nothing is posted")
+    why = claude.unavailable(cfg)
+    print(f"     Claude: {'off: ' + why if why else f'on, {claude.model_id(cfg)} ({cfg.ai.provider}); scout {cfg.ai.scout}, editor {cfg.ai.edit}'}")
     return 0 if ok else 1
 
 
@@ -102,13 +104,13 @@ def cmd_execute(cfg, args) -> int:
 
 
 def _review(cfg, plan_path: Path) -> None:
-    """The automatic review of a plan, when a Claude API key is there; otherwise the rule-based titles stay."""
+    """Claude checks and edits each planned clip, when it can be reached; otherwise the rule-based cut and titles stay."""
     why = review.unavailable(cfg)
     if why:
-        print(f"automatic review skipped: {why}")
+        print(f"Claude is not editing the clips: {why}")
         return
-    print(f"automatic review of the planned clips ({cfg.review.model})")
-    review.apply(cfg, plan_path)
+    print(f"Claude is checking and editing the planned clips ({claude.model_id(cfg)})", flush=True)
+    review.apply(cfg, plan_path, pipeline._log)
 
 
 def cmd_review(cfg, args) -> int:
@@ -148,6 +150,22 @@ def cmd_status(cfg, args) -> int:
     pipeline.refresh(cfg, ledger)
     print(f"report: {report.write(cfg, ledger)}")
     return 0
+
+
+def cmd_post(cfg, args) -> int:
+    """Send what is due, then ask the platforms about what was sent. Quiet when there is nothing to do."""
+    ledger = pipeline.ledger_of(cfg)
+    if not any(rec.get("posts") for rec in ledger.clips.values()):
+        return 0
+    counts = outbox.deliver(cfg, ledger, log=pipeline._log)
+    if counts["busy"]:
+        return 0  # another delivery is under way
+    if counts["sent"] or counts["failed"]:
+        pipeline._log(f"posting: {counts['sent']} sent, {counts['failed']} failed, {counts['waiting']} waiting")
+    outbox.refresh(cfg, ledger, log=lambda message: None)
+    if counts["sent"] or counts["failed"]:
+        report.write(cfg, ledger)
+    return 1 if counts["failed"] else 0
 
 
 def cmd_ui(cfg, args) -> int:
@@ -197,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--voiceover", action="append", metavar="CLIP_ID=FILE")
     p.set_defaults(fn=cmd_approve)
     sub.add_parser("status", help="refresh post links and views, rewrite the report").set_defaults(fn=cmd_status)
+    sub.add_parser("post", help="send the posts that are due and read back what became of them").set_defaults(fn=cmd_post)
     sub.add_parser("cleanup", help="delete old downloads and old clips").set_defaults(fn=cmd_cleanup)
     p = sub.add_parser("ui", help="open the Clipper app in your browser")
     p.add_argument("--port", type=int, default=8765)

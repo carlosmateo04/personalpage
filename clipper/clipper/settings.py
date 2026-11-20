@@ -30,10 +30,11 @@ EDITABLE: dict[str, set[str]] = {
     "brand": {"handle"},
     "moments": {"min_len", "max_len", "max_per_source", "whole_clip_min", "whole_clip_max"},
     "schedule": {"timezone", "slots"},
-    "publish": {"mode", "profile", "platforms", "tiktok_post_mode", "youtube_privacy", "hold_for_review", "facebook_page_id"},
+    "publish": {"mode", "profile", "platforms", "tiktok_post_mode", "tiktok_privacy_level", "tiktok_direct", "youtube_privacy", "youtube_notify",
+                "hold_for_review", "facebook_page_id", "prefer_service"},
     "filters": {"no_facecam", "no_commentary", "no_cutscenes"},
     "housekeeping": {"keep_downloads_days", "keep_clips_days"},
-    "review": {"enabled"},
+    "ai": {"enabled", "provider", "model", "aws_profile", "aws_region", "scout", "edit", "direction", "effort", "scout_effort", "callouts"},
     "render": {"progress_bar", "layout"},
 }
 
@@ -66,6 +67,8 @@ def update(data_root: Path, changes: dict[str, Any]) -> dict[str, Any]:
                 for s in values if str(s.get("query", "")).strip()
             ]
             continue
+        if section == "review":  # the earlier name of the Claude settings
+            section = "ai"
         allowed = EDITABLE.get(section)
         if allowed is None or not isinstance(values, dict):
             raise ValueError(f"{section} cannot be changed here")
@@ -179,3 +182,22 @@ def set_secret(data_root: Path, name: str, value: str) -> str:
     except OSError:
         pass
     return str(path)
+
+
+# --- connected accounts ---------------------------------------------------------
+
+def account(data_root: Path, platform: str) -> dict[str, Any]:
+    """What is remembered about a posting account (never a key or a token: those are secrets)."""
+    found = load(data_root).get("accounts", {}).get(platform, {})
+    return dict(found) if isinstance(found, dict) else {}
+
+
+def set_account(data_root: Path, platform: str, values: dict[str, Any] | None) -> None:
+    """Remember details of a posting account; None forgets the account."""
+    current = load(data_root)
+    accounts = current.setdefault("accounts", {})
+    if values is None:
+        accounts.pop(platform, None)
+    else:
+        accounts[platform] = {**accounts.get(platform, {}), **values}
+    save(data_root, current)

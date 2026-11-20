@@ -1,174 +1,248 @@
-"""Automatic review: Claude looks at each planned clip before it is rendered.
+"""The editor: Claude checks each planned clip and edits it before it is rendered.
 
-For every clip it is given frames taken evenly across it, the transcript and the
-title of the video it came from. It decides whether the clip should be posted at all,
-files it under a section, and writes the title, the on-screen headline and a
-one-line description. The clip is then rendered and captioned with that text,
-so nobody has to edit it by hand.
+For every clip Claude is shown frames from a little before it to a little after
+it, each with its time, and what is said. It decides whether the clip is pure
+gameplay worth posting, moves the cut to where the action starts, files the clip
+under a section, and writes the title, the on-screen headline, a one-line
+summary, the search tags and, where nothing is said, short on-screen notes. It
+also picks the cover frame and gives the clip a score. The clip is then rendered
+with all of that, so nobody has to edit it by hand.
 
-It needs a Claude API key: ANTHROPIC_API_KEY, or the one saved in the app.
-Without a key the clipper carries on with its own automatic titles.
+The same step re-edits a finished clip when the app is asked to ("start later",
+"a calmer title").
+
+It runs when Claude can be reached (see claude.py). Without it the clipper keeps
+its rule-based cut and titles.
 """
 
 from __future__ import annotations
 
-import base64
-import importlib.util
 import json
-import os
+import re
 from pathlib import Path
 from typing import Callable
 
-from . import metadata, settings
+from . import claude, media, metadata, moments, sections
+from .captions import mask_profanity
+from .claude import ClaudeError
 from .config import Config
+from .transcribe import Word
 
 Log = Callable[[str], None]
+ReviewError = ClaudeError  # the earlier name
 
-# Models that take the server-side refusal fallback. On a policy decline the API
-# re-runs the request on a fallback model inside the same call.
-FALLBACK_MODELS = {"claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
+SYSTEM = """You are the editor of a fan channel that posts short vertical gameplay clips on TikTok, Instagram, YouTube Shorts and Facebook. Each request gives you one clip as it is cut now: a sheet of frames in time order, each labelled with its time in the source video (minutes:seconds), then the video's title, where the clip starts and ends, and what is said with times. The frames reach a little before and after the clip so that you can move the cut.
 
-SYSTEM = """You are the editor of a fan channel that posts short GTA 6 gameplay clips. Each request gives you one candidate clip: one image holding frames taken evenly across the clip (in reading order, left to right and top to bottom), everything said in it, and the title of the video it was cut from. Decide whether it should be posted, and if so describe it.
+First decide whether the clip should be posted at all (keep). The channel posts pure gameplay only. Do not keep a clip when:
+- a streamer or commentator can be seen (a webcam box, a chat overlay, a person on camera) or heard (someone outside the game reacting to it or talking about it, as opposed to characters in the game speaking);
+- it is a story cutscene, an ending, or gives away the plot;
+- most of it is a menu, a map, a loading screen, or nothing happening;
+- it is not gameplay of the game named with the clip;
+- it contains slurs, promotes gambling or politics, or shows someone's personal information.
+Give a short reason for the decision either way. If you cannot tell what happens in the clip, say so and do not keep it rather than guess.
 
-The channel only posts pure gameplay. Reject a clip (keep = false) when any of these is true:
-- A streamer or commentator can be seen (a webcam box, a chat overlay, a person on camera) or heard (someone reacting to the game or talking about it from outside it, as opposed to characters in the game speaking).
-- It is a story cutscene, an ending, or gives away a plot point.
-- It shows a menu, a loading screen, a map screen or nothing happening for most of the clip.
-- It is not GTA 6 gameplay.
-- It contains slurs, gambling or political promotion, or someone's personal information.
-
-When you keep a clip:
-- section: "findings" for a secret, easter egg or newly discovered detail; "tricks" for a tip or how-to; "glitches" for a bug or broken physics; "moments" for anything else worth watching (a chase, a stunt, a crash, a funny or impressive moment).
-- title: what happens in the clip, in plain words, at most 60 characters. No clickbait, no all-caps, no emoji, no hashtags. Do not name the game in it.
-- hook: the same idea as a short headline shown on the video for the first seconds, at most 40 characters.
+For a clip you keep, edit it:
+- start and end: the cut, as times in the source video (minutes:seconds). Leave it as it is unless moving it makes a better clip: open just before the action begins rather than in a lull, and end once the moment has played out. How far each end may move and how long the clip may be are given with the clip. Never cut into a sentence.
+- section: where it belongs (the sections are listed with the clip).
+- title: what happens, in plain words, at most 60 characters. No clickbait, no capitals for emphasis, no emoji, no hashtags, and do not name the game.
+- hook: the same idea as a headline shown on the video for its first seconds, at most 40 characters.
 - summary: one sentence saying what the viewer sees.
-- tags: three to five short phrases a viewer would type into search to find this exact clip, in lower case, each starting with "gta 6" (for example "gta 6 police chase", "gta 6 tank"). Only things that are in the clip.
+- tags: three to five short phrases someone would type into search to find this exact clip, lower case, each starting with the game's name as given with the clip ("gta 6 police chase"). Only things that are in the clip.
+- callouts: up to three short notes shown on screen for a few seconds, each with the time it applies (minutes:seconds in the source video) and at most 28 characters of text. Use them where a viewer could miss what is happening or is about to happen ("Six stars", "Watch the helicopter"), and only where nobody is speaking. An empty list is right for most clips.
+- cover: the time of the frame that would make the best cover image.
+- score: 0 to 100, how strongly you would back this clip. 80 and up is something you would post without a second look; under 50 is filler.
 
-Describe only what the frames and the transcript show. If you cannot tell what happens, say so in the reason and reject the clip rather than guess. Always give a short reason for your decision."""
+For a clip you do not keep, leave the other text fields empty and give a score of 0.
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "keep": {"type": "boolean"},
-        "reason": {"type": "string"},
-        "section": {"type": "string", "enum": ["findings", "tricks", "glitches", "moments"]},
-        "title": {"type": "string"},
-        "hook": {"type": "string"},
-        "summary": {"type": "string"},
-        "tags": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["keep", "reason", "section", "title", "hook", "summary", "tags"],
-    "additionalProperties": False,
-}
+Describe only what the frames and the words show: a wrong title is worse than a plain one."""
+
+CALLOUT_CHARS = 32
+CALLOUT_SECONDS = 2.8
 
 
-class ReviewError(RuntimeError):
-    """The review could not be done for a clip. `fatal` means there is no point trying the rest."""
+def schema(cfg: Config) -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "keep": {"type": "boolean"},
+            "reason": {"type": "string"},
+            "start": {"type": "string"},
+            "end": {"type": "string"},
+            "section": {"type": "string", "enum": [sec.name for sec in cfg.sections]},
+            "title": {"type": "string"},
+            "hook": {"type": "string"},
+            "summary": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "callouts": {"type": "array", "items": {
+                "type": "object",
+                "properties": {"at": {"type": "string"}, "text": {"type": "string"}},
+                "required": ["at", "text"],
+                "additionalProperties": False,
+            }},
+            "cover": {"type": "string"},
+            "score": {"type": "integer"},
+        },
+        "required": ["keep", "reason", "start", "end", "section", "title", "hook", "summary", "tags", "callouts", "cover", "score"],
+        "additionalProperties": False,
+    }
 
-    def __init__(self, message: str, fatal: bool = False):
-        super().__init__(message)
-        self.fatal = fatal
 
+# --- what the rest of the clipper calls -------------------------------------------
 
 def api_key(cfg: Config) -> str:
-    return os.environ.get("ANTHROPIC_API_KEY") or settings.get_secret(cfg.data_root, "anthropic_api_key")
+    return claude.api_key(cfg)
 
 
 def unavailable(cfg: Config) -> str:
-    """Why the review cannot run, or empty when it can."""
-    if not cfg.review.enabled:
-        return "it is switched off in the settings"
-    if not api_key(cfg):
-        return "no Claude API key is saved (add one in the app under Accounts)"
-    if importlib.util.find_spec("anthropic") is None:
-        return "the anthropic package is not installed (run the installer again)"
-    return ""
+    """Why the editor cannot run, or empty when it can."""
+    return claude.unavailable(cfg) or ("" if cfg.ai.edit else "editing by Claude is switched off in the settings")
 
 
 def available(cfg: Config) -> bool:
     return not unavailable(cfg)
 
 
-def check_key(key: str, model: str) -> str:
-    """Empty if the key works, otherwise why not. Costs nothing: it only looks the model up."""
-    import anthropic
-
-    try:
-        anthropic.Anthropic(api_key=key).models.retrieve(model)
-    except anthropic.AuthenticationError:
-        return "Anthropic did not accept this key."
-    except anthropic.PermissionDeniedError:
-        return "This key is not allowed to use the review model."
-    except anthropic.NotFoundError:
-        return f"The model {model} is not available to this key."
-    except anthropic.APIStatusError as exc:
-        return f"Anthropic answered with an error ({exc.status_code})."
-    except anthropic.APIConnectionError:
-        return "Could not reach Anthropic. Check the internet connection."
-    return ""
+def _words(clip: dict) -> list[Word]:
+    """The words around the clip (it carries its surroundings when it was planned), else the clip's own."""
+    source = (clip.get("context") or {}).get("words") or clip.get("words") or []
+    return [Word(w["w"], w["s"], w["e"]) for w in source]
 
 
-def ask(cfg: Config, clip: dict) -> dict:
-    """One request to Claude about one clip. Returns the verdict as a dict matching SCHEMA."""
-    import anthropic
+def _said(words: list[Word]) -> str:
+    lines = [f"[{media.clock(s.s)}] " + " ".join(w.w for w in words[s.first:s.last + 1]) for s in moments.sentences(words)]
+    return "\n".join(lines) if lines else "(nothing is said)"
 
+
+def brief(cfg: Config, clip: dict, instruction: str = "") -> str:
+    m, start, end = cfg.moments, clip["start"], clip["end"]
+    if clip.get("whole"):
+        cut = "This is a short video used whole: leave start and end as they are."
+    else:
+        cut = (f"Each end may move by up to {cfg.ai.margin:g} seconds, and the clip must stay between "
+               f"{m.min_len:g} and {m.max_len:g} seconds.")
+    text = (
+        f"Game: {cfg.brand.game}\n"
+        f"Title of the source video: {clip.get('source_name', '') or 'unknown'}\n"
+        f"Channel: {clip.get('creator', '') or 'unknown'}\n"
+        f"The clip as cut now: {media.clock(start)} to {media.clock(end)} ({end - start:.0f} seconds).\n"
+        f"{cut}\n\n"
+        f"Sections:\n{sections.guide(cfg)}\n\n"
+        f"What the channel wants: {cfg.ai.direction or 'no particular direction'}\n\n"
+        f"What is said (times in the source video):\n{_said(_words(clip))}"
+    )
+    scouted = clip.get("scout") or {}
+    if scouted.get("why"):
+        text += f"\n\nWhy this stretch was picked: {scouted['why']}"
+    if instruction.strip():
+        text += f"\n\nThe channel owner asks for this change to the clip: {instruction.strip()[:500]}"
+    return text
+
+
+def ask(cfg: Config, clip: dict, instruction: str = "") -> dict:
+    """One request to Claude about one clip. Returns its verdict and edit, in the shape of `schema`."""
     content: list[dict] = []
     sheet = Path(clip.get("sheet") or "")
     if sheet.is_file():
-        content.append({"type": "image", "source": {
-            "type": "base64", "media_type": "image/jpeg", "data": base64.standard_b64encode(sheet.read_bytes()).decode("ascii")}})
-    said = clip.get("text", "").strip()
-    content.append({"type": "text", "text": (
-        f"Title of the video this clip was cut from: {clip.get('source_name', '') or 'unknown'}\n"
-        f"Channel: {clip.get('creator', '') or 'unknown'}\n"
-        f"Length: {clip['end'] - clip['start']:.0f} seconds\n"
-        f"Everything said in the clip:\n{said if said else '(nothing is said)'}"
-    )})
-
-    request: dict = {
-        "model": cfg.review.model,
-        "max_tokens": 16000,
-        "system": SYSTEM,
-        "messages": [{"role": "user", "content": content}],
-        "output_config": {"effort": cfg.review.effort, "format": {"type": "json_schema", "schema": SCHEMA}},
-        "betas": [],
-    }
-    if cfg.review.model in FALLBACK_MODELS:
-        request["betas"] = ["server-side-fallback-2026-07-01"]
-        request["fallbacks"] = "default"
-
-    client = anthropic.Anthropic(api_key=api_key(cfg))
-    try:
-        response = client.beta.messages.create(**request)
-    except anthropic.AuthenticationError as exc:
-        raise ReviewError("the Claude API key was not accepted", fatal=True) from exc
-    except anthropic.PermissionDeniedError as exc:
-        raise ReviewError("the Claude API key may not use the review model", fatal=True) from exc
-    except anthropic.NotFoundError as exc:
-        raise ReviewError(f"the review model {cfg.review.model} was not found", fatal=True) from exc
-    except anthropic.RateLimitError as exc:
-        raise ReviewError("Anthropic is rate-limiting this key; the rest of the clips keep their automatic titles", fatal=True) from exc
-    except anthropic.APIStatusError as exc:
-        raise ReviewError(f"Anthropic answered with an error ({exc.status_code})") from exc
-    except anthropic.APIConnectionError as exc:
-        raise ReviewError("could not reach Anthropic", fatal=True) from exc
-
-    if response.stop_reason == "refusal":
-        raise ReviewError("the review was declined for this clip")
-    if response.stop_reason == "max_tokens":
-        raise ReviewError("the review ran out of room before answering")
-    text = next((block.text for block in response.content if block.type == "text"), "")
-    try:
-        verdict = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ReviewError("the review did not come back in the expected form") from exc
-    if not isinstance(verdict, dict) or not isinstance(verdict.get("keep"), bool):
-        raise ReviewError("the review did not come back in the expected form")
+        content.append(claude.image(sheet))
+    content.append({"type": "text", "text": brief(cfg, clip, instruction)})
+    verdict = claude.ask(cfg, SYSTEM, content, schema(cfg), effort=cfg.ai.effort, purpose="edit")
+    if not isinstance(verdict.get("keep"), bool):
+        raise ClaudeError("the answer did not come back in the expected form")
     return verdict
 
 
+# --- applying an edit ---------------------------------------------------------------
+
+def _cut(cfg: Config, clip: dict, verdict: dict) -> tuple[float, float] | None:
+    """The cut Claude asks for, when it differs from the current one and stays within the limits."""
+    if clip.get("whole"):
+        return None
+    a, b = media.seconds(verdict.get("start")), media.seconds(verdict.get("end"))
+    if a is None or b is None or b <= a:
+        return None
+    start, end, margin = clip["start"], clip["end"], cfg.ai.margin
+    if abs(a - start) < 1.5 and abs(b - end) < 1.5:  # the times on the frames are whole seconds
+        return None
+    context = clip.get("context") or {}
+    low, high = context.get("from", start), context.get("to", end)
+    a = min(max(a, start - margin, low), start + margin)
+    b = max(min(b, end + margin, high), end - margin)
+    window = moments.fit(cfg.moments, a, b, _words(clip), high)
+    if window is None or window[0] < low - 0.5:
+        return None
+    return window
+
+
+def _callouts(cfg: Config, verdict: dict, start: float, end: float, words: list[Word]) -> list[dict]:
+    """On-screen notes that fit: short, inside the clip, clear of speech and of each other."""
+    if not cfg.ai.callouts:
+        return []
+    out: list[dict] = []
+    for note in verdict.get("callouts") or []:
+        if not isinstance(note, dict):
+            continue
+        at = media.seconds(note.get("at"))
+        text = mask_profanity(re.sub(r"\s+", " ", str(note.get("text", ""))).strip().strip('"'))
+        if at is None or not 3 <= len(text) <= CALLOUT_CHARS:
+            continue
+        rel = at - start
+        if not 0 <= rel <= (end - start) - CALLOUT_SECONDS:
+            continue
+        if any(b in text.lower() for b in cfg.gates.banned_terms):
+            continue
+        if any(w.s < at + CALLOUT_SECONDS and w.e > at for w in words):  # someone is speaking then
+            continue
+        if any(abs(rel - other["at"]) < CALLOUT_SECONDS + 1 for other in out):
+            continue
+        out.append({"at": round(rel, 1), "text": text})
+        if len(out) == 3:  # three at most, in the order Claude gave them
+            break
+    return sorted(out, key=lambda note: note["at"])
+
+
+def edit(cfg: Config, clip: dict, verdict: dict) -> str:
+    """Write Claude's verdict and edit into a planned clip. Returns what was done, in a few words."""
+    reason = str(verdict.get("reason", "")).strip()[:300]
+    try:
+        score = max(0, min(100, int(verdict.get("score") or 0)))
+    except (TypeError, ValueError):
+        score = 0
+    clip["review"] = {"by": cfg.ai.model, "keep": verdict["keep"], "reason": reason, "score": score}
+    if not verdict["keep"]:
+        clip["drop"] = True
+        return f"dropped: {reason}"
+
+    moved = _cut(cfg, clip, verdict)
+    if moved:
+        clip["review"]["cut"] = [clip["start"], clip["end"]]  # where it was
+        clip["start"], clip["end"] = moved
+        kept = [w for w in _words(clip) if w.s >= moved[0] - 0.01 and w.e <= moved[1] + 0.01]
+        clip["words"] = [{"w": w.w, "s": w.s, "e": w.e} for w in kept]
+        clip["text"] = " ".join(w.w for w in kept)
+    start, end = clip["start"], clip["end"]
+    own = [Word(w["w"], w["s"], w["e"]) for w in clip.get("words") or []]
+    clip["callouts"] = _callouts(cfg, verdict, start, end, own)
+    cover = media.seconds(verdict.get("cover"))
+    clip["cover"] = round(cover - start, 1) if cover is not None and 0 <= cover - start <= end - start else None
+
+    section = cfg.section(str(verdict.get("section", "")))
+    title = metadata.tidy(str(verdict.get("title", "")), 60) or clip["meta"]["title"]
+    hook = metadata.tidy(str(verdict.get("hook", "")), 48) or title[:48]
+    clip["section"] = section.name
+    clip["meta"] = metadata.compose(cfg, clip["id"], clip.get("creator", ""), section, title, hook, clip.get("origin", ""),
+                                    summary=str(verdict.get("summary", "")).strip()[:300],
+                                    tags=verdict.get("tags") if isinstance(verdict.get("tags"), list) else None)
+    clip["review"]["summary"] = clip["meta"].get("summary", "")
+    extras = []
+    if moved:
+        extras.append(f"cut moved to {media.clock(start)}-{media.clock(end)}")
+    if clip["callouts"]:
+        extras.append(f"{len(clip['callouts'])} on-screen note(s)")
+    return f"kept [{section.name}, {score}/100]: {title}" + (f" ({', '.join(extras)})" if extras else "")
+
+
 def apply(cfg: Config, plan_path: Path, log: Log = print) -> dict:
-    """Review every clip in a plan and write the verdicts back into it."""
+    """Have Claude check and edit every clip in a plan, and write the result back into it."""
     data = json.loads(plan_path.read_text(encoding="utf-8"))
     kept = dropped = failed = 0
     for clip in data["clips"]:
@@ -176,30 +250,17 @@ def apply(cfg: Config, plan_path: Path, log: Log = print) -> dict:
             continue
         try:
             verdict = ask(cfg, clip)
-        except ReviewError as exc:
+        except ClaudeError as exc:
             failed += 1
-            data.setdefault("problems", []).append(f"review of {clip['id']}: {exc}")
-            log(f"  review of {clip['id']} failed: {exc}")
+            data.setdefault("notes", []).append(f"Claude could not edit {clip['id']}: {exc}")
+            log(f"  editing {clip['id']} failed: {exc}")
             if exc.fatal:
                 break
             continue
-        reason = str(verdict.get("reason", "")).strip()[:300]
-        clip["review"] = {"by": cfg.review.model, "keep": verdict["keep"], "reason": reason}
-        if not verdict["keep"]:
-            clip["drop"] = True
-            dropped += 1
-            log(f"  {clip['id']} dropped by the review: {reason}")
-            continue
-        section = cfg.section(str(verdict.get("section", "")))
-        title = metadata.tidy(str(verdict.get("title", "")), 60) or clip["meta"]["title"]
-        hook = metadata.tidy(str(verdict.get("hook", "")), 48) or title[:48]
-        clip["section"] = section.name
-        clip["meta"] = metadata.compose(cfg, clip["id"], clip.get("creator", ""), section, title, hook, clip.get("origin", ""),
-                                        summary=str(verdict.get("summary", "")).strip()[:300],
-                                        tags=verdict.get("tags") if isinstance(verdict.get("tags"), list) else None)
-        clip["review"]["summary"] = clip["meta"].get("summary", "")
-        kept += 1
-        log(f"  {clip['id']} kept [{section.name}]: {title}")
+        done = edit(cfg, clip, verdict)
+        kept += clip["review"]["keep"]
+        dropped += not clip["review"]["keep"]
+        log(f"  {clip['id']} {done}")
     plan_path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
     log(f"review: {kept} kept, {dropped} dropped, {failed} could not be reviewed")
     return {"kept": kept, "dropped": dropped, "failed": failed}

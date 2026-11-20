@@ -37,6 +37,7 @@ class Candidate:
     peak: float
     score: float
     words: list[Word] = field(default_factory=list)
+    ai: dict | None = None  # when Claude picked the moment: its title, headline, section, reason and score
 
     @property
     def text(self) -> str:
@@ -235,3 +236,43 @@ def find(cfg: Moments, wav: Path, words: list[Word], total: float, chat_times: l
         clip_words = [w for w in words if w.s >= start - 0.01 and w.e <= end + 0.01]
         picked.append(Candidate(start, end, round(peak, 2), round(strength, 3), clip_words))
     return sorted(picked, key=lambda c: -c.score)
+
+
+def loud_spots(cfg: Moments, wav: Path, words: list[Word], limit: int = 12, cues: list[str] | None = None) -> list[tuple[float, float]]:
+    """The moments where the sound stands out most, as (seconds, strength), strongest first.
+
+    The same track the finder uses; given to Claude as a hint of where things happen.
+    """
+    score = score_track(cfg, wav, words, None, cues)
+    spots = [(round(i * HOP, 1), round(float(score[i]), 2)) for i in _peaks(score, int(8 / HOP)) if score[i] >= cfg.min_score * 0.6]
+    return spots[:limit]
+
+
+def fit(cfg: Moments, start: float, end: float, words: list[Word], total: float, max_back: float = 30.0) -> tuple[float, float] | None:
+    """A stretch chosen by eye, fitted to the clip length limits without cutting through a spoken word.
+
+    The start is kept where it was put (that is where the action begins); the end moves.
+    Only near the end of the video, where there is nothing left to run on into, does the
+    start move back, and by no more than `max_back` seconds: a clip that opens with half a
+    minute of lead-in is not the clip that was picked.
+    """
+    start = max(0.0, min(start, total))
+    end = max(start, min(end, total))
+    if end - start > cfg.max_len:
+        end = start + cfg.max_len
+    if end - start < cfg.min_len:
+        end = min(total, start + cfg.min_len)
+        back = max(0.0, end - cfg.min_len)
+        if start - back > max_back:
+            return None
+        start = back
+    for w in words:
+        if w.s < start < w.e:
+            start = max(0.0, w.s - 0.1)
+        if w.s < end < w.e:
+            end = min(total, w.e + 0.2)
+    if end - start > cfg.max_len + 1:
+        end = start + cfg.max_len
+    if end - start < min(cfg.min_len, 8) or end - start < cfg.min_len - 1:
+        return None
+    return round(start, 2), round(end, 2)

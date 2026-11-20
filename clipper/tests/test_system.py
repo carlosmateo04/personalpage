@@ -28,7 +28,7 @@ from clipper import cli, config, media, settings, transcribe, ui
 from clipper.state import Ledger
 from test_intake import Quiet
 from test_publish import FakeApi
-from test_review import GOOD_KEY, FakeClaude
+from standins import GOOD_KEY, FakeClaude
 from test_ui import TOKEN, call
 
 SAMPLE = config.Config().models_dir / transcribe.ASR_DIR / "test_wavs" / "0.wav"
@@ -48,13 +48,22 @@ class FourAccounts(FakeApi):
             super().do_GET()
 
 
-def verdict(title: str, section: str, hook: str, tags: list[str]) -> dict:
-    return {"keep": True, "reason": "Pure gameplay.", "section": section, "title": title, "hook": hook,
-            "summary": f"What happens: {title.lower()}.", "tags": tags}
+def verdict(title: str, section: str, hook: str, tags: list[str], score: int) -> dict:
+    """What the editor answers for one clip."""
+    return {"keep": True, "reason": "Pure gameplay.", "start": "", "end": "", "section": section, "title": title, "hook": hook,
+            "summary": f"What happens: {title.lower()}.", "tags": tags, "callouts": [], "cover": "", "score": score}
 
 
-CHASE = verdict("Six-star chase ends on the beach", "moments", "They never stood a chance", ["gta 6 police chase", "gta 6 six stars"])
-GLITCH = verdict("Patrol car launches into the sky", "glitches", "It just took off", ["gta 6 glitch", "gta 6 flying car"])
+def pick(start: str, end: str, title: str, section: str, score: int) -> dict:
+    """One moment the scout picks from the whole video."""
+    return {"start": start, "end": end, "section": section, "title": title, "hook": title[:40], "why": f"Why: {title.lower()}.", "score": score}
+
+
+CHASE = verdict("Six-star chase ends on the beach", "moments", "They never stood a chance", ["gta 6 police chase", "gta 6 six stars"], 90)
+GLITCH = verdict("Patrol car launches into the sky", "glitches", "It just took off", ["gta 6 glitch", "gta 6 flying car"], 80)
+# The video is five minutes long: speech gets loud at 0:45 and there is a burst of noise at 3:35.
+SCOUT = {"usable": True, "problem": "", "moments": [pick("0:30", "2:00", "A chase starts at the lights", "moments", 90),
+                                                    pick("3:20", "4:50", "A patrol car takes off", "glitches", 80)]}
 
 
 @pytest.fixture
@@ -140,7 +149,7 @@ def test_make_clips_now_then_post_from_the_app(world):
     server = ThreadingHTTPServer(("127.0.0.1", 0), ui.handler_for(app))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     app.url = f"http://127.0.0.1:{server.server_port}"
-    FakeClaude.replies += [dict(CHASE), dict(GLITCH), dict(CHASE), dict(CHASE)]
+    FakeClaude.replies += [dict(SCOUT), dict(CHASE), dict(GLITCH)]  # the scout once for the video, then the editor once per clip
 
     def run_to_the_end() -> dict:
         assert call(app, "/api/run", {})[0] == 200
@@ -159,9 +168,10 @@ def test_make_clips_now_then_post_from_the_app(world):
         state = run_to_the_end()
         log = "\n".join(state["run"]["log"])
         assert state["run"]["exit"] == 0, log
-        for step in ("looking for videos", f"downloading: {TITLE}", "transcribing", "2 moment(s) found, 2 passed the checks",
-                     "automatic review of the planned clips", "kept [moments]: Six-star chase ends on the beach",
-                     "kept [glitches]: Patrol car launches into the sky", "rendered and held for review", "Finished."):
+        for step in ("looking for videos", f"downloading: {TITLE}", "transcribing", "Claude is looking at the whole video (57 frames)",
+                     "Claude picked 2 moment(s): 0:30 A chase starts at the lights; 3:20 A patrol car takes off", "2 moment(s) found, 2 passed the checks",
+                     "Claude is checking and editing the planned clips", "kept [moments, 90/100]: Six-star chase ends on the beach",
+                     "kept [glitches, 80/100]: Patrol car launches into the sky", "rendered and held for review", "Finished."):
             assert step in log, f"missing from the run's log: {step}\n{log}"
 
         # Two clips of about 1:30 are waiting in the app, with the review's titles and text that passes the search check.
@@ -187,9 +197,15 @@ def test_make_clips_now_then_post_from_the_app(world):
             assert "=== TikTok ===" in kit and "=== YouTube Shorts ===" in kit and "Credit: RawPlay" in kit and "Tags: gta 6 " in kit
 
         # The review saw frames of each clip and its words; nothing has been uploaded yet.
-        asked = [seen["body"]["messages"][0]["content"] for seen in FakeClaude.seen]
-        assert len(asked) == 2 and all(c[0]["type"] == "image" and TITLE in c[1]["text"] for c in asked)
+        scout_asked, *editor_asked = [seen["body"]["messages"][0]["content"] for seen in FakeClaude.seen]
+        assert [block["type"] for block in scout_asked] == ["text", "image", "text", "image", "text", "image", "text"]  # three sheets of the video, then the brief
+        assert "What the loudness detector would clip:" in scout_asked[-1]["text"] and TITLE in scout_asked[-1]["text"]
+        assert len(editor_asked) == 2 and all(c[0]["type"] == "image" and TITLE in c[1]["text"] for c in editor_asked)
+        assert "The clip as cut now: 0:30 to 2:00 (90 seconds)." in editor_asked[0][1]["text"]
+        assert "Why this stretch was picked: Why: a chase starts at the lights." in editor_asked[0][1]["text"]
         assert uploads() == []
+        covers = sorted(run_dir.glob("*.cover.jpg"))
+        assert len(covers) == 2 and all(c.stat().st_size > 5000 for c in covers)  # a cover image next to each clip
 
         # "Schedule all" in the app: one upload per clip, to all four accounts, each at its own posting time.
         status, body, _ = call(app, "/api/post-all", {})
@@ -216,7 +232,7 @@ def test_make_clips_now_then_post_from_the_app(world):
 
         # Pressing the button again makes nothing twice: the video is known, so no new clip, review or upload.
         state = run_to_the_end()
-        assert state["run"]["exit"] == 0 and len(state["clips"]) == 2 and len(FakeClaude.seen) == 2 and len(uploads()) == 2
+        assert state["run"]["exit"] == 0 and len(state["clips"]) == 2 and len(FakeClaude.seen) == 3 and len(uploads()) == 2
         report = (world.data / "reports" / "latest.md").read_text(encoding="utf-8")
         assert "## Automatic review" in report and "2 kept, 0 dropped" in report
     finally:
@@ -227,18 +243,17 @@ def test_make_clips_now_then_post_from_the_app(world):
 def test_hands_off_run_posts_by_itself_and_holds_back_what_the_review_rejects(world, capsys):
     """With automatic posting on, one command goes from finding the video to the scheduled uploads."""
     path = world.write_config('mode = "live"\nhold_for_review = false\nprofile = "gta6clips"')
-    FakeClaude.replies += [dict(GLITCH), {"keep": False, "reason": "A loading screen fills most of the clip.", "section": "moments",
-                                          "title": "", "hook": "", "summary": "", "tags": []}]
+    FakeClaude.replies += [dict(SCOUT), dict(GLITCH), {**GLITCH, "keep": False, "reason": "A loading screen fills most of the clip.", "score": 0}]
     assert cli.main(["--config", str(path), "run"]) == 0
     out = capsys.readouterr().out
-    assert "dropped by the review: A loading screen fills most of the clip." in out and "scheduled for" in out and "(live)" in out
+    assert "dropped: A loading screen fills most of the clip." in out and "scheduled for" in out and "(live: tiktok, instagram, youtube, facebook)" in out
 
     sent = uploads()
     assert len(sent) == 1 and sent[0]["title"] == ["Patrol car launches into the sky"]
     assert sent[0]["platform[]"] == ["tiktok", "instagram", "youtube", "facebook"] and sent[0]["scheduled_date"]
     records = sorted(Ledger(world.data / "state" / "ledger.json").clips.values(), key=lambda r: r["status"])
     assert [r["status"] for r in records] == ["dropped", "scheduled"]
-    assert records[1]["seo"] == [] and records[1]["publish"]["request_id"] == "req-1"
+    assert records[1]["seo"] == [] and {post["id"] for post in records[1]["posts"].values()} == {"req-1"}
     assert len(list((world.data / "out").glob("*/*.mp4"))) == 1  # the rejected clip was never rendered
     report = (world.data / "reports" / "latest.md").read_text(encoding="utf-8")
     assert "Publishing mode: **LIVE**" in report and "Patrol car launches into the sky" in report and "1 kept, 1 dropped" in report

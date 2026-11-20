@@ -162,7 +162,8 @@ def test_planned_clips_come_with_a_frame_strip(cfg, ledger, footage):
     plan = pipeline.plan(cfg, ledger, NOW, lambda m: None)
     sheet = plan["clips"][0]["sheet"]
     info = media.probe(__import__("pathlib").Path(sheet))
-    assert info.width == 1600 and 220 <= info.height <= 230  # four 400-wide frames side by side
+    assert info.width == 1920 and 530 <= info.height <= 550  # two rows of four 480-wide frames, each with its time on it
+    assert plan["clips"][0]["context"]["from"] <= plan["clips"][0]["start"] and "whole" in plan["clips"][0]
 
 
 def test_quiet_short_guide_gives_its_last_stretch(cfg):

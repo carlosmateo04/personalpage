@@ -23,8 +23,27 @@ def no_real_credential_store(monkeypatch):
     from clipper import settings
 
     monkeypatch.setattr(settings, "_keyring", lambda: None)
-    for name in ("UPLOAD_POST_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+    for name in ("UPLOAD_POST_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "AWS_PROFILE", "AWS_ACCESS_KEY_ID",
+                 "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "CLIPPER_BEDROCK_URL"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def claude_api(monkeypatch):
+    """A local stand-in for the Claude API, reached with a working test key."""
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from standins import GOOD_KEY, FakeClaude
+
+    FakeClaude.replies, FakeClaude.seen = [], []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), FakeClaude)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    FakeClaude.url = f"http://127.0.0.1:{server.server_port}"
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", FakeClaude.url)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", GOOD_KEY)
+    yield FakeClaude
+    server.shutdown()
 
 
 @pytest.fixture

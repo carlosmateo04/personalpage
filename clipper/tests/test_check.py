@@ -11,7 +11,7 @@ import pytest
 from clipper import check, config, intake, settings, transcribe, ui
 from test_intake import Quiet
 from test_publish import FakeApi
-from test_review import GOOD_KEY, KEEP, FakeClaude
+from standins import GOOD_KEY, KEEP, FakeClaude
 
 SAMPLE = config.Config().models_dir / transcribe.ASR_DIR / "test_wavs" / "0.wav"
 needs_models = pytest.mark.skipif(not SAMPLE.exists(), reason="speech models not installed")

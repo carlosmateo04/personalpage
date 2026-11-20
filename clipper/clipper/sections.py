@@ -31,3 +31,13 @@ def classify(cfg: Config, spoken: str, title: str = "", hint: str = "") -> Secti
 
 def all_cues(cfg: Config) -> list[str]:
     return [c for sec in cfg.sections for c in sec.cues]
+
+
+def guide(cfg: Config) -> str:
+    """The sections in words, for Claude: one line each with what belongs there."""
+    lines = []
+    for sec in cfg.sections:
+        examples = ", ".join(sec.cues[:6])
+        what = f"things like: {examples}" if examples else "anything else worth watching: a chase, a stunt, a crash, a funny or impressive moment"
+        lines.append(f'- "{sec.name}" ({sec.label.title()}): {what}')
+    return "\n".join(lines)

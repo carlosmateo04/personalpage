@@ -233,18 +233,41 @@ class Publish:
     facebook_page_id: str = ""
     tiktok_post_mode: str = "DIRECT_POST"  # DIRECT_POST | MEDIA_UPLOAD (lands as a draft in the TikTok app)
     tiktok_privacy_level: str = ""  # empty keeps the account default
-    youtube_privacy: str = "public"
+    youtube_privacy: str = "public"  # public | unlisted | private
+    youtube_notify: bool = True  # tell subscribers about each upload
+    tiktok_direct: str = "draft"  # TikTok connected directly: draft (lands in the TikTok inbox to finish there) | private (posted, only you can see it)
+    prefer_service: list[str] = field(default_factory=list)  # platforms sent through the posting service even when connected directly
     hold_for_review: bool = False  # plan and render, but schedule nothing until `approve`
 
 
-@dataclass
-class Review:
-    """The automatic review: Claude looks at each planned clip, drops the unsuitable ones and writes the titles."""
+DIRECTION = ("Chases that escalate, stunts, crashes, fights that turn, glitches, secrets and details people have not seen, "
+             "and tricks that are useful. Nothing from the story.")
 
-    enabled: bool = True  # only takes effect when a Claude API key is saved; without one the rule-based titles are used
+
+@dataclass
+class Ai:
+    """Claude, built in. It picks the moments in each video, checks and edits each clip, and writes the text.
+
+    It only runs when Claude can be reached: with an Anthropic API key, or through Amazon
+    Bedrock with an AWS profile on this computer. Without either, the rule-based finder
+    and titles are used.
+    """
+
+    enabled: bool = True
+    provider: str = "anthropic"  # anthropic (an API key) | bedrock (an AWS profile on this computer)
     model: str = "claude-opus-5-5"
-    effort: str = "low"  # low | medium | high: how long the model thinks about each clip
-    frames: int = 8  # frames per clip shown to the reviewer
+    aws_profile: str = ""  # bedrock: the profile to sign in with; empty uses the default credentials
+    aws_region: str = "us-east-1"
+    fallback_model: str = "claude-opus-4-8"  # bedrock: used when the main model declines a request
+    scout: bool = True  # Claude picks the moments in long videos, from frames, speech and loudness
+    edit: bool = True  # Claude checks each clip, trims it, and writes its title, headline and call-outs
+    scout_effort: str = "medium"  # low | medium | high | xhigh | max: how long it thinks about a whole video
+    effort: str = "low"  # the same, for one clip
+    direction: str = DIRECTION  # what the channel wants, in plain words; sent with every request
+    frames: int = 16  # frames of a clip shown to the editor (they reach a little before and after it)
+    max_frames: int = 100  # frames of a whole video shown to the scout
+    margin: float = 15.0  # seconds before and after a clip that the editor may move the cut into
+    callouts: bool = True  # short on-screen notes the editor may add where nothing is said
 
 
 @dataclass
@@ -276,9 +299,15 @@ class Config:
     seo: Seo = field(default_factory=Seo)
     schedule: Schedule = field(default_factory=Schedule)
     publish: Publish = field(default_factory=Publish)
-    review: Review = field(default_factory=Review)
+    ai: Ai = field(default_factory=Ai)
+    accounts: dict[str, Any] = field(default_factory=dict)  # connected posting accounts, kept by the app
     gates: Gates = field(default_factory=Gates)
     root: Path = ROOT
+
+    @property
+    def review(self) -> Ai:
+        """The earlier name of the `ai` settings."""
+        return self.ai
 
     @property
     def data_root(self) -> Path:
@@ -345,6 +374,9 @@ def load(path: str | Path | None = None) -> Config:
     from . import settings  # settings made in the app on this computer win over config.toml
 
     data = settings.overlay(data, settings.load(Config().data_root))
+    if "review" in data:  # the earlier name of [ai]; frames meant something else there
+        old = {k: v for k, v in data.pop("review").items() if k in ("enabled", "model", "effort")}
+        data["ai"] = {**old, **data.get("ai", {})}
     cfg = _fill(Config, data, "config")
     validate(cfg)
     return cfg
@@ -353,6 +385,10 @@ def load(path: str | Path | None = None) -> Config:
 def validate(cfg: Config) -> None:
     if cfg.publish.mode not in ("dry_run", "live"):
         raise ConfigError("publish.mode must be dry_run or live")
+    if cfg.publish.tiktok_direct not in ("draft", "private"):
+        raise ConfigError("publish.tiktok_direct must be draft or private")
+    if cfg.publish.youtube_privacy not in ("public", "unlisted", "private"):
+        raise ConfigError("publish.youtube_privacy must be public, unlisted or private")
     if cfg.render.layout not in ("blur", "crop", "stack"):
         raise ConfigError("render.layout must be blur, crop or stack")
     if cfg.render.layout == "stack" and len(cfg.render.facecam) != 4:
@@ -374,10 +410,19 @@ def validate(cfg: Config) -> None:
             raise ConfigError(f"sources: unknown type {s.type!r}")
         if s.type == "ytdlp" and not s.url:
             raise ConfigError("sources: a ytdlp source needs `url`")
-    if cfg.review.effort not in ("low", "medium", "high"):
-        raise ConfigError("review.effort must be low, medium or high")
-    if not 2 <= cfg.review.frames <= 12:
-        raise ConfigError("review.frames must be between 2 and 12")
+    efforts = ("low", "medium", "high", "xhigh", "max")
+    if cfg.ai.effort not in efforts or cfg.ai.scout_effort not in efforts:
+        raise ConfigError(f"ai.effort and ai.scout_effort must be one of: {', '.join(efforts)}")
+    if cfg.ai.provider not in ("anthropic", "bedrock"):
+        raise ConfigError("ai.provider must be anthropic or bedrock")
+    if not 4 <= cfg.ai.frames <= 25:
+        raise ConfigError("ai.frames must be between 4 and 25")
+    if not 20 <= cfg.ai.max_frames <= 300:
+        raise ConfigError("ai.max_frames must be between 20 and 300")
+    if not 0 <= cfg.ai.margin <= 60:
+        raise ConfigError("ai.margin must be between 0 and 60 seconds")
+    if len(cfg.ai.direction) > 600:
+        raise ConfigError("ai.direction must be 600 characters or fewer")
     if not cfg.sections:
         raise ConfigError("at least one [[sections]] entry is needed")
     names = [sec.name for sec in cfg.sections]
