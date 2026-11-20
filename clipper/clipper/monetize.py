@@ -148,7 +148,7 @@ def _keyframes(src: Path, start: float, end: float) -> list | None:
         import numpy as np
 
         got = subprocess.run(["ffmpeg", "-loglevel", "error", "-skip_frame", "nokey", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(src),
-                              "-an", "-vsync", "passthrough", "-vf", "scale=64:36,format=gray", "-f", "rawvideo", "-"], capture_output=True, timeout=300)
+                              "-an", "-fps_mode", "passthrough", "-vf", "scale=64:36,format=gray", "-f", "rawvideo", "-"], capture_output=True, timeout=300)
     except (OSError, subprocess.SubprocessError, ImportError):
         return None
     if got.returncode != 0:
