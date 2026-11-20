@@ -63,7 +63,7 @@ def _trouble(ledger: Ledger, sid: str, name: str, origin: str, reason: str) -> N
 
 def _folder(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
     folder = Path(src.path or cfg.paths.inbox)
-    folder = folder if folder.is_absolute() else cfg.root / folder
+    folder = folder if folder.is_absolute() else cfg.data_root / folder
     if not folder.is_dir():
         return []
     items: list[Item] = []
@@ -90,7 +90,7 @@ def _urls(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
     items: list[Item] = []
     downloads = cfg.path("work") / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
-    for line in listing.read_text().splitlines():
+    for line in listing.read_text(encoding="utf-8").splitlines():
         url = line.strip()
         if not url or url.startswith("#"):
             continue
@@ -263,7 +263,7 @@ def load_chat(path: Path | None) -> list[float] | None:
     if not path or not path.exists():
         return None
     times: list[float] = []
-    for entry in json.loads(path.read_text()):
+    for entry in json.loads(path.read_text(encoding="utf-8")):
         if isinstance(entry, (int, float)):
             times.append(float(entry))
         elif isinstance(entry, dict):

@@ -1,0 +1,81 @@
+name: Clipper Windows test
+
+# Runs the Windows installer and the clipper's tests on a real Windows machine.
+# It never downloads or clips real videos: CLIPPER_SKIP_RUN stops the installer
+# after setup, and the tests use footage they generate themselves.
+on:
+  push:
+    branches:
+      - 'claude/quirky-ramanujan-pk7f77'
+    paths:
+      - 'clipper/**'
+      - '.github/workflows/clipper-windows-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CLIPPER_DIR: ${{ github.workspace }}\clipper-run
+      CLIPPER_SKIP_RUN: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install with the one-line installer (Windows PowerShell 5.1)
+        shell: powershell
+        run: Get-Content -Raw clipper\install.ps1 | Invoke-Expression
+
+      - name: Run the tests
+        shell: powershell
+        run: |
+          $root = $env:CLIPPER_DIR
+          $py = Join-Path $root 'venv\Scripts\python.exe'
+          $tools = Join-Path $root 'tools'
+          $dirs = Get-ChildItem -Path $tools -Recurse -Include uv.exe, deno.exe, ffmpeg.exe | ForEach-Object { $_.DirectoryName } | Select-Object -Unique
+          $env:PATH = ($dirs -join ';') + ';' + $env:PATH
+          $env:CLIPPER_MODELS = Join-Path $root 'models'
+          $env:PYTHONUTF8 = '1'
+          uv pip install --python $py pytest
+          if ($LASTEXITCODE -ne 0) { throw 'could not install pytest' }
+          Set-Location (Join-Path $root 'app')
+          & $py -m pytest -q tests
+          if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
+
+      - name: Make clips from generated footage through the command line
+        shell: powershell
+        run: |
+          $root = $env:CLIPPER_DIR
+          $py = Join-Path $root 'venv\Scripts\python.exe'
+          $tools = Join-Path $root 'tools'
+          $dirs = Get-ChildItem -Path $tools -Recurse -Include uv.exe, deno.exe, ffmpeg.exe | ForEach-Object { $_.DirectoryName } | Select-Object -Unique
+          $env:PATH = ($dirs -join ';') + ';' + $env:PATH
+          $env:CLIPPER_MODELS = Join-Path $root 'models'
+          $env:CLIPPER_DATA = Join-Path $root 'data'
+          $inbox = Join-Path $env:CLIPPER_DATA 'inbox'
+          New-Item -ItemType Directory -Force -Path $inbox | Out-Null
+          $sample = Join-Path $env:CLIPPER_MODELS 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8\test_wavs\0.wav'
+          # A 30 s test video with real speech on it, used whole like a short clip.
+          ffmpeg -y -loglevel error -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=30" -stream_loop 3 -i $sample -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest (Join-Path $inbox 'sample clip.mp4')
+          if ($LASTEXITCODE -ne 0) { throw 'could not make the test video' }
+          # Only the inbox: the real config's online sources are not used in this test.
+          $config = Join-Path $root 'test-config.toml'
+          Set-Content -Path $config -Encoding UTF8 -Value "[[sources]]`ntype = `"folder`"`npath = `"inbox`"`ncreator = `"Test Channel`"`npermission = `"own footage`""
+          Set-Location (Join-Path $root 'app')
+          & $py -m clipper --config $config run
+          if ($LASTEXITCODE -ne 0) { throw 'the run failed' }
+          Get-ChildItem -Recurse (Join-Path $env:CLIPPER_DATA 'out') | Select-Object FullName, Length
+          Get-ChildItem -Recurse (Join-Path $env:CLIPPER_DATA 'out') -Filter *.txt | ForEach-Object { Get-Content $_.FullName -Encoding UTF8 }
+          $clips = @(Get-ChildItem -Recurse (Join-Path $env:CLIPPER_DATA 'out') -Filter *.mp4)
+          if ($clips.Count -lt 1) { throw 'no clip was made' }
+
+      - name: Keep the finished test clip
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-clip
+          path: clipper-run/data/out
+          if-no-files-found: ignore

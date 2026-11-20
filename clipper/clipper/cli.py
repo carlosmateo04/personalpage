@@ -54,11 +54,11 @@ def cmd_clip(cfg, args) -> int:
         ass = cfg.path("work") / "captions" / f"{clip_id}.ass"
         ass.parent.mkdir(parents=True, exist_ok=True)
         ass.write_text(build_captions(cfg, rel, cand.duration, hook=meta["hook"], label=meta["label"],
-                                      badge=meta["badge"], badge_color=meta["badge_color"], credit=meta["credit"]))
+                                      badge=meta["badge"], badge_color=meta["badge_color"], credit=meta["credit"]), encoding="utf-8")
         from .render import render
 
         out = render(cfg, src, cand.start, cand.end, ass, out_dir / f"{clip_id}.mp4")
-        (out_dir / f"{clip_id}.json").write_text(json.dumps(meta, indent=1, ensure_ascii=False))
+        (out_dir / f"{clip_id}.json").write_text(json.dumps(meta, indent=1, ensure_ascii=False), encoding="utf-8")
         print(f"{out}  [{cand.start:.0f}s-{cand.end:.0f}s, score {cand.score}]  {meta['title']}")
     if not cands:
         print("no clip-worthy moments found")

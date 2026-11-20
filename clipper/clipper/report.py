@@ -149,6 +149,6 @@ def write(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime |
     folder.mkdir(parents=True, exist_ok=True)
     day = now.astimezone(ZoneInfo(cfg.schedule.timezone)).strftime("%Y-%m-%d")
     path = folder / f"{day}.md"
-    path.write_text(text)
-    (folder / "latest.md").write_text(text)
+    path.write_text(text, encoding="utf-8")
+    (folder / "latest.md").write_text(text, encoding="utf-8")
     return path

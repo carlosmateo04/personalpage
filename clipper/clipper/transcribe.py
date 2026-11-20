@@ -112,7 +112,7 @@ def words_from_tokens(tokens: list[str], starts: list[float], durations: list[fl
 def transcribe(cfg: Config, wav: Path, cache: Path | None = None) -> list[Word]:
     """Words with timings for a 16 kHz mono WAV."""
     if cache and cache.exists():
-        return [Word(**w) for w in json.loads(cache.read_text())["words"]]
+        return [Word(**w) for w in json.loads(cache.read_text(encoding="utf-8"))["words"]]
     if not models_present(cfg):
         raise TranscribeError(f"speech models missing in {cfg.models_dir}; run ./setup.sh")
     audio, rate = sf.read(str(wav), dtype="float32", always_2d=True)
@@ -136,5 +136,5 @@ def transcribe(cfg: Config, wav: Path, cache: Path | None = None) -> list[Word]:
     words.sort(key=lambda w: w.s)
     if cache:
         cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps({"words": [asdict(w) for w in words]}))
+        cache.write_text(json.dumps({"words": [asdict(w) for w in words]}), encoding="utf-8")
     return words

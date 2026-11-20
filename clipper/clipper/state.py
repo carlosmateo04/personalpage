@@ -22,7 +22,7 @@ class Ledger:
         self.path = path
         self.data: dict[str, Any] = {"version": 1, "sources": {}, "clips": {}, "runs": []}
         if path.exists():
-            self.data.update(json.loads(path.read_text()))
+            self.data.update(json.loads(path.read_text(encoding="utf-8")))
 
     @property
     def sources(self) -> dict[str, dict]:
@@ -35,7 +35,7 @@ class Ledger:
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.data, indent=1, sort_keys=True, ensure_ascii=False) + "\n")
+        tmp.write_text(json.dumps(self.data, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
         os.replace(tmp, self.path)
 
     def taken_slots(self) -> set[str]:

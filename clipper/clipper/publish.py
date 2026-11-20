@@ -120,11 +120,11 @@ class DryRun:
         return "dry run: nothing will be posted"
 
     def publish(self, clip: dict, video: Path, when: datetime) -> dict:
-        entries = json.loads(self.outbox.read_text()) if self.outbox.exists() else []
+        entries = json.loads(self.outbox.read_text(encoding="utf-8")) if self.outbox.exists() else []
         entries = [e for e in entries if e["clip"] != clip["id"]]
         entries.append({"clip": clip["id"], "video": str(video), "args": upload_args(self.cfg, clip, when)})
         self.outbox.parent.mkdir(parents=True, exist_ok=True)
-        self.outbox.write_text(json.dumps(entries, indent=1, ensure_ascii=False))
+        self.outbox.write_text(json.dumps(entries, indent=1, ensure_ascii=False), encoding="utf-8")
         return {"mode": "dry_run"}
 
     def refresh(self, clip: dict) -> dict:

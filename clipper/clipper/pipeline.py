@@ -176,7 +176,7 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
 
     result = {"run": run_id, "created": now_iso(), "clips": clips, "rejected": rejected, "problems": problems}
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "plan.json").write_text(json.dumps(result, indent=1, ensure_ascii=False))
+    (run_dir / "plan.json").write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
     ledger.save()
     log(f"plan {run_id}: {len(clips)} clip(s) planned, {len(rejected)} rejected, {len(problems)} problem(s)")
     return result
@@ -197,7 +197,7 @@ def render_clip(cfg: Config, clip: dict, run_dir: Path) -> Path:
     ass.write_text(captions.build(
         cfg, rel, end - start, hook=meta.get("hook", ""), label=meta.get("label", ""),
         badge=section.label, badge_color=section.color, credit=meta.get("credit", ""),
-    ))
+    ), encoding="utf-8")
     voice = Path(clip["voiceover"]) if clip.get("voiceover") else None
     if voice and not voice.exists():
         raise media.MediaError(f"voiceover {voice} not found")
@@ -227,7 +227,7 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
     plan_path = plan_path or latest_plan(cfg)
     if plan_path is None:
         raise FileNotFoundError("no plan.json found; run `plan` first")
-    data = json.loads(plan_path.read_text())
+    data = json.loads(plan_path.read_text(encoding="utf-8"))
     run_dir = plan_path.parent
     pub = publish.publisher(cfg)
     done = failed = 0
@@ -247,7 +247,7 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
         try:
             video = render_clip(cfg, clip, run_dir)
             rec["file"], rec["meta"] = str(video), clip["meta"]
-            video.with_suffix(".txt").write_text(report.post_kit(cfg, clip, rec["slot"]))  # the text to post with it
+            video.with_suffix(".txt").write_text(report.post_kit(cfg, clip, rec["slot"]), encoding="utf-8")  # the text to post with it
             if cfg.publish.hold_for_review:
                 rec["status"] = "held"
                 log(f"  {rec['id']} rendered and held for review")
@@ -281,7 +281,7 @@ def approve(cfg: Config, ledger: Ledger, ids: list[str], voiceovers: dict[str, s
         video = Path(rec["file"])
         if rec["id"] in voiceovers:
             plan_path = cfg.path("out") / rec["run"] / "plan.json"
-            clip = next(c for c in json.loads(plan_path.read_text())["clips"] if c["id"] == rec["id"])
+            clip = next(c for c in json.loads(plan_path.read_text(encoding="utf-8"))["clips"] if c["id"] == rec["id"])
             clip["voiceover"] = voiceovers[rec["id"]]
             video = render_clip(cfg, clip, plan_path.parent)
         _send(cfg, ledger, pub, rec, rec["meta"], video, now, log)

@@ -257,10 +257,19 @@ class Config:
     gates: Gates = field(default_factory=Gates)
     root: Path = ROOT
 
+    @property
+    def data_root(self) -> Path:
+        """Where the working directories live: $CLIPPER_DATA when set, otherwise the project folder.
+
+        A separate data folder lets the code be replaced by a fresh download
+        without losing the ledger, the clips or the inbox.
+        """
+        return Path(os.environ["CLIPPER_DATA"]).expanduser() if os.environ.get("CLIPPER_DATA") else self.root
+
     def path(self, name: str) -> Path:
         """Absolute path of one of the working directories."""
         p = Path(getattr(self.paths, name))
-        return p if p.is_absolute() else self.root / p
+        return p if p.is_absolute() else self.data_root / p
 
     def section(self, name: str) -> Section:
         """The named section, or the catch-all (the one called "moments", else the last)."""
