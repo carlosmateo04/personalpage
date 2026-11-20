@@ -38,13 +38,22 @@ YouTube channel description:
 > Interactive. Every clip credits the creator it came from. Creators: message us
 > and we will remove any clip of yours.
 
-## 2. Posting service (about 15 minutes)
+## 2. Connect the accounts for posting
+
+Posting no longer needs a service. In the app, under **Accounts**, connect
+YouTube, Facebook and Instagram, and TikTok each with an app you register at
+that platform, free of charge. [ACCOUNTS.md](ACCOUNTS.md) has the steps and,
+for each platform, what it allows such an app to do. In short: YouTube and
+Facebook post publicly and on schedule by themselves; Instagram posts when its
+time comes; TikTok only takes a draft or a private post from your own app.
+
+The posting service is still there as an option, per platform. It is the way
+to hands-off public posts on TikTok:
 
 1. Sign up at upload-post.com and pick a paid plan that allows scheduled video
    uploads for one profile.
-2. Create one profile (for example `leonidaclips`) and connect the four accounts.
-3. Create an API key. Do not paste it into chat: tell Claude "the key is ready"
-   and enter it in the secure form that opens.
+2. Create one profile (for example `leonidaclips`) and connect the accounts.
+3. Create an API key and paste it in the app under Accounts, never into a chat.
 
 ## 3. Footage: where it comes from and where the run happens
 

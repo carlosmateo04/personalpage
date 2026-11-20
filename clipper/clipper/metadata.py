@@ -177,7 +177,7 @@ def compose(cfg: Config, clip_id: str, creator: str, section: Section, title: st
     yt_lines.append(" ".join(hashtags(cfg, clip_id, 4, section)))
     yt_tags: list[str] = []
     for t in [*search_tags(cfg, tags), *cfg.seo.youtube_tags, *([creator.lower()] if creator else [])]:
-        if t not in yt_tags and sum(len(x) + 1 for x in yt_tags) + len(t) <= YOUTUBE_TAGS_LIMIT:
+        if t not in yt_tags and tags_length([*yt_tags, t]) <= YOUTUBE_TAGS_LIMIT:
             yt_tags.append(t)
     return {
         "title": title,
@@ -200,7 +200,14 @@ def compose(cfg: Config, clip_id: str, creator: str, section: Section, title: st
     }
 
 
-YOUTUBE_TAGS_LIMIT = 450  # YouTube allows 500 characters of tags in all
+YOUTUBE_TAGS_LIMIT = 480  # YouTube allows 500 characters of tags in all
+
+
+def tags_length(tags: list[str]) -> int:
+    """The length of a tag list the way YouTube counts it: the commas between tags count, and a tag with a space
+    counts as if it were in quotation marks."""
+    return sum(len(t) + (2 if " " in t else 0) for t in tags) + max(0, len(tags) - 1)
+
 _HASHTAG = re.compile(r"(?<!\w)#(\w+)")
 # Longest caption and most hashtags each platform takes; past YouTube's 15 it ignores every hashtag.
 _LIMITS = {"tiktok": (2200, 10), "instagram": (2200, 30), "facebook": (2200, 10)}
@@ -242,7 +249,7 @@ def proof(cfg: Config, meta: dict) -> list[str]:
         problems.append("the YouTube description does not credit the source")
     if len(tags) < 3 or not any(_names(t, game) for t in tags):
         problems.append(f"YouTube needs at least 3 tags, one of them naming {game}")
-    if sum(len(t) + 1 for t in tags) > 500:
+    if tags_length(tags) > 500:
         problems.append("the YouTube tags are over 500 characters in all")
 
     for platform, (longest, most) in _LIMITS.items():

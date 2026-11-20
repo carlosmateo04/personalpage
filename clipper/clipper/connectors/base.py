@@ -91,8 +91,8 @@ class Connector:
 
     def app(self) -> dict[str, Any]:
         """The developer app's details as far as the page may see them: its id, and whether it is complete."""
-        client_id = str(self.remembered().get("client_id", ""))
-        return {"client_id": client_id, "ready": bool(client_id) and (not self.needs_secret or bool(self.secret("client_secret")))}
+        client_id, has_secret = str(self.remembered().get("client_id", "")), bool(self.secret("client_secret"))
+        return {"client_id": client_id, "has_secret": has_secret, "ready": bool(client_id) and (has_secret or not self.needs_secret)}
 
     def save_app(self, client_id: str, client_secret: str = "") -> None:
         client_id, client_secret = client_id.strip(), client_secret.strip()

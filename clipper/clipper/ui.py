@@ -11,6 +11,7 @@ that only the page it served knows.
 
 from __future__ import annotations
 
+import html
 import json
 import mimetypes
 import os
@@ -24,14 +25,21 @@ from collections import deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import check, claude, config, metadata, pipeline, publish, review, settings
+from . import check, claude, config, connectors, metadata, outbox, pipeline, publish, review, settings
+from .connectors import ConnectorError
 from .config import ROOT
 
 PAGE = Path(__file__).with_name("ui.html")
 TASK = "Clipper daily run"
+
+
+RETURNED = """<!doctype html><meta charset="utf-8"><title>Clipper</title>
+<body style="font:16px system-ui,sans-serif;background:#0f1115;color:#e8eaed;display:grid;place-items:center;height:100vh;margin:0">
+<div style="max-width:32rem;padding:24px;text-align:center"><h1 style="font-size:22px">__TITLE__</h1><p>__MESSAGE__</p>
+<p style="color:#9aa0a6">You can close this tab and go back to Clipper.</p></div></body>"""
 
 
 class Problem(Exception):
@@ -51,6 +59,13 @@ class App:
         self.checking = False
         self.check_results: list[dict] = []
         self.check_at = ""
+        self.port = 8765  # set by serve(); the platforms send the browser back to this port after a sign-in
+        self.pending: dict[str, dict] = {}  # sign-ins under way: state -> what to finish them with
+        self.jobs: dict[str, str] = {}  # clips Claude is editing again right now
+        self.job_errors: dict[str, str] = {}
+        self.posting_log: deque[str] = deque(maxlen=60)
+        self._refreshed = 0.0
+        self._cache: dict[str, tuple[float, object]] = {}
 
     # --- reading ---------------------------------------------------------------
 
@@ -64,6 +79,41 @@ class App:
         if fresh or self._accounts is None or time.time() - self._accounts[0] > 120:
             self._accounts = (time.time(), publish.accounts(cfg))
         return self._accounts[1]
+
+    def cached(self, name: str, seconds: float, make):
+        """A value that is a little work to get and is asked for every couple of seconds by the page."""
+        held = self._cache.get(name)
+        if held is None or time.time() - held[0] > seconds:
+            held = (time.time(), make())
+            self._cache[name] = held
+        return held[1]
+
+    def posting(self, cfg: config.Config) -> dict:
+        """Every platform as the Accounts tab shows it: how it is reached, the account, and what its sign-in needs."""
+        how = outbox.routes(cfg)
+        platforms = []
+        for name in connectors.names():
+            conn = connectors.get(name, cfg)
+            account = conn.account()
+            platforms.append({
+                "name": name, "label": conn.label, "sign_in": conn.key, "chosen": name in cfg.publish.platforms, "route": how.get(name, ""),
+                "account": account.get("name", ""), "problem": account.get("problem", ""), "expires": account.get("expires", ""),
+                "app": conn.app(), "redirect": conn.redirect_uri(self.port), "schedules": conn.native_schedule,
+                "via_service": name in cfg.publish.prefer_service,
+            })
+        meta = settings.account(cfg.data_root, "meta")
+        return {"platforms": platforms, "pages": meta.get("pages", []), "page": meta.get("page_id", ""), "config_id": meta.get("config_id", ""),
+                "tiktok_direct": cfg.publish.tiktok_direct}
+
+    def ai(self, cfg: config.Config) -> dict:
+        return {
+            "enabled": cfg.ai.enabled, "provider": cfg.ai.provider, "model": cfg.ai.model, "off": claude.unavailable(cfg),
+            "models": [{"id": key, "label": label, "price": f"${price_in:g} in, ${price_out:g} out per million tokens"}
+                       for key, (label, price_in, price_out) in claude.MODELS.items()],
+            "has_key": bool(claude.api_key(cfg)), "aws_profile": cfg.ai.aws_profile, "aws_region": cfg.ai.aws_region,
+            "aws_profiles": self.cached("aws", 30, claude.aws_profiles), "scout": cfg.ai.scout, "edit": cfg.ai.edit,
+            "direction": cfg.ai.direction, "usage": claude.usage(cfg),
+        }
 
     def daily(self) -> dict:
         script = ROOT.parent / "schedule.ps1"
@@ -101,7 +151,13 @@ class App:
                 "media": media, "links": rec.get("links", {}), "views": rec.get("views", {}),
                 "sent_to": rec.get("publish", {}).get("platforms", []), "error": rec.get("error", ""),
                 "review": rec.get("review", {}).get("summary") or rec.get("review", {}).get("reason", ""),
+                "score": rec.get("review", {}).get("score"), "picked": (rec.get("scout") or {}).get("why", ""),
                 "seo": rec["seo"] if "seo" in rec else metadata.proof(cfg, meta),
+                "posts": {name: {"state": post["state"], "link": post.get("link", ""), "views": post.get("views"),
+                                 "note": post.get("error") or post.get("note", ""), "via": post.get("via", "")}
+                          for name, post in (rec.get("posts") or {}).items()},
+                "cover": media.replace(".mp4", ".cover.jpg") if media and pipeline.cover_of(video).exists() else "",
+                "busy": self.jobs.get(rec["id"], ""), "edit_error": self.job_errors.get(rec["id"], ""),
             })
         latest = cfg.path("reports") / "latest.md"
         searches = [{"query": settings.search_text(s.url), "section": s.section or "moments"}
@@ -111,8 +167,8 @@ class App:
             "run": {"running": self.running(), "exit": self.exit_code, "log": list(self.log)[-200:],
                     "minutes": round((time.time() - self.started) / 60) if self.running() else 0},
             "accounts": self.accounts(cfg),
-            "review": {"enabled": cfg.review.enabled, "has_key": bool(review.api_key(cfg)), "model": cfg.review.model,
-                       "off": review.unavailable(cfg)},
+            "posting": {**self.cached("posting", 3, lambda: self.posting(cfg)), "log": list(self.posting_log)},
+            "ai": self.cached("ai", 3, lambda: self.ai(cfg)),
             "daily": self.daily(),
             "check": {"running": self.checking, "results": list(self.check_results), "at": self.check_at,
                       "summary": check.summary(self.check_results) if self.check_results and not self.checking else ""},
@@ -124,6 +180,7 @@ class App:
                 "platforms": cfg.publish.platforms, "profile": cfg.publish.profile,
                 "auto_post": cfg.publish.mode == "live" and not cfg.publish.hold_for_review,
                 "tiktok_post_mode": cfg.publish.tiktok_post_mode, "youtube_privacy": cfg.publish.youtube_privacy,
+                "tiktok_direct": cfg.publish.tiktok_direct, "youtube_notify": cfg.publish.youtube_notify,
                 "no_facecam": cfg.filters.no_facecam, "no_commentary": cfg.filters.no_commentary, "no_cutscenes": cfg.filters.no_cutscenes,
                 "keep_downloads_days": cfg.housekeeping.keep_downloads_days, "keep_clips_days": cfg.housekeeping.keep_clips_days,
                 "progress_bar": cfg.render.progress_bar, "searches": searches,
@@ -248,19 +305,95 @@ class App:
         settings.update(cfg.data_root, {"publish": {"mode": "dry_run", "hold_for_review": True}})
         self._accounts = None
 
-    def set_review_key(self, key: str) -> None:
-        """Save the Claude API key for the automatic review, after checking that it works."""
+    def set_ai_key(self, key: str) -> None:
+        """Save the Claude API key, after checking that it works."""
         cfg = self.cfg()
         key = key.strip()
         if not key:
             raise Problem("Paste the key first.")
         if claude.unavailable(cfg).startswith("the anthropic package"):
             raise Problem("Claude is not installed yet. Run the installer again, then add the key.")
-        why = claude.test(cfg, key)
+        settings.update(cfg.data_root, {"ai": {"provider": "anthropic", "enabled": True}})
+        why = claude.test(self.cfg(), key)
         if why:
             raise Problem(why)
         settings.set_secret(cfg.data_root, "anthropic_api_key", key)
-        settings.update(cfg.data_root, {"review": {"enabled": True}})
+
+    def set_ai(self, changes: dict) -> str:
+        """Change how Claude is reached and what it does; returns what a test of the new settings found ("" when it works)."""
+        self.change_settings({"ai": {k: v for k, v in changes.items() if k != "test"}})
+        cfg = self.cfg()
+        if not changes.get("test") or not cfg.ai.enabled:
+            return ""
+        return claude.unavailable(cfg) or claude.test(cfg)
+
+    def connect_start(self, name: str, body: dict) -> dict:
+        """Save the developer app's details and return the address of the platform's sign-in page."""
+        conn = connectors.get(name, self.cfg())
+        if body.get("client_id") or body.get("client_secret"):
+            conn.save_app(str(body.get("client_id") or conn.app()["client_id"]), str(body.get("client_secret") or ""))
+        if conn.key == "meta" and "config_id" in body:
+            conn.remember(config_id=str(body["config_id"]).strip())
+        if body.get("token"):  # Meta: a token made in the Graph API Explorer instead of the sign-in page
+            account = conn.finish("", {"token": str(body["token"])}, {})
+            return {"ok": True, "connected": account.get("name", "")}
+        state = secrets.token_urlsafe(24)
+        redirect = conn.redirect_uri(self.port)
+        url, kept = conn.auth_url(redirect, state)
+        for old in [key for key, held in self.pending.items() if time.time() - held["at"] > 900]:
+            del self.pending[old]
+        self.pending[state] = {"name": name, "kept": kept, "redirect": redirect, "at": time.time()}
+        return {"ok": True, "url": url}
+
+    def connect_finish(self, query: dict) -> tuple[bool, str]:
+        """The platform has sent the browser back: complete the sign-in. Returns (worked, what to tell the user)."""
+        waiting = self.pending.pop(query.get("state", ""), None)
+        if waiting is None or time.time() - waiting["at"] > 900:
+            return False, "This sign-in is no longer waiting. Go back to Clipper and press Connect again."
+        conn = connectors.get(waiting["name"], self.cfg())
+        try:
+            account = conn.finish(waiting["redirect"], query, waiting["kept"])
+        except ConnectorError as exc:
+            return False, str(exc)
+        self._cache.clear()
+        return True, f"{'Facebook and Instagram are' if conn.key == 'meta' else conn.label + ' is'} connected: {account.get('name', '')}"
+
+    def reedit(self, clip_id: str, instruction: str) -> None:
+        """Have Claude edit a finished clip again, in the background; the card shows when it is done."""
+        cfg = self.cfg()
+        if self.running():
+            raise Problem("Wait for the current run to finish, then edit the clip.")
+        if clip_id in self.jobs:
+            raise Problem("Claude is already editing this clip.")
+        why = review.unavailable(cfg)
+        if why:
+            raise Problem(f"Claude cannot be used: {why}.")
+        if clip_id not in pipeline.ledger_of(cfg).clips:
+            raise Problem("not found")
+        self.jobs[clip_id] = "Claude is editing this clip again"
+        self.job_errors.pop(clip_id, None)
+
+        def work() -> None:
+            try:
+                pipeline.reedit(cfg, pipeline.ledger_of(cfg), clip_id, instruction, self.posting_log.append)
+            except (publish.PublishError, KeyError, OSError) as exc:
+                self.job_errors[clip_id] = str(exc)
+            finally:
+                self.jobs.pop(clip_id, None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def tick(self, now: datetime | None = None) -> dict:
+        """Send the posts that are due and, every ten minutes, read back what became of the ones that went out."""
+        cfg = self.cfg()
+        ledger = pipeline.ledger_of(cfg)
+        if not any(rec.get("posts") for rec in ledger.clips.values()):
+            return {}
+        counts = outbox.deliver(cfg, ledger, now, self.posting_log.append)
+        if time.time() - self._refreshed > 600 and not counts.get("busy"):
+            self._refreshed = time.time()
+            outbox.refresh(cfg, ledger, now, lambda message: None)
+        return counts
 
     def set_daily(self, on: bool, at: str = "06:00") -> None:
         script = ROOT.parent / "schedule.ps1"
@@ -289,12 +422,12 @@ class App:
             elif name == "drop":
                 pipeline.drop_clip(cfg, ledger, body["id"])
             elif name == "post":
-                pipeline.post_clip(cfg, ledger, body["id"], body.get("when", "now"), body.get("platforms") or None)
+                pipeline.post_clip(cfg, ledger, body["id"], body.get("when", "now"), body.get("platforms") or None, log=self.posting_log.append)
             elif name == "post-all":
                 ready = sorted((r for r in ledger.clips.values() if pipeline.clip_state(r) == "ready" and r.get("meta")),
                                key=lambda r: -r.get("score", 0))
                 for rec in ready:
-                    pipeline.post_clip(cfg, ledger, rec["id"], "next", body.get("platforms") or None)
+                    pipeline.post_clip(cfg, ledger, rec["id"], "next", body.get("platforms") or None, log=self.posting_log.append)
                 return {"ok": True, "count": len(ready)}
             elif name == "settings":
                 self.change_settings(body)
@@ -302,10 +435,27 @@ class App:
                 return {"ok": True, "accounts": self.connect(body.get("api_key", ""), body.get("profile", ""))}
             elif name == "disconnect":
                 self.disconnect()
-            elif name == "review-key":
-                self.set_review_key(str(body.get("api_key", "")))
-            elif name == "review-key-remove":
+            elif name in ("ai-key", "review-key"):
+                self.set_ai_key(str(body.get("api_key", "")))
+            elif name in ("ai-key-remove", "review-key-remove"):
                 settings.set_secret(cfg.data_root, "anthropic_api_key", "")
+            elif name == "ai":
+                return {"ok": True, "problem": self.set_ai(body)}
+            elif name == "connect-account":
+                return self.connect_start(str(body.get("platform", "")), body)
+            elif name == "disconnect-account":
+                connectors.get(str(body.get("platform", "")), cfg).disconnect()
+            elif name == "choose-page":
+                connectors.get("facebook", cfg).choose(str(body.get("page", "")))
+                settings.update(cfg.data_root, {"publish": {"facebook_page_id": str(body.get("page", ""))}})
+            elif name == "retry":
+                pipeline.retry_clip(cfg, ledger, body["id"], log=self.posting_log.append)
+            elif name == "take-back":
+                pipeline.take_back(cfg, ledger, body["id"])
+            elif name == "reedit":
+                self.reedit(body["id"], str(body.get("instruction", "")))
+            elif name == "deliver":
+                return {"ok": True, **self.tick()}
             elif name == "daily":
                 self.set_daily(bool(body.get("on")), str(body.get("at") or "06:00"))
             elif name == "open":
@@ -318,8 +468,10 @@ class App:
                 raise Problem("unknown action")
         except KeyError as exc:
             raise Problem(f"not found: {exc}") from exc
-        except publish.PublishError as exc:
+        except (publish.PublishError, ConnectorError) as exc:
             raise Problem(str(exc)) from exc
+        finally:
+            self._cache.clear()
         return {"ok": True}
 
 
@@ -387,7 +539,12 @@ def handler_for(app: App):
                 self._send(403, b"", "text/plain")
                 return
             path = urlparse(self.path).path
-            if path == "/":
+            query = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+            if path.startswith("/oauth/") or (path == "/" and ("state" in query or "code" in query)):
+                worked, message = app.connect_finish(query)
+                self._send(200 if worked else 400, RETURNED.replace("__TITLE__", "Connected" if worked else "Not connected")
+                           .replace("__MESSAGE__", html.escape(message)).encode(), "text/html; charset=utf-8")
+            elif path == "/":
                 page = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", app.token)
                 self._send(200, page.encode(), "text/html; charset=utf-8")
             elif path == "/api/state":
@@ -435,8 +592,19 @@ def serve(config_path: str | None = None, port: int = 8765, open_browser: bool =
             continue
     if server is None:
         raise SystemExit("could not find a free port for the app")
+    app.port = server.server_port
     url = f"http://127.0.0.1:{server.server_port}/"
     print(f"Clipper is open at {url}  (close this window to quit)", flush=True)
+
+    def poster() -> None:  # while the app is open, it sends the posts whose time has come
+        while True:
+            time.sleep(60)
+            try:
+                app.tick()
+            except Exception as exc:  # noqa: BLE001 - a fault here must not stop the next round
+                app.posting_log.append(f"posting: {type(exc).__name__}: {exc}")
+
+    threading.Thread(target=poster, daemon=True).start()
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

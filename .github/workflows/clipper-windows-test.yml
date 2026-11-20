@@ -109,8 +109,16 @@ jobs:
           $task = Get-ScheduledTask -TaskName 'Clipper daily run'
           $task.Actions | Select-Object Execute, Arguments | Format-List
           $task.Triggers | Select-Object StartBoundary | Format-List
+          # The posting task: registered, runs without a window, and its command works when nothing is due.
+          $poster = Get-ScheduledTask -TaskName 'Clipper posting'
+          $poster.Actions | Select-Object Execute, Arguments, WorkingDirectory | Format-List
+          $poster.Triggers | Select-Object -ExpandProperty Repetition | Format-List
+          if ($poster.Actions[0].Execute -notlike '*pythonw.exe') { throw 'the posting task does not run without a window' }
+          $run = Start-Process -FilePath $poster.Actions[0].Execute -ArgumentList $poster.Actions[0].Arguments -WorkingDirectory $poster.Actions[0].WorkingDirectory -PassThru -Wait
+          if ($run.ExitCode -ne 0) { throw "the posting command failed with exit code $($run.ExitCode)" }
           powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'schedule.ps1') -Off
           if (Get-ScheduledTask -TaskName 'Clipper daily run' -ErrorAction SilentlyContinue) { throw 'the daily task was not removed' }
+          if (Get-ScheduledTask -TaskName 'Clipper posting' -ErrorAction SilentlyContinue) { throw 'the posting task was not removed' }
 
       - name: The app starts and shows the clips; the desktop shortcut exists
         shell: powershell

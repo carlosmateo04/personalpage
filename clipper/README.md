@@ -57,35 +57,70 @@ What gets left out is listed in the report under "Left out: not gameplay-only".
 The talk check cannot catch a commentator with no camera who never uses such
 words; the automatic review below is there for those.
 
-## Automatic review
+## Claude, built in
 
-`[review]` in `config.toml`; it runs between `plan` and `execute` when a Claude
-API key is saved (in the app under Accounts, or `ANTHROPIC_API_KEY`).
+`[ai]` in `config.toml`; `clipper/claude.py`, `scout.py`, `review.py`. Claude is
+reached with an Anthropic API key or through Amazon Bedrock with an AWS profile
+(set up in the app under Accounts; see [ACCOUNTS.md](ACCOUNTS.md)). It does two
+jobs in every run, and a third when asked:
 
-For each planned clip, `plan` writes one image with frames taken evenly across
-it (`out/<run>/<id>.jpg`: eight frames for a clip of 40 s or more, four for a
-shorter one). The review sends that image, the clip's transcript and the source
-video's title to Claude, which answers in a fixed form:
+**Scout: picking the moments.** For each long video Claude is shown the whole
+video as sheets of small frames, each with its time written on it (one frame
+every 5 to 20 seconds, up to `ai.max_frames`), what is said with times, where
+the sound stands out, and the stretches the loudness finder would clip. It
+answers with the moments to clip, each with start and end, section, title,
+headline, a reason and a score, or says that the video cannot be used (a
+streamer on camera, not gameplay). Its picks are fitted to the clip length,
+kept apart, and then go through the same checks as any candidate.
+
+**Editor: checking and editing each clip.** For each planned clip Claude is
+shown frames from a little before it to a little after it, with their times,
+and what is said. It answers in a fixed form:
 
 - **keep or drop**, with a reason. Dropped: a streamer seen or heard, story
   cutscenes and spoilers, menus and loading screens, footage that is not the
   game, slurs, gambling or political promotion, personal information.
-- **section**: findings, tricks, glitches or moments.
-- **title, on-screen headline and a one-line summary**, written from what the
-  frames and the transcript show.
-- **search tags**: three to five phrases a viewer would type to find the clip.
-  They lead the YouTube tags.
+- **the cut**: it may move each end by up to `ai.margin` seconds so the clip
+  opens where the action starts; the length limits still hold.
+- **section, title, on-screen headline, one-line summary and search tags**.
+- **on-screen notes**: up to three short notes at given moments, only where
+  nobody is speaking.
+- **the cover frame** and **a score** from 0 to 100.
 
-The clip is then rendered with that headline and its captions are rebuilt
-around that title, so nothing needs editing by hand. The verdicts are in
-`plan.json` (`review`), on each clip in the app and in the report under
-"Automatic review".
+The clip is rendered with all of that. **Editing again:** a finished clip can
+be handed back to Claude from the app with an instruction ("start later", "a
+calmer title"); it is cut and rendered anew.
 
-Without a key the run carries on with rule-based titles (the video's own title,
-or a line spoken in the clip). If a request fails for one clip, that clip keeps
-its rule-based title; if the key is refused, the review stops and the run goes
-on. The model is `claude-opus-5-5` with the API's server-side fallback switched
-on; at a dozen clips a day the cost is tens of cents.
+Without Claude the run carries on with the loudness finder and rule-based
+titles. If one request fails, that video or clip falls back to the rules; if
+the sign-in is refused, Claude is left out for the rest of the run. The model
+is `claude-opus-5-5`; a request the model declines is re-run on another model
+(by the API itself, or from here on Bedrock). Requests and an estimated cost
+per month are counted in `state/ai_usage.json` and shown in the app.
+
+## Posting
+
+`clipper/outbox.py` and `clipper/connectors/`. This is the clipper's own
+version of what a posting service does; see [ACCOUNTS.md](ACCOUNTS.md) for what
+each platform allows and how to connect it.
+
+- **Connectors** talk to each platform's own API with a developer app the user
+  registered: YouTube (resumable upload, scheduled by YouTube), TikTok (a draft
+  to the inbox, or a private post), Facebook (Page reels up to 90 seconds, Page
+  videos beyond, scheduled by Facebook) and Instagram (reels from a local
+  file). Sign-in is each platform's OAuth flow, coming back to the app on this
+  computer.
+- **The outbox** keeps one post per platform on each clip
+  (`posts` in the ledger: waiting, sending, scheduled, processing, posted,
+  draft, failed). `deliver` sends what is due: platforms that schedule
+  themselves get the clip at once with its time, the others when their time
+  comes. Failures worth retrying are tried again with a growing wait; an
+  interrupted send is never repeated blindly; nothing is sent twice.
+- **Who delivers:** the run at its end, the app every minute while it is open,
+  and `python3 -m clipper post` (the Windows task "Clipper posting" runs it
+  every 15 minutes).
+- **The posting service** (Upload-Post) remains a route per platform: used for
+  platforms not connected directly, or listed in `publish.prefer_service`.
 
 ## Story playthroughs and cutscenes are left out
 
@@ -187,7 +222,8 @@ The full daily run (reads `config.toml`, posts nothing while `publish.mode = "dr
 | Command | What it does |
 |---|---|
 | `doctor` | Checks ffmpeg, the speech models, the font, the config and the posting service |
-| `check` | Tries each part for real: finding videos, downloading, cutting, the review, the posting connection |
+| `check` | Tries each part for real: finding videos, downloading, cutting, Claude, the posting accounts |
+| `post` | Sends the posts that are due and reads back what became of the ones that went out |
 | `clip VIDEO` | One-off: finished clips from a file into `out/manual/` |
 | `plan` | Collects footage, finds moments, writes `out/<run>/plan.json` |
 | `review` | Has Claude check the planned clips, drop the unsuitable ones and write the titles |
@@ -275,30 +311,45 @@ down the requests this code sends; the stand-in's responses are assumptions.
 The review tests run against a local stand-in for the Claude API in the same
 way: they pin down what is sent and how each kind of answer is handled.
 
-`tests/test_system.py` runs the whole system as one. It presses "Make clips now"
-on the running app, which starts a real run: the downloader fetches a generated
-five-minute video from a local web server, the speech model transcribes it, two
-clips of about 1:30 are found, reviewed, rendered and saved with their text; the
-app then schedules them and the test reads the upload requests. A second test
-does the same with automatic posting on, in one command. The video site, the
-Claude API and the posting service are local stand-ins; everything else is the
-real code path.
+Each part has its own tests against a local stand-in that answers the way the
+service's documentation says and records what it was sent: `test_claude.py`
+(API key, Bedrock, a declined request, errors, cost), `test_scout.py`,
+`test_review.py`, `test_youtube.py`, `test_tiktok.py`, `test_meta.py`
+(sign-in, upload, resuming an interrupted upload, scheduling, refusals, status),
+`test_outbox.py` (queueing, timing, retries, never sending twice),
+`test_state.py` (several processes on one ledger), `test_accounts.py` (the
+Accounts tab end to end).
+
+`tests/test_system.py` runs the whole system as one. The four accounts and
+Claude are connected through the app; "Make clips now" starts a real run that
+downloads a generated five-minute video from a local web server, has the scout
+pick two moments and the editor check and edit them, and renders two clips of
+about 1:30; one is edited again by Claude with an instruction; "Schedule all"
+hands the clips to YouTube and Facebook with their posting times; when the
+time comes TikTok and Instagram are sent; then the platforms' answers are read
+back until every post is out. A second test does it hands-off with one
+command. The video site, the Claude API, Google, TikTok and Meta are local
+stand-ins; everything else is the real code path.
 
 ## Not yet verified against live services
 
-- The automatic review against the real Claude API: no key was available where
-  this was built, so no real clip has been judged or titled by it yet.
+Everything above runs against stand-ins built from the documentation. Against
+the real services, as of this writing:
 
-- Uploading through a real Upload-Post account, and the exact shape of its
-  status and analytics responses (links and views are extracted defensively).
-- Downloading from YouTube: refused by its bot check from the cloud machine
-  this was built on (finding videos there works). `python3 -m clipper check` on
-  a home connection tries both.
-- The facecam check was run on seven real streamer clips (all caught) and on the
-  same clips with the webcam cropped out (all passed). It has not been run on
-  no-commentary walkthrough footage.
-- The moment finder on long real gameplay; loud-action detection is tested on
-  generated audio only.
+- **Claude:** no request has been made with a real key, so what the model picks
+  and writes on real footage has not been seen. `python3 -m clipper check`
+  makes one real request.
+- **YouTube, TikTok, Facebook, Instagram:** no real sign-in or upload has been
+  made; that needs the developer apps and accounts. The first connection of
+  each is the test. For Meta, whether posts are visible to everyone has to be
+  looked at after the first post (see ACCOUNTS.md).
+- **Upload-Post:** request shapes follow its SDK; no real upload has been made.
+- **Downloading from YouTube:** refused by its bot check from the cloud machine
+  this was built on (finding videos there works). On a home connection one
+  video has been fetched. `check` tries both.
+- **Real footage:** two real GTA 6 videos were clipped end to end with the
+  rule-based finder (which is how the cutscene check and the story-playthrough
+  rule came about); not yet with Claude doing the picking.
 
 ## Font
 

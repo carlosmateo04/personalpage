@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from . import check, claude, config, media, outbox, pipeline, report, review, sections, transcribe
@@ -157,11 +159,18 @@ def cmd_post(cfg, args) -> int:
     ledger = pipeline.ledger_of(cfg)
     if not any(rec.get("posts") for rec in ledger.clips.values()):
         return 0
-    counts = outbox.deliver(cfg, ledger, log=pipeline._log)
+    def log(message: str) -> None:
+        pipeline._log(message)
+        if args.log:  # the Windows posting task has no window to print in
+            Path(args.log).parent.mkdir(parents=True, exist_ok=True)
+            with open(args.log, "a", encoding="utf-8") as fh:
+                fh.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M')} {message.strip()}\n")
+
+    counts = outbox.deliver(cfg, ledger, log=log)
     if counts["busy"]:
         return 0  # another delivery is under way
     if counts["sent"] or counts["failed"]:
-        pipeline._log(f"posting: {counts['sent']} sent, {counts['failed']} failed, {counts['waiting']} waiting")
+        log(f"posting: {counts['sent']} sent, {counts['failed']} failed, {counts['waiting']} waiting")
     outbox.refresh(cfg, ledger, log=lambda message: None)
     if counts["sent"] or counts["failed"]:
         report.write(cfg, ledger)
@@ -188,6 +197,7 @@ def cmd_report(cfg, args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="clipper", description=__doc__)
     parser.add_argument("--config", help="path to config.toml")
+    parser.add_argument("--data", help="the folder that holds the clips, the ledger and the settings (instead of CLIPPER_DATA)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("setup", help="install what is needed and download the speech model (handled before this parser)")
     sub.add_parser("doctor", help="check that everything needed is in place").set_defaults(fn=cmd_doctor)
@@ -215,7 +225,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--voiceover", action="append", metavar="CLIP_ID=FILE")
     p.set_defaults(fn=cmd_approve)
     sub.add_parser("status", help="refresh post links and views, rewrite the report").set_defaults(fn=cmd_status)
-    sub.add_parser("post", help="send the posts that are due and read back what became of them").set_defaults(fn=cmd_post)
+    p = sub.add_parser("post", help="send the posts that are due and read back what became of them")
+    p.add_argument("--log", help="also write what was sent to this file")
+    p.set_defaults(fn=cmd_post)
     sub.add_parser("cleanup", help="delete old downloads and old clips").set_defaults(fn=cmd_cleanup)
     p = sub.add_parser("ui", help="open the Clipper app in your browser")
     p.add_argument("--port", type=int, default=8765)
@@ -224,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_ui)
     sub.add_parser("report", help="print the report").set_defaults(fn=cmd_report)
     args = parser.parse_args(argv)
+    if args.data:
+        os.environ["CLIPPER_DATA"] = args.data
     try:
         cfg = config.load(args.config)
     except config.ConfigError as exc:

@@ -9,7 +9,7 @@ Every part is tried for real, on this computer and this internet connection:
   fetch    the first 15 seconds of one listed video are downloaded
   clip     a short test video is transcribed, captioned and rendered as a vertical clip
   review   one real request goes to Claude and must come back in the expected form (needs a key or an AWS profile; costs a cent or two)
-  posting  the posting service accepts the key and the chosen profile has the four accounts connected (nothing is posted)
+  posting  every connected account is signed in to and read, directly or through the posting service (nothing is posted)
 
 Nothing is added to the ledger and nothing is posted.
 """
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
-from . import captions, claude, intake, media, publish, render, review, settings, transcribe
+from . import captions, claude, connectors, intake, media, outbox, publish, render, review, settings, transcribe
 from .bootstrap import js_runtime
 from .config import Config
 
@@ -166,20 +166,50 @@ def _review(b: _Bench) -> Outcome:
 
 
 def _posting(b: _Bench) -> Outcome:
+    """Every way a clip would go out is tried as far as it can be without posting: the sign-in is used and the account read."""
     cfg = b.cfg
-    if not publish.api_key(cfg):
-        return SKIPPED, "no Upload-Post key is saved (add one in the app under Accounts). Clips are made but not posted until then"
-    found = publish.accounts(cfg)
-    if found["error"]:
-        return PROBLEM, f"the posting service did not accept the key: {found['error']}"
-    names = [p["name"] for p in found["profiles"]]
-    profile = next((p for p in found["profiles"] if p["name"] == cfg.publish.profile), None)
-    if profile is None:
-        return PROBLEM, f"the key works, but no profile is chosen. Upload-Post has: {', '.join(names) or 'none yet'}"
-    missing = [p for p in cfg.publish.platforms if p not in profile["platforms"]]
-    if missing:
-        return PROBLEM, f"the key works and the profile \"{profile['name']}\" is found, but these accounts are not connected to it: {', '.join(missing)}"
-    return OK, f"the key works; the profile \"{profile['name']}\" has {', '.join(cfg.publish.platforms)} connected. Nothing was posted"
+    how = outbox.routes(cfg)
+    if not any(how.values()):
+        return SKIPPED, "no account is connected (connect them in the app under Accounts). Clips are made but not posted until then"
+    works: list[str] = []
+    wrong: list[str] = []
+    through_service = [name for name, way in how.items() if way == "service"]
+    if through_service:
+        found = publish.accounts(cfg)
+        profile = next((p for p in found["profiles"] if p["name"] == cfg.publish.profile), None)
+        if found["error"]:
+            wrong.append(f"the posting service did not accept the key: {found['error']}")
+        elif profile is None:
+            wrong.append(f"the posting service has no profile called \"{cfg.publish.profile}\"")
+        else:
+            missing = [name for name in through_service if name not in profile["platforms"]]
+            if missing:
+                wrong.append(f"these accounts are not connected to the posting service's profile \"{profile['name']}\": {', '.join(missing)}")
+            else:
+                works.append(f"the posting service (profile \"{profile['name']}\": {', '.join(through_service)})")
+    asked: set[str] = set()
+    for name, way in how.items():
+        if way != "direct":
+            continue
+        conn = connectors.get(name, cfg)
+        try:
+            if conn.key not in asked:  # Facebook and Instagram share one sign-in
+                asked.add(conn.key)
+                if name == "youtube":
+                    conn.channel()
+                elif name == "tiktok":
+                    conn.access(fresh=True)
+                else:
+                    conn.tokens()
+                    conn.pages()
+        except connectors.ConnectorError as exc:
+            wrong.append(f"{conn.label}: {exc}")
+        else:
+            works.append(f"{conn.label} ({conn.account().get('name', '')})")
+    if wrong:
+        return PROBLEM, "; ".join(wrong) + (f". Working: {', '.join(works)}" if works else "")
+    unconnected = [name for name, way in how.items() if not way]
+    return OK, f"signed in and reachable: {', '.join(works)}" + (f". Not connected: {', '.join(unconnected)}" if unconnected else "") + ". Nothing was posted"
 
 
 _RUN = {"tools": _tools, "lookup": _lookup, "fetch": _fetch, "clip": _clip, "review": _review, "posting": _posting}

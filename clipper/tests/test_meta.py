@@ -249,4 +249,4 @@ def test_disconnecting_withdraws_the_permissions_and_forgets_both_accounts(cfg, 
     assert calls("DELETE", "/v27.0/me/permissions")[0]["query"] == {"access_token": "long-1"}
     assert not meta.Facebook(cfg).connected() and not meta.Instagram(cfg).connected()
     assert not settings.get_secret(cfg.data_root, "meta_user_token") and not settings.get_secret(cfg.data_root, "meta_page_token")
-    assert meta.Facebook(cfg).app() == {"client_id": "app-1", "ready": True}
+    assert meta.Facebook(cfg).app() == {"client_id": "app-1", "has_secret": True, "ready": True}

@@ -72,7 +72,7 @@ def test_every_part_is_tried_for_real_and_reported(bare, tmp_path, monkeypatch):
     assert "downloaded the first 15 seconds" in results["fetch"][1]
     assert "1080x1920" in results["clip"][1] and "words heard and captioned" in results["clip"][1]
     assert "rightly dropped the test pattern: A colour test pattern, not gameplay." in results["review"][1]
-    assert 'the profile "gta6clips" has tiktok connected. Nothing was posted' in results["posting"][1]
+    assert results["posting"][1] == 'signed in and reachable: the posting service (profile "gta6clips": tiktok). Nothing was posted'
     sent = FakeClaude.seen[0]["body"]["messages"][0]["content"]
     assert sent[0]["type"] == "image" and "test pattern" in sent[1]["text"]  # a real request, with frames of the test clip
     assert all(method == "GET" for method, *_ in FakeApi.calls)  # the posting check only reads
@@ -86,7 +86,7 @@ def test_parts_that_are_not_set_up_are_skipped_with_the_reason(bare):
     assert results["lookup"] == ("skipped", "no online source is set up; only the inbox folder is used")
     assert results["fetch"][0] == "skipped"
     assert results["review"][0] == "skipped" and "no Claude API key is saved" in results["review"][1]
-    assert results["posting"][0] == "skipped" and "no Upload-Post key is saved" in results["posting"][1]
+    assert results["posting"][0] == "skipped" and "no account is connected" in results["posting"][1]
 
 
 def test_a_site_refusing_this_computer_is_said_plainly(bare, monkeypatch):
@@ -173,3 +173,39 @@ def test_the_real_check_command_feeds_the_app(bare, tmp_path):
     assert found["clip"] == "ok" and found["lookup"] == found["fetch"] == found["review"] == found["posting"] == "skipped", state
     assert [r["key"] for r in state["results"]] == [key for key, _ in check.PARTS]
     assert "not set up yet" in state["summary"] or "need attention" in state["summary"]  # the tools part depends on this machine
+
+
+def test_connected_accounts_are_signed_in_to_and_read_without_posting(bare, monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    from clipper import connectors
+    from clipper.connectors import meta, youtube
+    from standins import FakeGoogle, FakeMeta
+
+    FakeGoogle.reset(), FakeMeta.reset()
+    google, google_url = serve(FakeGoogle)
+    graph, graph_url = serve(FakeMeta)
+    monkeypatch.setattr(youtube.YouTube, "TOKEN", f"{google_url}/token")
+    monkeypatch.setattr(youtube.YouTube, "API", f"{google_url}/youtube/v3")
+    monkeypatch.setattr(meta.Meta, "GRAPH", f"{graph_url}/v27.0")
+    try:
+        yt = connectors.get("youtube", bare)
+        yt.save_app("client-123")
+        url, kept = yt.auth_url(yt.redirect_uri(8765), "s")
+        FakeGoogle.challenge = parse_qs(urlparse(url).query)["code_challenge"][0]
+        yt.finish(yt.redirect_uri(8765), {"code": "good-code"}, kept)
+        fb = connectors.get("facebook", bare)
+        fb.save_app("app-1", "app-secret")
+        fb.finish(fb.redirect_uri(8765), {"code": "good-code"}, {})
+        status, detail = by_key(check.run(bare, only=["posting"]))["posting"]
+        assert status == "ok" and detail == ("signed in and reachable: Instagram (@leonidaclips), YouTube (Leonida Clips), Facebook (Leonida Clips). "
+                                             "Not connected: tiktok. Nothing was posted")
+        assert all(c["method"] == "GET" for c in FakeMeta.calls) and not any("upload" in c["path"] for c in FakeGoogle.calls)
+
+        FakeGoogle.refresh_token = "rt-withdrawn"  # the user withdrew the access at Google
+        connectors.get("youtube", bare)._token = None
+        status, detail = by_key(check.run(bare, only=["posting"]))["posting"]
+        assert status == "problem" and "YouTube: the YouTube sign-in has expired or was withdrawn" in detail and "Working: Instagram (@leonidaclips)" in detail
+    finally:
+        google.shutdown()
+        graph.shutdown()

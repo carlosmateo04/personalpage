@@ -34,17 +34,20 @@ In the app:
   and cuts the clips. Progress shows at the top and under Activity.
 - **Clips** shows each finished clip with a player. Edit its title and caption,
   then post it now, send it to the next free posting time, or drop it.
-- **Accounts** connects the posting service (one key covers TikTok, Instagram,
-  YouTube and Facebook), takes the Claude API key for the automatic review, and
-  switches the daily run on or off.
-- With a Claude API key saved, every new clip is checked before it is made:
-  clips that are not pure gameplay are dropped, and the title, headline and
-  description are written for you. Without one, Clipper writes simpler titles
-  by rule and you can edit them on each clip.
+- **Accounts** sets up Claude (an API key, or Amazon Bedrock), connects
+  YouTube, TikTok, Facebook and Instagram each with its own sign-in, optionally
+  the posting service, and switches the daily run on or off. What each platform
+  allows and the steps are in [ACCOUNTS.md](ACCOUNTS.md).
+- With Claude set up, it picks the moments in each video, checks every clip,
+  moves the cut to where the action starts and writes the title, headline and
+  notes. "Edit again with Claude" on a clip takes an instruction in your own
+  words. Without Claude, Clipper uses its loudness finder and simpler titles.
+- Each clip shows where it stands on every platform (waiting, scheduled,
+  posted, draft, failed) with links and views, and "Try again" or "Take back"
+  where that applies.
 - **Activity** shows the current run and the last report, and has **Check
   everything**: it tries each part on this computer (finding videos,
-  downloading, cutting and captions, the automatic review, the posting
-  connection) and shows which work. Use it after installing and after adding a
+  downloading, cutting and captions, Claude, the posting accounts) and shows which work. Use it after installing and after adding a
   key.
 - **Settings** holds clip length, posting times, searches and the rest. What
   you change there is kept in `clipper-run\data\settings.json` and survives

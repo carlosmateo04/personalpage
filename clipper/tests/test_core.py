@@ -237,7 +237,8 @@ def test_youtube_tags_stay_under_the_limit(cfg):
 
     cfg.seo.youtube_tags = [f"gta 6 tag number {n} with some extra words" for n in range(40)]
     meta = metadata.compose(cfg, "c1", "RawPlay", cfg.section("moments"), "Tank against a six-star chase", "Tank time")
-    assert 300 < sum(len(t) + 1 for t in meta["youtube"]["tags"]) <= 500 and metadata.proof(cfg, meta) == []
+    assert 300 < metadata.tags_length(meta["youtube"]["tags"]) <= 500 and metadata.proof(cfg, meta) == []
+    assert metadata.tags_length(["gta 6", "glitch", "gta 6 police chase"]) == 7 + 6 + 20 + 2  # quotes around tags with spaces, commas between
 
 
 def test_shipped_searches_leave_out_story_playthroughs_and_keep_free_roam():

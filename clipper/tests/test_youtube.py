@@ -55,13 +55,13 @@ def calls(method: str, path: str) -> list[dict]:
 
 def test_signing_in_stores_the_long_lived_sign_in_and_shows_the_channel(cfg, google):
     yt = youtube.YouTube(cfg)
-    assert yt.app() == {"client_id": "", "ready": False} and not yt.connected() and yt.redirect_uri(8765) == "http://127.0.0.1:8765"
+    assert yt.app() == {"client_id": "", "has_secret": False, "ready": False} and not yt.connected() and yt.redirect_uri(8765) == "http://127.0.0.1:8765"
     with pytest.raises(ConnectorError, match="client ID first"):
         yt.auth_url("http://127.0.0.1:8765", "s")
     with pytest.raises(ConnectorError, match="client ID first"):
         yt.save_app("  ")
     yt.save_app(" client-123.apps.googleusercontent.com ", " GOCSPX-secret ")
-    assert yt.app() == {"client_id": "client-123.apps.googleusercontent.com", "ready": True}
+    assert yt.app() == {"client_id": "client-123.apps.googleusercontent.com", "has_secret": True, "ready": True}
 
     url, kept = yt.auth_url("http://127.0.0.1:8765", "state-1")
     asked = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
@@ -262,7 +262,7 @@ def test_disconnecting_withdraws_the_access_at_google_and_keeps_the_app_details(
     yt.disconnect()
     assert calls("POST", "/revoke")[0]["query"] == {"token": "rt-good"}
     assert not yt.connected() and yt.account() == {} and not settings.get_secret(cfg.data_root, "youtube_refresh_token")
-    assert yt.app() == {"client_id": "client-123.apps.googleusercontent.com", "ready": True}  # connecting again is one click
+    assert yt.app() == {"client_id": "client-123.apps.googleusercontent.com", "has_secret": True, "ready": True}  # connecting again is one click
     with pytest.raises(ConnectorError, match="not connected") as caught:
         yt.access()
     assert caught.value.reconnect

@@ -20,10 +20,10 @@ flowchart TD
         n3["3 Facecam check<br/>16 frames, face detector"]
         n4["4 Transcribe<br/>Parakeet, on this computer"]
         n5["5 Commentary check<br/>commentator phrases"]
-        n6["6 Find moments<br/>85-95 s windows"]
+        n6["6 Find moments<br/>Claude scout on a storyboard<br/>(loudness finder as fallback)"]
         n7["7 Quality checks<br/>overlap, repeats, banned terms"]
-        n8["8 Section + frames<br/>4 sections, 8-frame image"]
-        n9["9 Automatic review<br/>Claude: keep or drop, title"]
+        n8["8 Section + frames<br/>4 sections, 16 timed frames"]
+        n9["9 Claude editor<br/>keep or drop, cut, title, notes, cover"]
         n10["10 Render<br/>1080x1920, karaoke captions"]
         n11["11 Post text<br/>caption per platform"]
         n1 --> n2 --> n3 --> n4 --> n5 --> n6 --> n7 --> n8 --> n9 --> n10 --> n11
@@ -32,8 +32,14 @@ flowchart TD
     subgraph B["Lane 2: publish"]
         p1["12 Queue<br/>held in the app, or automatic"]
         p2["13 Schedule<br/>11:30, 15:00, 19:00, 21:30"]
-        p3["14 Publish<br/>Upload-Post"]
+        p3["14 Outbox<br/>one post per platform, sent when due"]
+        k1["YouTube connector<br/>scheduled by YouTube"]
+        k2["Facebook connector<br/>scheduled by Facebook"]
+        k3["Instagram connector<br/>sent at its time"]
+        k4["TikTok connector<br/>draft or private"]
+        k5["Posting service<br/>optional, per platform"]
         p1 --> p2 --> p3
+        p3 --> k1 & k2 & k3 & k4 & k5
     end
 
     subgraph C["Lane 3: track"]
@@ -45,11 +51,13 @@ flowchart TD
     t1 --> n1
     t2 --> n1
     n11 --> p1
-    p3 --> out["TikTok · Instagram · YouTube · Facebook"]
-    p3 --> c1
+    k1 & k2 & k3 & k4 & k5 --> out["YouTube · Facebook · Instagram · TikTok"]
+    out --> c1
+    t3["Posting task<br/>every 15 min, and the app while open"] --> p3
 
     yt[("YouTube")] -. "search results, video" .-> n1
-    claude[("Claude API")] -. "verdict + title" .-> n9
+    claude[("Claude<br/>API key or Amazon Bedrock")] -. "the moments" .-> n6
+    claude -. "verdict + edit" .-> n9
     ledger[("Ledger<br/>state/ledger.json")] <-. "what was seen, made, posted" .-> A
     ledger <-.-> B
     ledger <-.-> C
@@ -72,33 +80,41 @@ listed in the report with the reason.
 | 3 | Facecam check | Leaves out videos with a streamer's webcam | `[filters] no_facecam = true`; 16 frames; a face that stays in the same spot in 60% of them is a webcam |
 | 4 | Transcribe | Every spoken word with its timing | Parakeet TDT 0.6b v2 with voice detection, on this computer's processor, 4 threads; nothing is sent anywhere |
 | 5 | Commentary check | Leaves out someone talking over the game | `[filters] no_commentary = true`; phrases only a commentator says ("chat", "this game", "like and subscribe", ...); a short clip is out on 1 hit, a long video needs 3 hits of 2 kinds; in a long video only the stretches around the talk (30 s either side) are skipped, unless it runs throughout |
-| 6 | Find moments | Picks the stretches worth clipping | Every half second scored on loudness against the minutes around it, talking speed, the sections' cue words, and chat speed when a chat log is there; works with no speech; `[moments] min_len = 85`, `max_len = 95`, `max_per_source = 3`; a video of 80-100 s is used whole |
+| 6 | Find moments (Claude scout) | Picks the stretches worth clipping | With Claude: it is shown the whole video as sheets of frames with their times (one frame every 5 to 20 seconds, up to `ai.max_frames = 100`), what is said, and where the sound stands out, and picks the moments, each with a title, a reason and a score (`[ai] scout = true`, `scout_effort = "medium"`). Without Claude, or if the request fails: every half second scored on loudness against the minutes around it, talking speed and the sections' cue words; clips of `min_len = 85` to `max_len = 95` seconds, at most 3 per video |
 | 7 | Quality checks | Removes repeats and unsuitable clips | Overlap with a clip already made at most 30%; text similarity with another clip at most 0.6; banned terms (gambling sponsors, political terms) |
-| 8 | Section + frames | Files each clip and prepares what the review looks at | Sections: findings, tricks, glitches, moments (`[[sections]]`, by cue words in the title and speech); sections take turns in the posting order; one image of 8 frames per clip |
-| 9 | Automatic review | Decides keep or drop, the section, the title, the headline, a one-line summary and three to five search tags | `[review] model = "claude-opus-5-5"`, `effort = "low"`, `frames = 8`; answers in a fixed form; needs a Claude API key (Accounts in the app); with no key, or if a request fails, the clip keeps a rule-based title |
+| 8 | Section + frames | Files each clip and prepares what the editor looks at | Sections: findings, tricks, glitches, moments (`[[sections]]`; Claude's choice when it picked the moment, cue words otherwise); sections take turns so a day's posts differ; 16 frames from 15 seconds before the clip to 15 seconds after it, each with its time |
+| 9 | Claude editor | Decides keep or drop, moves the cut to where the action starts, and writes the title, headline, summary, search tags and up to three on-screen notes; picks the cover frame; scores the clip | `[ai] edit = true`, `model = "claude-opus-5-5"`, `effort = "low"`, `margin = 15` (seconds each end may move), `direction` (what the channel wants, in plain words). A finished clip can be edited again from the app with an instruction |
 | 10 | Render | The finished vertical video | 1080x1920, 30 fps; `layout = "blur"` (whole picture over a blurred copy, zoom 1.5); karaoke captions 3 words at a time, the spoken word in yellow; headline for the first 3.5 s; section badge; credit to the source channel; progress bar; sound levelled to -14 LUFS |
 | 11 | Post text + search check | Caption for each platform, then a check that it will be found | Every caption reads "title \| GTA 6 keyword" (the section's `keyword`: Secret, Tips, Glitch, Gameplay), then the credit and hashtags: the section's, #gta6, and a rotating pick, to 5 for TikTok, 8 for Instagram, 4 for Facebook; YouTube title ends in "#shorts", its description carries the summary, the credit and a link to the original, its tags start with the review's search tags; saved next to the clip as `<id>.txt`. The check covers lengths, hashtag counts, the game's name, the credit and banned terms; a clip that fails is not posted by itself |
-| 12 | Queue | Where finished clips wait | `[publish] hold_for_review = true`: clips wait in the app until you post them. "Post automatically" in Settings sends them on without waiting |
+| 12 | Queue | Where finished clips wait | `[publish] hold_for_review = true`: clips wait in the app until you post them. "Post automatically" in Settings puts them in the outbox without waiting |
 | 13 | Schedule | Gives each clip a posting time | `[schedule] slots = ["11:30", "15:00", "19:00", "21:30"]`, `timezone = "America/New_York"`; one clip per slot; extra clips fill up to 3 days ahead |
-| 14 | Publish | Sends the clip and its text to the four accounts | Upload-Post, one key for all four; `platforms = ["tiktok", "instagram", "youtube", "facebook"]`; `tiktok_post_mode = "DIRECT_POST"` (or `"MEDIA_UPLOAD"` to land in TikTok drafts); a dropped connection is retried without posting twice |
-| 15 | Links and views | Collects each post's link and view count | `python -m clipper status`, also part of the daily run |
+| 14 | Outbox and connectors | Sends each clip to each platform at its time | One post per platform per clip. YouTube and Facebook get the clip at once with its time and publish it themselves; TikTok and Instagram are sent when the time comes (the app while open, or the Windows task "Clipper posting" every 15 minutes). Retries with a growing wait, up to 5 tries; never sent twice. Direct connectors: YouTube Data API, TikTok Content Posting API (`tiktok_direct = "draft"` or `"private"`), Meta Graph API for Facebook and Instagram. The posting service (Upload-Post) per platform via `prefer_service` |
+| 15 | Links and views | Reads back whether each post is out, its link and its views | Asked from each platform every ten minutes while the app is open and by `python -m clipper post`; a post that failed shows why, with "Try again" |
 | 16 | Report + cleanup | What was made, posted, left out and why | `reports/latest.md` and the Activity tab; downloads deleted after 2 days, clips after 30 |
 
 "Check everything" in the app (`python -m clipper check`) tries stages 1, 2, 4,
 10, 9 and 14 for real on the computer it runs on and reports each as working,
 needing attention or not set up.
 
-Where things are kept: the ledger in `state/ledger.json`; settings changed in the
-app in `settings.json`; the two keys in Windows Credential Manager. On Windows
+Where things are kept: the ledger in `state/ledger.json` (several processes use
+it at once; saving merges record by record); settings changed in the app and
+the connected accounts in `settings.json`; keys and sign-ins in Windows
+Credential Manager; Claude's request count in `state/ai_usage.json`. On Windows
 all of it is under `clipper-run\data`.
 
 ## Connections to outside services
 
 | Service | Used for | Needed? | Cost |
 |---|---|---|---|
-| YouTube | Finding and downloading the videos | Yes; no account or key. Works from a home connection only | Free |
-| Upload-Post | Posting to TikTok, Instagram, YouTube and Facebook | Yes, to post from the app. Without it the clips and their text are made and you upload by hand | Free plan: 10 uploads a month, no TikTok. Basic: $24 a month |
-| Claude API | The automatic review (stage 9) | Optional. Without it titles are written by rule and nothing checks the clip's picture | Pay as you go; tens of cents a day at a dozen clips |
+| YouTube (as a video site) | Finding and downloading the videos | Yes; no account or key. Works from a home connection only | Free |
+| Claude (Anthropic API key, or Amazon Bedrock) | Picking the moments, checking and editing each clip (stages 6 and 9) | Optional. Without it the loudness finder and rule-based titles are used and nothing looks at the picture | Pay as you go: about one request per video and one per clip |
+| YouTube Data API | Posting to YouTube, with your own Google project | For direct posting to YouTube | Free; 100 uploads a day |
+| Meta Graph API | Posting to Facebook and Instagram, with your own Meta app | For direct posting to those two | Free |
+| TikTok Content Posting API | A draft in the TikTok inbox, or a private post, with your own TikTok app | For direct delivery to TikTok | Free |
+| Upload-Post | Posting through a service whose apps the platforms approved | Optional; the way to public, hands-off TikTok posts | Free plan: 10 uploads a month, no TikTok. Basic: $24 a month |
+
+What each platform lets a self-registered app do, and how to connect it, is in
+[ACCOUNTS.md](ACCOUNTS.md).
 
 Everything else (speech recognition, face detection, cutting, captions,
 rendering) runs on this computer with no account.
