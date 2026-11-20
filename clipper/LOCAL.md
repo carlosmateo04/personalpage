@@ -3,10 +3,11 @@
 YouTube refuses video downloads from cloud machines, so the daily run has to
 happen on a home internet connection. Everything else is the same.
 
-It has been run on Linux only. macOS should behave the same. Windows is untested;
-the known Windows differences (text encoding, time zones, file paths) are handled.
+It is tested on Linux and on Windows. macOS should behave like Linux but has not been run.
 
 ## What the computer needs
+
+On Windows the one-line installer below brings everything itself. Otherwise:
 
 - Python 3.11 or newer
 - ffmpeg (macOS: `brew install ffmpeg`; Windows: `winget install ffmpeg`; Linux: `apt-get install -y ffmpeg`)
@@ -14,57 +15,27 @@ the known Windows differences (text encoding, time zones, file paths) are handle
   (macOS: `brew install deno`; Windows: `winget install DenoLand.Deno`; Linux: `curl -fsSL https://deno.land/install.sh | sh`)
 - git, and about 2 GB of free disk space
 
-## One-time setup on Windows (PowerShell)
+## Windows: one line
 
-Install the tools, then close PowerShell and open it again so it finds them:
-
-```bash
-winget install -e --id Python.Python.3.12
-```
+Paste this into PowerShell:
 
 ```bash
-winget install -e --id Git.Git
+irm https://raw.githubusercontent.com/carlosmateo04/personalpage/refs/heads/claude/quirky-ramanujan-pk7f77/clipper/install.ps1 | iex
 ```
 
-```bash
-winget install -e --id Gyan.FFmpeg
-```
+It needs no administrator rights and no other software. It puts everything in
+one folder, `clipper-run` in your user profile (Python, ffmpeg, the JavaScript
+runtime, the clipper, the speech model), then finds and downloads this week's
+gameplay-only GTA 6 videos, makes the clips and opens the folder they are in
+(`clipper-run\data\out`). Nothing is posted.
 
-```bash
-winget install -e --id DenoLand.Deno
-```
+- To make clips again later, double-click `run.cmd` in `clipper-run`.
+- Pasting the line again updates the clipper and keeps your data.
+- Deleting the `clipper-run` folder removes everything.
+- To install without making clips, run `$env:CLIPPER_SKIP_RUN = "1"` first.
 
-Download the project and set it up:
-
-```bash
-git clone https://github.com/carlosmateo04/personalpage.git
-```
-
-```bash
-cd personalpage
-```
-
-```bash
-git checkout claude/quirky-ramanujan-pk7f77
-```
-
-```bash
-cd clipper
-```
-
-```bash
-py -m venv .venv
-```
-
-```bash
-.venv\Scripts\python -m clipper setup --install
-```
-
-```bash
-.venv\Scripts\python -m clipper doctor
-```
-
-On Windows, use `.venv\Scripts\python` wherever the steps below say `python`.
+The installer and the clipper's tests run on a Windows machine on every change
+(`.github/workflows/clipper-windows-test.yml`), using generated footage.
 
 ## One-time setup on macOS or Linux
 
