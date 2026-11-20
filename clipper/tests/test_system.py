@@ -172,10 +172,10 @@ def test_from_the_button_to_four_platforms(world):
         assert call(app, f"/oauth/tiktok/?code=good-code&state={asked['state']}", token="")[0] == 200
         asked = start(app, {"platform": "facebook", "client_id": "app-1", "client_secret": "app-secret"})
         assert call(app, f"/oauth/meta?code=good-code&state={asked['state']}", token="")[0] == 200
-        assert call(app, "/api/ai-key", {"api_key": GOOD_KEY})[0] == 200
+        assert call(app, "/api/claude-add", {"kind": "key", "name": "Clips key", "api_key": GOOD_KEY})[1] == {"ok": True, "problem": ""}
         state = call(app, "/api/state")[1]
         assert {p["name"]: p["route"] for p in state["posting"]["platforms"]} == dict.fromkeys(("youtube", "tiktok", "instagram", "facebook"), "direct")
-        assert state["ai"]["off"] == ""
+        assert state["ai"]["off"] == "" and [(a["name"], a["kind"], a["active"]) for a in state["ai"]["accounts"]] == [("Clips key", "key", True)]
 
         # --- 2. Make clips now: find, download, scout, check, edit, render ---------------------
         FakeClaude.replies += [dict(SCOUT), dict(CHASE), dict(GLITCH)]  # the scout once for the video, then the editor once per clip
@@ -185,7 +185,8 @@ def test_from_the_button_to_four_platforms(world):
         for step in ("looking for videos", f"downloading: {TITLE}", "transcribing", "Claude is looking at the whole video (57 frames)",
                      "Claude picked 2 moment(s): 0:30 A chase starts at the lights; 3:20 A patrol car takes off", "2 moment(s) found, 2 passed the checks",
                      "Claude is checking and editing the planned clips", "kept [moments, 90/100]: Six-star chase ends on the beach",
-                     "kept [glitches, 80/100]: Patrol car launches into the sky (1 on-screen note(s))", "rendered and held for review", "Finished."):
+                     "kept [glitches, 80/100]: Patrol car launches into the sky (1 on-screen note(s))", "also cut to 59 seconds for youtube",
+                     "rendered and held for review", "Finished."):
             assert step in log, f"missing from the run's log: {step}\n{log}"
 
         clips = {c["title"]: c for c in state["clips"]}
@@ -193,21 +194,32 @@ def test_from_the_button_to_four_platforms(world):
         for clip in clips.values():
             assert clip["state"] == "ready" and 85 <= clip["seconds"] <= 96 and clip["seo"] == [] and clip["creator"] == "RawPlay" and clip["posts"] == {}
             assert call(app, clip["media"], headers={"Range": "bytes=0-99"})[0] == 206 and call(app, clip["cover"])[0] == 200  # the app plays it and shows its cover
+            # Each platform's rule: TikTok over a minute, Facebook and Instagram the clip as it is, YouTube under a minute.
+            whole, short = clip["versions"]
+            assert whole["platforms"] == ["tiktok", "instagram", "facebook"] and whole["media"] == clip["media"] and whole["seconds"] == clip["seconds"]
+            assert (short["platforms"], short["seconds"]) == (["youtube"], 59) and call(app, short["media"], headers={"Range": "bytes=0-99"})[0] == 206
+            assert clip["unfit"] == {}
         chase, glitch = clips["Six-star chase ends on the beach"], clips["Patrol car launches into the sky"]
         assert (chase["section"], glitch["section"], chase["score"], glitch["score"]) == ("HIGHLIGHT", "GLITCH", 90, 80)
         assert chase["picked"] == "Why: a chase starts at the lights." and "What happens: patrol car launches into the sky." in glitch["description"]
         assert chase["caption"].startswith("Six-star chase ends on the beach | GTA 6 Gameplay • Credit: RawPlay #gta6highlights #gta6moments #gta6 ")
 
         run_dir = next((world.data / "out").glob("*/plan.json")).parent
-        videos = sorted(run_dir.glob("c*.mp4"))
-        assert len(videos) == 2
+        videos = sorted(v for v in run_dir.glob("c*.mp4") if "." not in v.stem)
+        shorts = sorted(run_dir.glob("c*.59s.mp4"))
+        assert len(videos) == 2 and len(shorts) == 2
         for video in videos:
             info = media.probe(video)
             assert (info.width, info.height) == (540, 960) and info.has_audio and 85 <= info.duration <= 96 and info.pixel_shape == "1:1"
             kit = video.with_suffix(".txt").read_text(encoding="utf-8")
             assert "=== TikTok ===" in kit and "=== YouTube Shorts ===" in kit and "Credit: RawPlay" in kit and "Tags: gta 6 " in kit
-        shown = [p.read_text(encoding="utf-8").split("[Events]")[1] for p in (world.data / "work" / "captions").glob("*.ass")]
-        assert sum("Callout," in events and "WATCH THE PATROL CAR" in events for events in shown) == 1  # Claude's on-screen note is on the clip
+        for video in shorts:  # YouTube's version: the same picture and sound, 59 seconds, with a cover of its own
+            info = media.probe(video)
+            assert (info.width, info.height) == (540, 960) and info.has_audio and abs(info.duration - 59) < 1 and info.pixel_shape == "1:1"
+            assert pipeline.cover_of(video).exists()
+        shown = {p.stem: p.read_text(encoding="utf-8").split("[Events]")[1] for p in (world.data / "work" / "captions").glob("*.ass")}
+        assert len(shown) == 4 and all("Hook," in events for events in shown.values())  # every version opens with the headline
+        assert sum("Callout," in events and "WATCH THE PATROL CAR" in events for stem, events in shown.items() if "." not in stem) == 1  # Claude's on-screen note is on the clip
 
         scout_asked, *editor_asked = [seen["body"]["messages"][0]["content"] for seen in FakeClaude.seen]
         assert [block["type"] for block in scout_asked] == ["text", "image", "text", "image", "text", "image", "text"]  # three sheets of the video, then the brief
@@ -230,6 +242,10 @@ def test_from_the_button_to_four_platforms(world):
         rec = Ledger(world.data / "state" / "ledger.json").clips[chase["id"]]
         assert (rec["start"], rec["end"]) == (35.0, 125.0) and rec["review"]["cut"] == [30.0, 120.0] and abs(media.probe(Path(rec["file"])).duration - 90) < 1
         assert rec["cover"] == 35.0  # the cover Claude chose at 1:10 is now 35 seconds into the clip
+        again = rec["cuts"]["youtube"]  # YouTube's version was cut again from the clip as it is now
+        assert 35.0 <= again["start"] and again["end"] <= 125.0 and 57 <= again["end"] - again["start"] <= 59  # never over; a spoken word at the edge is left out
+        assert abs(media.probe(Path(again["file"])).duration - 59) < 1 and len(list(run_dir.glob("c*.59s.mp4"))) == 2  # the old one was replaced, not left behind
+        shorts = sorted(run_dir.glob("c*.59s.mp4"))
 
         # --- 4. Schedule all: YouTube and Facebook take their clips now, with the posting time ---
         status, body, _ = call(app, "/api/post-all", {})
@@ -245,7 +261,7 @@ def test_from_the_button_to_four_platforms(world):
             assert o["status"]["privacyStatus"] == "private" and o["snippet"]["tags"][0].startswith("gta 6 ") and "Credit: RawPlay. Original: http://127.0.0.1" in o["snippet"]["description"]
             times.add(datetime.strptime(o["status"]["publishAt"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc))
         assert len(times) == 2 and all(when > datetime.now(timezone.utc) + timedelta(hours=2) for when in times)  # two different posting times
-        assert FakeGoogle.stored in [video.read_bytes() for video in videos]  # the clip itself went up, byte for byte
+        assert FakeGoogle.stored in [video.read_bytes() for video in shorts]  # YouTube got its 59-second version, byte for byte
         finished = [c["query"] for c in requests_to(FakeMeta, "POST", "/v27.0/111/video_reels") if c["query"].get("upload_phase") == "finish"]
         assert len(finished) == 2 and all(f["video_state"] == "SCHEDULED" and " | GTA 6 " in f["description"] and "Credit: RawPlay" in f["description"] for f in finished)
         assert {datetime.fromtimestamp(int(f["scheduled_publish_time"]), timezone.utc) for f in finished} == times
@@ -254,7 +270,8 @@ def test_from_the_button_to_four_platforms(world):
         # --- 5. Their time comes: TikTok and Instagram are sent ----------------------------------
         counts = app.tick(now=max(times) + timedelta(minutes=1))
         assert counts["sent"] == 4 and counts["failed"] == 0
-        assert len(requests_to(FakeTikTok, "POST", "/v2/post/publish/inbox/video/init/")) == 2 and FakeTikTok.stored in [video.read_bytes() for video in videos]
+        assert len(requests_to(FakeTikTok, "POST", "/v2/post/publish/inbox/video/init/")) == 2
+        assert FakeTikTok.stored in [video.read_bytes() for video in videos]  # TikTok got the full clip, over a minute long
         containers = [c["query"] for c in requests_to(FakeMeta, "POST", "/v27.0/178/media")]
         assert len(containers) == 2 and all(c["media_type"] == "REELS" and c["upload_type"] == "resumable" and "#gta6" in c["caption"] for c in containers)
         assert "35000" in {c.get("thumb_offset") for c in containers}  # Instagram is given the cover frame Claude chose
@@ -274,6 +291,14 @@ def test_from_the_button_to_four_platforms(world):
             assert "paste the caption and post it" in posts["tiktok"]["note"]
         assert any("scheduled on YouTube" in line for line in state["posting"]["log"]) and any("sent as a draft to TikTok" in line for line in state["posting"]["log"])
 
+        # --- 6b. The TikTok drafts are finished in the TikTok app and marked as posted here ---------
+        for clip in state["clips"]:
+            assert call(app, "/api/posted-by-hand", {"id": clip["id"], "platform": "tiktok", "link": "https://www.tiktok.com/@leonidaclips/video/7"})[0] == 200
+            assert call(app, "/api/posted-by-hand", {"id": clip["id"], "platform": "youtube"})[0] == 400  # already posted there
+        for clip in call(app, "/api/state")[1]["clips"]:
+            assert (clip["posts"]["tiktok"]["state"], clip["posts"]["tiktok"]["via"]) == ("posted", "hand") and clip["links"]["tiktok"].endswith("/video/7")
+        assert len(requests_to(FakeTikTok, "POST", "/v2/post/publish/inbox/video/init/")) == 2  # nothing more was sent to TikTok
+
         # --- 7. Pressing the button again makes nothing twice ---------------------------------------
         uploads_before = len(requests_to(FakeGoogle, "POST", "/upload/youtube/v3/videos"))
         state = run_to_the_end()
@@ -287,9 +312,15 @@ def test_from_the_button_to_four_platforms(world):
 
 
 def test_hands_off_one_command_makes_the_clips_and_queues_them_and_the_poster_sends_the_rest(world, capsys):
-    """With automatic posting on: `run` goes from finding the video to the platforms, and `post` sends what waits for its time."""
-    path = world.write_config('mode = "live"\nhold_for_review = false')
+    """With automatic posting on: `run` goes from finding the video to the platforms, and `post` sends what waits for its time.
+
+    TikTok is set to post with the caption here, as it does once TikTok has audited the app.
+    """
+    path = world.write_config('mode = "live"\nhold_for_review = false\ntiktok_direct = "public"\ntiktok_stitch = false')
     cfg = config.load(str(path))
+    FakeTikTok.scope = "user.info.basic,video.publish"
+    FakeTikTok.options = ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]
+    FakeTikTok.off = {"comment_disabled": False, "duet_disabled": False, "stitch_disabled": False}
     for name, app_id, secret, fake in (("youtube", "client-123", "GOCSPX-secret", FakeGoogle), ("tiktok", "aw123", "tt-secret", FakeTikTok)):
         conn = connectors.get(name, cfg)
         conn.save_app(app_id, secret)
@@ -314,16 +345,28 @@ def test_hands_off_one_command_makes_the_clips_and_queues_them_and_the_poster_se
     made = records[1]
     assert made["title"] == "Patrol car launches into the sky" and made["seo"] == []
     assert {name: post["state"] for name, post in made["posts"].items()} == {"tiktok": "waiting", "instagram": "waiting", "youtube": "scheduled", "facebook": "scheduled"}
-    assert len(list((world.data / "out").glob("*/c*.mp4"))) == 1  # the rejected clip was never rendered
+    files = sorted(path.name for path in (world.data / "out").glob("*/c*.mp4"))
+    assert files == [f"{made['id']}.59s.mp4", f"{made['id']}.mp4"]  # the clip and YouTube's version of it; the rejected clip was never rendered
+    assert "also cut to 59 seconds for youtube" in out and 57 <= made["cuts"]["youtube"]["end"] - made["cuts"]["youtube"]["start"] <= 59
+    assert FakeGoogle.stored == Path(made["cuts"]["youtube"]["file"]).read_bytes()
     assert len(requests_to(FakeGoogle, "POST", "/upload/youtube/v3/videos")) == 1
 
     assert cli.main(["--config", str(path), "post", "--log", str(world.data / "logs" / "posting.log")]) == 0  # the poster, before the posting time
-    assert not requests_to(FakeTikTok, "POST", "/v2/post/publish/inbox/video/init/") and not (world.data / "logs" / "posting.log").exists()
+    assert not requests_to(FakeTikTok, "POST", "/v2/post/publish/video/init/") and not (world.data / "logs" / "posting.log").exists()
 
     due = datetime.fromisoformat(made["slot"]) + timedelta(minutes=1)
     counts = outbox.deliver(config.load(str(path)), ledger, due, pipeline._log)  # the poster, once the time has come
     assert counts == {"sent": 2, "failed": 0, "waiting": 0, "busy": False}
     made = Ledger(world.data / "state" / "ledger.json").clips[made["id"]]
-    assert {name: post["state"] for name, post in made["posts"].items()} == {"tiktok": "draft", "instagram": "posted", "youtube": "scheduled", "facebook": "scheduled"}
+    assert {name: post["state"] for name, post in made["posts"].items()} == {"tiktok": "processing", "instagram": "posted", "youtube": "scheduled", "facebook": "scheduled"}
+    # TikTok was asked what the account allows, then given the full clip with its caption, for everyone, without stitches (the setting).
+    assert len(requests_to(FakeTikTok, "POST", "/v2/post/publish/creator_info/query/")) == 1
+    info = json.loads(requests_to(FakeTikTok, "POST", "/v2/post/publish/video/init/")[0]["body"])["post_info"]
+    assert info["title"] == made["meta"]["tiktok"]["title"] and "#gta6" in info["title"] and info["privacy_level"] == "PUBLIC_TO_EVERYONE"
+    assert (info["disable_comment"], info["disable_duet"], info["disable_stitch"]) == (False, False, True)
+    assert FakeTikTok.stored == Path(made["file"]).read_bytes() and made["posts"]["tiktok"]["note"] == "posted for: everyone"
+    FakeTikTok.post_status = {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [7301]}
+    outbox.refresh(config.load(str(path)), ledger, due + timedelta(minutes=20), lambda message: None)
+    assert Ledger(world.data / "state" / "ledger.json").clips[made["id"]]["posts"]["tiktok"]["state"] == "posted"
     report = (world.data / "reports" / "latest.md").read_text(encoding="utf-8")
     assert "Publishing mode: **LIVE**" in report and "Patrol car launches into the sky" in report and "1 kept, 1 dropped" in report

@@ -59,10 +59,14 @@ words; the automatic review below is there for those.
 
 ## Claude, built in
 
-`[ai]` in `config.toml`; `clipper/claude.py`, `scout.py`, `review.py`. Claude is
-reached with an Anthropic API key or through Amazon Bedrock with an AWS profile
-(set up in the app under Accounts; see [ACCOUNTS.md](ACCOUNTS.md)). It does two
-jobs in every run, and a third when asked:
+`[ai]` in `config.toml`; `clipper/claude.py`, `signin.py`, `scout.py`,
+`review.py`. Claude is reached by signing in with a Claude Console account, with
+an Anthropic API key, or through Amazon Bedrock with an AWS profile. Several
+accounts can be saved in the app under Accounts and switched between there or
+from the top of any tab (see [ACCOUNTS.md](ACCOUNTS.md)). The sign-in is done by
+Anthropic's own tool (`ant`), and the SDK reads and renews what it stores; keys
+are kept in the credential store, one per account. Claude does two jobs in every
+run, and a third when asked:
 
 **Scout: picking the moments.** For each long video Claude is shown the whole
 video as sheets of small frames, each with its time written on it (one frame
@@ -98,6 +102,21 @@ is `claude-opus-5-5`; a request the model declines is re-run on another model
 (by the API itself, or from here on Bedrock). Requests and an estimated cost
 per month are counted in `state/ai_usage.json` and shown in the app.
 
+## The cut each platform gets
+
+`[edits]` in `config.toml`; `clipper/variants.py`. A clip is made once. Each
+platform then gets the version its rules ask for: TikTok only clips over a
+minute (what its Creator Rewards Program counts), YouTube at most 59 seconds (a
+longer Short is blocked when a copyright owner claims something in it),
+Facebook at most 90 seconds (where Page reels stop), Instagram at most three
+minutes. Where a clip is longer than a platform's maximum, a second version is
+rendered around the moment the clip builds to, never cutting through a spoken
+word, with its own captions and cover; platforms with the same cut share one
+file. The outbox hands each connector its platform's version. The numbers are
+changeable under Settings. They are format rules: whether a channel is paid
+also depends on the platform accepting the videos as original, which no edit
+settles (see ACCOUNTS.md).
+
 ## Posting
 
 `clipper/outbox.py` and `clipper/connectors/`. This is the clipper's own
@@ -106,7 +125,8 @@ each platform allows and how to connect it.
 
 - **Connectors** talk to each platform's own API with a developer app the user
   registered: YouTube (resumable upload, scheduled by YouTube), TikTok (a draft
-  to the inbox, or a private post), Facebook (Page reels up to 90 seconds, Page
+  to the inbox, a private post, or a public post with per-clip audience and
+  interaction choices once TikTok has audited the app), Facebook (Page reels up to 90 seconds, Page
   videos beyond, scheduled by Facebook) and Instagram (reels from a local
   file). Sign-in is each platform's OAuth flow, coming back to the app on this
   computer.
@@ -121,6 +141,12 @@ each platform allows and how to connect it.
   every 15 minutes).
 - **The posting service** (Upload-Post) remains a route per platform: used for
   platforms not connected directly, or listed in `publish.prefer_service`.
+- **By hand:** a clip posted on a platform by the user (the app copies the
+  caption, shows the file and opens TikTok's upload page) is marked as posted
+  there, so it is not sent a second time; the other platforms still go out.
+- **TikTok's audit is not worked around.** The connector uses TikTok's Content
+  Posting API and nothing else: no imitation of the TikTok app, no automated
+  browser on a signed-in session.
 
 ## Story playthroughs and cutscenes are left out
 
@@ -318,17 +344,22 @@ service's documentation says and records what it was sent: `test_claude.py`
 (sign-in, upload, resuming an interrupted upload, scheduling, refusals, status),
 `test_outbox.py` (queueing, timing, retries, never sending twice),
 `test_state.py` (several processes on one ledger), `test_accounts.py` (the
-Accounts tab end to end).
+Accounts tab end to end), `test_signin.py` and `test_claude_accounts.py`
+(signing in with Claude through a stand-in for Anthropic's sign-in tool, whose
+stored sign-in the real SDK then reads; adding, switching and removing
+accounts), `test_variants.py` (the cut each platform gets).
 
 `tests/test_system.py` runs the whole system as one. The four accounts and
 Claude are connected through the app; "Make clips now" starts a real run that
 downloads a generated five-minute video from a local web server, has the scout
 pick two moments and the editor check and edit them, and renders two clips of
-about 1:30; one is edited again by Claude with an instruction; "Schedule all"
-hands the clips to YouTube and Facebook with their posting times; when the
-time comes TikTok and Instagram are sent; then the platforms' answers are read
-back until every post is out. A second test does it hands-off with one
-command. The video site, the Claude API, Google, TikTok and Meta are local
+about 1:30, each with a 59-second version for YouTube; one is edited again by
+Claude with an instruction; "Schedule all" hands the clips to YouTube (its
+short version) and Facebook with their posting times; when the time comes
+TikTok and Instagram are sent the full clip; then the platforms' answers are
+read back until every post is out, and the TikTok drafts are marked as posted
+by hand. A second test does it hands-off with one command, with TikTok set to
+post publicly with the caption. The video site, the Claude API, Google, TikTok and Meta are local
 stand-ins; everything else is the real code path.
 
 ## Not yet verified against live services
@@ -339,6 +370,14 @@ the real services, as of this writing:
 - **Claude:** no request has been made with a real key, so what the model picks
   and writes on real footage has not been seen. `python3 -m clipper check`
   makes one real request.
+- **Sign in with Claude:** tested against a stand-in for Anthropic's sign-in
+  tool written from its documentation. The real tool's sign-in needs a person
+  and a Console account; the first sign-in on the user's computer is the test.
+  The Windows test machine checks that the installer fetches the real tool and
+  that it has the commands the app runs.
+- **TikTok public posts:** refused by TikTok until it has audited the app,
+  which it does not do for tools posting to their owner's accounts; the code
+  path is exercised against the stand-in only.
 - **YouTube, TikTok, Facebook, Instagram:** no real sign-in or upload has been
   made; that needs the developer apps and accounts. The first connection of
   each is the test. For Meta, whether posts are visible to everyone has to be

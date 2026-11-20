@@ -45,7 +45,9 @@ YouTube, Facebook and Instagram, and TikTok each with an app you register at
 that platform, free of charge. [ACCOUNTS.md](ACCOUNTS.md) has the steps and,
 for each platform, what it allows such an app to do. In short: YouTube and
 Facebook post publicly and on schedule by themselves; Instagram posts when its
-time comes; TikTok only takes a draft or a private post from your own app.
+time comes; TikTok only takes a draft or a private post from your own app
+(you make the draft public by posting it in the TikTok app, and each clip also
+has "Post on TikTok by hand").
 
 The posting service is still there as an option, per platform. It is the way
 to hands-off public posts on TikTok:

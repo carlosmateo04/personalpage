@@ -5,7 +5,7 @@
 #   irm https://raw.githubusercontent.com/carlosmateo04/personalpage/refs/heads/claude/quirky-ramanujan-pk7f77/clipper/install.ps1 | iex
 #
 # Everything goes into one folder in your user profile (default: clipper-run):
-#   tools\   uv (installs Python), ffmpeg (video), deno (needed by the YouTube downloader)
+#   tools\   uv (installs Python), ffmpeg (video), deno (needed by the YouTube downloader), ant (Anthropic's sign-in tool, optional)
 #   app\     the clipper code            venv\    Python and its packages
 #   models\  the speech model            data\    downloads, finished clips (data\out), ledger, reports
 # Delete that folder to remove everything. Running the line again updates the code and
@@ -66,6 +66,34 @@ function Install-Clipper {
         return $found.DirectoryName
     }
 
+    # Anthropic's own sign-in tool (ant), which "Sign in with Claude" in the app uses. It is optional:
+    # without it the app still works with an API key or an AWS profile, so a failed download only prints a note.
+    function Get-Ant {
+        $dir = Join-Path $tools 'ant'
+        $found = Get-ChildItem -Path $dir -Recurse -Filter 'ant.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { return $found.DirectoryName }
+        try {
+            $headers = @{ 'User-Agent' = 'clipper-installer'; 'Accept' = 'application/vnd.github+json' }
+            if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
+            $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/anthropics/anthropic-cli/releases/latest' -Headers $headers
+            $names = @($release.assets | ForEach-Object { $_.name })
+            $asset = $release.assets | Where-Object { $_.name -match 'windows' -and $_.name -match 'amd64|x86_64|x64' -and $_.name -match '\.zip$' } | Select-Object -First 1
+            if (-not $asset) { throw "no Windows build in release $($release.tag_name) (files: $($names -join ', '))" }
+            Write-Host "downloading ant $($release.tag_name) ($($asset.name))"
+            $zip = Join-Path $tools 'ant.zip'
+            Fetch $asset.browser_download_url $zip
+            Expand-Archive -Path $zip -DestinationPath $dir -Force
+            Remove-Item $zip
+            $found = Get-ChildItem -Path $dir -Recurse -Filter 'ant.exe' | Select-Object -First 1
+            if (-not $found) { throw "ant.exe was not in $($asset.name)" }
+            return $found.DirectoryName
+        } catch {
+            Write-Host "Anthropic's sign-in tool could not be installed: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host 'Clipper works without it: under Accounts, add a Claude API key instead of signing in. Running the installer again tries once more.'
+            return $null
+        }
+    }
+
     function Invoke-Step([string]$what, [scriptblock]$command) {
         & $command
         if ($LASTEXITCODE -ne 0) { throw "$what failed (exit code $LASTEXITCODE)" }
@@ -84,6 +112,8 @@ function Install-Clipper {
     $denoDir = Get-Tool 'deno' 'https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip' 'deno.exe'
     $ffDir = Get-Tool 'ffmpeg' 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' 'ffmpeg.exe'
     $toolPath = "$uvDir;$denoDir;$ffDir"
+    $antDir = Get-Ant
+    if ($antDir) { $toolPath = "$toolPath;$antDir" }
     $env:PATH = "$toolPath;$env:PATH"
 
     Step 'Clipper code'

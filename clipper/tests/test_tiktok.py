@@ -115,13 +115,14 @@ def test_private_mode_posts_for_the_owners_eyes_only(cfg, tt, clip):
     sent = conn.send(rec, video, None)
     assert sent.state == "processing" and "posted as private" in sent.note
     assert json.loads(calls("POST", "/v2/post/publish/video/init/")[0]["body"]) == {
-        "post_info": {"title": rec["meta"]["tiktok"]["title"], "privacy_level": "SELF_ONLY", "disable_duet": False, "disable_comment": False,
-                      "disable_stitch": False, "brand_content_toggle": False, "brand_organic_toggle": False, "is_aigc": False, "video_cover_timestamp_ms": 31500},
+        # duets and stitches are switched off on the account itself, so the post does not ask for them
+        "post_info": {"title": rec["meta"]["tiktok"]["title"], "privacy_level": "SELF_ONLY", "disable_duet": True, "disable_comment": False,
+                      "disable_stitch": True, "brand_content_toggle": False, "brand_organic_toggle": False, "is_aigc": False, "video_cover_timestamp_ms": 31500},
         "source_info": {"source": "FILE_UPLOAD", "video_size": 512000, "chunk_size": 512000, "total_chunk_count": 1}}
 
-    cfg.publish.tiktok_privacy_level = "PUBLIC_TO_EVERYONE"  # not on offer for a private account
-    with pytest.raises(ConnectorError, match="does not offer PUBLIC_TO_EVERYONE for this account \\(it offers: FOLLOWER_OF_CREATOR, MUTUAL_FOLLOW_FRIENDS, SELF_ONLY\\)"):
-        tiktok.TikTok(cfg).send(rec, video, None)
+    cfg.publish.tiktok_privacy_level = "PUBLIC_TO_EVERYONE"  # private mode stays private whatever the audience setting says
+    tiktok.TikTok(cfg).send(rec, video, None)
+    assert json.loads(calls("POST", "/v2/post/publish/video/init/")[-1]["body"])["post_info"]["privacy_level"] == "SELF_ONLY"
     cfg.publish.tiktok_privacy_level = ""
     tt.longest = 60
     with pytest.raises(ConnectorError, match="the clip is 90 seconds; this TikTok account may post up to 60"):
@@ -157,7 +158,7 @@ def test_a_large_file_goes_up_in_chunks_in_order_and_a_failed_chunk_is_sent_agai
     (("spam_risk_too_many_posts", 403), "daily limit of posts", True, False, 21600),
     (("rate_limit_exceeded", 429), "slow down", True, False, 180),
     (("scope_not_authorized", 401), "connect TikTok again", False, True, 0),
-    (("unaudited_client_can_only_post_to_private_accounts", 403), "set the account to private in TikTok, or use draft mode", False, False, 0),
+    (("unaudited_client_can_only_post_to_private_accounts", 403), "has not audited this app, so it only lets it post privately.*post this clip by hand, or use the posting service", False, False, 0),
     (("spam_risk_user_banned_from_posting", 403), "not letting this account post", False, False, 0),
     (("internal_error", 500), "problem of its own", True, False, 0),
     (("something_new", 400), r"refused while starting the upload \(something_new: something_new happened\)", False, False, 0),
@@ -199,3 +200,85 @@ def test_disconnecting_withdraws_the_access_at_tiktok(cfg, tt):
     conn.disconnect()
     assert tt.form(calls("POST", "/v2/oauth/revoke/")[0]["body"]) == {"client_key": "aw123", "client_secret": "tt-secret", "token": "act-1"}
     assert not conn.connected() and not settings.get_secret(cfg.data_root, "tiktok_refresh_token") and conn.app()["ready"]
+
+
+def public(cfg, tt) -> tiktok.TikTok:
+    """Signed in for posting with a caption, to an account that offers every audience and has nothing switched off."""
+    cfg.publish.tiktok_direct = "public"
+    tt.scope = "user.info.basic,video.publish"
+    tt.options = ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]
+    tt.off = {"comment_disabled": False, "duet_disabled": False, "stitch_disabled": False}
+    return sign_in(cfg)
+
+
+def post_info() -> dict:
+    return json.loads(calls("POST", "/v2/post/publish/video/init/")[-1]["body"])["post_info"]
+
+
+def test_public_mode_posts_with_the_caption_for_everyone_by_default(cfg, tt, clip):
+    rec, video = clip
+    conn = public(cfg, tt)
+    assert conn.scopes() == ["user.info.basic", "video.publish"] and conn.account()["mode"] == "public"
+    sent = conn.send(rec, video, None)
+    assert sent.state == "processing" and sent.note == "posted for: everyone"
+    assert post_info() == {"title": rec["meta"]["tiktok"]["title"], "privacy_level": "PUBLIC_TO_EVERYONE", "disable_comment": False, "disable_duet": False,
+                           "disable_stitch": False, "brand_content_toggle": False, "brand_organic_toggle": False, "is_aigc": False, "video_cover_timestamp_ms": 31500}
+    # What the account offers is asked before every post, as TikTok requires, and kept for the app to offer the same choices.
+    assert len(calls("POST", "/v2/post/publish/creator_info/query/")) == 1
+    assert conn.account()["audiences"] == ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"] and conn.account()["longest"] == 600
+
+
+def test_a_clips_own_tiktok_choices_win_over_the_settings(cfg, tt, clip):
+    rec, video = clip
+    conn = public(cfg, tt)
+    cfg.publish.tiktok_duet = False  # the setting: no duets
+    assert conn.options() == {"audience": "PUBLIC_TO_EVERYONE", "comments": True, "duet": False, "stitch": True, "own_brand": False, "paid": False}
+    rec["tiktok"] = {"audience": "MUTUAL_FOLLOW_FRIENDS", "comments": False, "duet": True, "own_brand": True}
+    assert conn.send(rec, video, None).note == "posted for: friends"
+    sent = post_info()
+    assert (sent["privacy_level"], sent["disable_comment"], sent["disable_duet"], sent["disable_stitch"]) == ("MUTUAL_FOLLOW_FRIENDS", True, False, False)
+    assert sent["brand_organic_toggle"] is True and sent["brand_content_toggle"] is False
+
+    tt.off = {"comment_disabled": True, "duet_disabled": True, "stitch_disabled": False}  # switched off on the account since
+    rec["tiktok"] = {"comments": True, "duet": True, "stitch": True}
+    conn.send(rec, video, None)
+    assert (post_info()["disable_comment"], post_info()["disable_duet"], post_info()["disable_stitch"]) == (True, True, False)
+
+
+def test_public_mode_says_plainly_what_tiktok_will_not_take(cfg, tt, clip):
+    rec, video = clip
+    conn = public(cfg, tt)
+    tt.options = ["FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]  # a private account has no "everyone"
+    with pytest.raises(ConnectorError, match=r'does not offer "Everyone" for this account \(it offers: Followers, Friends, Only me\)'):
+        conn.send(rec, video, None)
+    assert not calls("POST", "/v2/post/publish/video/init/")  # nothing was started
+
+    tt.options = ["PUBLIC_TO_EVERYONE", "SELF_ONLY"]
+    tt.fail = {"init": ("unaudited_client_can_only_post_to_private_accounts", 403)}  # what an app without the audit is told
+    with pytest.raises(ConnectorError, match="TikTok has not audited this app") as caught:
+        conn.send(rec, video, None)
+    assert not caught.value.retry and not caught.value.reconnect  # trying again cannot help; the clip says what to do instead
+
+    rec["tiktok"] = {"audience": "SELF_ONLY", "paid": True}
+    with pytest.raises(ConnectorError, match="paid partnership cannot be posted as"):
+        conn.send(rec, video, None)
+
+
+def test_changing_between_draft_and_posting_asks_to_connect_again(cfg, tt, clip):
+    rec, video = clip
+    conn = sign_in(cfg)  # connected for drafts
+    cfg.publish.tiktok_direct = "public"
+    with pytest.raises(ConnectorError, match="TikTok was connected for drafts, and the setting has changed since: connect TikTok again") as caught:
+        tiktok.TikTok(cfg).send(rec, video, None)
+    assert caught.value.reconnect and not calls("POST", "/v2/post/publish/video/init/")
+    cfg.publish.tiktok_direct = "draft"
+    assert conn.send(rec, video, None).state == "draft"
+
+
+def test_five_waiting_drafts_is_a_wait_not_a_failure(cfg, tt, clip):
+    rec, video = clip
+    conn = sign_in(cfg)
+    tt.fail = {"init": ("spam_risk_too_many_pending_share", 403)}
+    with pytest.raises(ConnectorError, match="five drafts are already waiting") as caught:
+        conn.send(rec, video, None)
+    assert caught.value.retry and caught.value.wait == 3600

@@ -198,7 +198,8 @@ require_speech = false           # clips may have no speech at all
 # Without Claude, the loudness-based finder and rule-based titles are used.
 [ai]
 enabled = true
-provider = "anthropic"           # anthropic (an API key) or bedrock (an AWS profile on this computer)
+provider = "anthropic"           # anthropic (an API key), login (signed in with Claude) or bedrock (an AWS profile).
+                                 # The app sets this when you choose an account under Accounts; several can be saved and switched between.
 model = "claude-opus-5-5"
 aws_profile = ""                 # bedrock only: e.g. "bedrock-sso"
 aws_region = "us-east-1"         # bedrock only
@@ -258,8 +259,33 @@ platforms = ["tiktok", "instagram", "youtube", "facebook"]
 hold_for_review = true           # finished clips wait in the app until you post them; false queues them by itself
 youtube_privacy = "public"       # public, unlisted or private
 youtube_notify = true            # tell subscribers about each upload
-tiktok_direct = "draft"          # TikTok connected directly: "draft" (lands in your TikTok inbox to finish there) or "private"
+tiktok_direct = "draft"          # TikTok connected directly: "draft" (lands in your TikTok inbox to finish there), "private"
+                                 # (only you see it) or "public" (posted with its caption; TikTok accepts it only from an app it has audited)
+tiktok_privacy_level = ""        # who can watch a public post: PUBLIC_TO_EVERYONE (default), MUTUAL_FOLLOW_FRIENDS, FOLLOWER_OF_CREATOR, SELF_ONLY
+tiktok_comments = true           # what a TikTok post allows; each clip can differ, in the app
+tiktok_duet = true
+tiktok_stitch = true
 facebook_page_id = ""            # set by choosing the Page in the app
 prefer_service = []              # platforms to send through the posting service even when connected directly, e.g. ["tiktok"]
 profile = ""                     # the posting service's profile your accounts are connected to
 tiktok_post_mode = "DIRECT_POST" # through the posting service: MEDIA_UPLOAD sends clips to your TikTok drafts instead
+
+# The cut each platform gets, in seconds (0 = no limit). A clip is made once, at
+# the length set under [moments]; where a platform's rule asks for a shorter one,
+# a second version is cut around the moment the clip builds to. A clip shorter
+# than a platform's min_len is not sent there. Changeable in the app under Settings.
+[edits.tiktok]
+min_len = 61    # TikTok's Creator Rewards Program only counts videos longer than one minute
+max_len = 0
+
+[edits.youtube]
+min_len = 0
+max_len = 59    # a Short over 60 seconds is blocked worldwide when a copyright owner claims something in it; 180 is YouTube's own limit
+
+[edits.facebook]
+min_len = 0
+max_len = 90    # Page reels stop at 90 seconds
+
+[edits.instagram]
+min_len = 0
+max_len = 180   # longer reels are not recommended to new viewers

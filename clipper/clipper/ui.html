@@ -71,6 +71,14 @@
   .acc code, .steps code { background: #0b0d11; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 12px; overflow-wrap: anywhere; }
   .posts { display: flex; flex-wrap: wrap; gap: 6px; } .posts .chip { font-size: 12px; padding: 4px 9px; } .posts a { color: var(--info); }
   .card.busy { opacity: .6; pointer-events: none; }
+  .acct { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; }
+  .acct.active { border-color: var(--good); } .acct .who { flex: 1; min-width: 10rem; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+  .addbox { margin-top: 12px; padding: 14px; border: 1px dashed var(--line); border-radius: 10px; }
+  a.btn { text-decoration: none; display: inline-block; color: var(--text); }
+  #chip-claude select { width: auto; max-width: 13rem; padding: 0 2px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+  #chip-claude select option { background: var(--panel2); color: var(--text, #e8eaed); }
+  .cuts { display: grid; grid-template-columns: 7rem 6.5rem 6.5rem minmax(0, 1fr); gap: 8px 12px; align-items: center; }
+  .cuts .meta { margin: 0; } @media (max-width: 640px) { .cuts { grid-template-columns: minmax(0, 1fr) 5.2rem 5.2rem; } .cuts .meta { grid-column: 1 / -1; margin-bottom: 6px; } .cuts b:nth-child(4) { display: none; } }
   ol.steps { margin: 0 0 14px; padding-left: 20px; color: var(--muted); } ol.steps a { color: var(--info); }
   #toast { position: fixed; right: 20px; bottom: 20px; background: var(--panel2); border: 1px solid var(--line); border-left: 4px solid var(--good); padding: 12px 16px; border-radius: 10px; max-width: 420px; display: none; z-index: 20; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
   #toast.bad { border-left-color: var(--bad); } #toast.show { display: block; }
@@ -83,6 +91,7 @@
     <div class="brand"><i></i>Clipper</div>
     <span class="chip" id="chip-accounts"><span class="dot"></span><span>Accounts</span></span>
     <span class="chip" id="chip-daily"><span class="dot"></span><span>Daily run</span></span>
+    <span class="chip" id="chip-claude" title="The Claude account in use. Choose another to switch."><span class="dot"></span><span>Claude</span></span>
     <div class="grow"></div>
     <button class="btn" id="btn-folder" title="Open the folder that holds the finished clips">Open clips folder</button>
     <button class="btn primary" id="btn-run">Make clips now</button>
@@ -148,14 +157,25 @@
       <div class="form">
         <div><label>Posting times, 24-hour, comma separated</label><input type="text" id="s-slots" placeholder="11:30, 15:00, 19:00, 21:30"></div>
         <div><label>Time zone</label><input type="text" id="s-tz" placeholder="America/New_York"></div>
-        <div><label>TikTok, connected directly</label><select id="s-tiktok-direct"><option value="draft">Deliver a draft to my TikTok inbox</option><option value="private">Post privately (only I can see it)</option></select></div>
+        <div><label>TikTok, connected directly</label><select id="s-tiktok-direct"><option value="draft">Deliver a draft to my TikTok inbox</option><option value="private">Post privately (only I can see it)</option><option value="public">Post with its caption, for the audience below (needs TikTok's audit of your app)</option></select></div>
+        <div><label>TikTok: who can watch a post</label><select id="s-tiktok-audience"><option value="PUBLIC_TO_EVERYONE">Everyone</option><option value="MUTUAL_FOLLOW_FRIENDS">Friends</option><option value="FOLLOWER_OF_CREATOR">Followers</option><option value="SELF_ONLY">Only me</option></select></div>
         <div><label>TikTok, through the posting service</label><select id="s-tiktok"><option value="DIRECT_POST">Post directly</option><option value="MEDIA_UPLOAD">Send to my drafts</option></select></div>
         <div><label>YouTube visibility</label><select id="s-youtube"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <label class="check"><input type="checkbox" id="s-tiktok-comments"> TikTok: allow comments</label>
+        <label class="check"><input type="checkbox" id="s-tiktok-duet"> TikTok: allow duets</label>
+        <label class="check"><input type="checkbox" id="s-tiktok-stitch"> TikTok: allow stitches</label>
       </div>
       <div class="row" style="margin-top:14px" id="s-platforms"></div>
       <div class="row" style="margin-top:10px">
         <label class="check"><input type="checkbox" id="s-auto"> Post automatically after each run, without waiting for me</label>
       </div>
+    </div>
+    <div class="panel">
+      <h2>The cut each platform gets</h2>
+      <p class="sub">A clip is made once, at the length set under Clips. Where a platform's rule asks for a shorter one, Clipper makes a second version around the moment the clip builds to, with its own captions. A clip shorter than a platform's minimum is not sent there. 0 means no limit. These are the platforms' format rules for paid programmes; being paid also depends on the platform accepting the videos as original, which no cut or caption settles.</p>
+      <div class="cuts" id="s-edits"></div>
     </div>
     <div class="panel">
       <h2>Searches</h2><p class="sub">What the clipper looks for on YouTube. Only videos labelled “no commentary” are taken.</p>
@@ -176,12 +196,16 @@
     <div class="panel">
       <h2>Claude, the built-in editor</h2>
       <p class="sub">Claude is shown each video as a storyboard and picks the moments worth clipping. It then checks every clip, moves the cut to where the action starts, and writes the title, the headline, the search tags and short on-screen notes. Without it, Clipper uses its loudness finder and rule-based titles.</p>
-      <div class="form">
-        <div><label>Reach Claude through</label><select id="ai-provider"><option value="anthropic">An Anthropic API key</option><option value="bedrock">Amazon Bedrock (an AWS profile on this computer)</option></select></div>
+      <div id="ai-accounts"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="btn-ai-signin">Sign in with Claude</button>
+        <button class="btn" id="btn-ai-addkey">Add an API key</button>
+        <button class="btn" id="btn-ai-addaws">Add Amazon Bedrock</button>
+      </div>
+      <div id="ai-add" class="addbox hide"></div>
+      <div id="ai-waiting" class="addbox hide"></div>
+      <div class="form" style="margin-top:16px">
         <div><label>Model</label><select id="ai-model"></select></div>
-        <div id="ai-key-wrap"><label>Claude API key (from console.anthropic.com)</label><input type="password" id="ai-key" placeholder="Paste the key here" autocomplete="off"></div>
-        <div id="ai-profile-wrap" class="hide"><label>AWS profile</label><input type="text" id="ai-profile" list="ai-profiles" placeholder="bedrock-sso" autocomplete="off"><datalist id="ai-profiles"></datalist></div>
-        <div id="ai-region-wrap" class="hide"><label>AWS region</label><input type="text" id="ai-region" placeholder="us-east-1" autocomplete="off"></div>
       </div>
       <div style="margin-top:14px"><label>What the channel wants, in your own words</label><textarea id="ai-direction" rows="2" maxlength="600"></textarea></div>
       <div class="row" style="margin-top:14px">
@@ -190,10 +214,9 @@
       </div>
       <div class="row" style="margin-top:14px">
         <button class="btn primary" id="btn-ai-save">Save and test</button>
-        <button class="btn danger hide" id="btn-ai-remove">Remove key</button>
       </div>
       <p class="sub" id="ai-status" style="margin-top:12px">Not set up yet.</p>
-      <p class="meta">What is sent to Claude: frames of the video, what is said in it and its title. Keys and sign-ins are kept on this computer (in Windows Credential Manager) and are never shown again.</p>
+      <p class="meta">What is sent to Claude: frames of the video, what is said in it and its title. Keys and sign-ins are kept on this computer (in Windows Credential Manager) and are never shown again. “Sign in with Claude” signs in to a Claude Console account, the kind that is billed for what it uses; Anthropic does not let other apps use a Claude.ai chat subscription.</p>
     </div>
     <div class="panel">
       <h2>Posting accounts</h2>
@@ -284,11 +307,22 @@ function buildCard(c) {
   [title, caption, desc].forEach(el => el.addEventListener("input", dirty));
   const saveText = async () => {
     if (!card.dataset.dirty) return true;
-    const r = await act("/api/clip", {id: c.id, title: title.value, caption: caption.value, description: desc.value});
+    const r = await act("/api/clip", {id: c.id, title: title.value, caption: caption.value, description: desc.value, ...(tkOn ? {tiktok: tkChoice()} : {})});
     if (r) { delete card.dataset.dirty; save.classList.add("hide"); }
     return !!r;
   };
-  const save = h("button", {class: "btn small hide", text: "Save text", onclick: async () => { if (await saveText()) toast("Saved"); }});
+  const save = h("button", {class: "btn small hide", text: "Save changes", onclick: async () => { if (await saveText()) toast("Saved"); }});
+  // How this clip is posted on TikTok, when the app posts there itself with a caption.
+  const tk = S.posting.tiktok, tkRoute = (S.posting.platforms.find(p => p.name === "tiktok") || {}).route;
+  const tkOn = ready && tk.mode === "public" && tkRoute === "direct" && linked().includes("tiktok");
+  const tkOwn = {...tk.defaults, ...(c.tiktok || {})};
+  const tkAudience = h("select", {onchange: dirty}, tk.audiences.map(a => h("option", {value: a.id, text: a.label, selected: a.id === tkOwn.audience})));
+  const tkBoxes = {comments: "Allow comments", duet: "Allow duets", stitch: "Allow stitches", own_brand: "Promotes my own brand"};
+  const tkInputs = Object.fromEntries(Object.keys(tkBoxes).map(k => [k, h("input", {type: "checkbox", checked: !!tkOwn[k], onchange: dirty})]));
+  const tkChoice = () => ({audience: tkAudience.value, ...Object.fromEntries(Object.entries(tkInputs).map(([k, box]) => [k, box.checked]))});
+  const tkOptions = tkOn ? h("details", {}, h("summary", {text: "TikTok post options"}),
+    h("div", {style: "margin-top:8px"}, h("label", {text: "Who can watch"}), tkAudience),
+    h("div", {class: "row", style: "margin-top:8px"}, Object.entries(tkBoxes).map(([k, label]) => h("label", {class: "check"}, tkInputs[k], label)))) : null;
   const boxes = linked().map(p => { const box = h("input", {type: "checkbox", value: p, checked: true}); return h("label", {class: "check"}, box, NAMES[p] || p); });
   const chosen = () => boxes.map(b => b.firstChild).filter(b => b.checked).map(b => b.value);
   const send = async when => {
@@ -310,6 +344,27 @@ function buildCard(c) {
     h("div", {class: "meta", style: post.state === "failed" ? "color:var(--bad)" : "", text: `${NAMES[p] || p}: ${post.note}`}));
   const waiting = Object.values(c.posts || {}).some(post => post.state === "waiting" || post.state === "failed");
   const failed = Object.values(c.posts || {}).some(post => post.state === "failed");
+  const clock = n => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+  const versions = (c.versions || []).length > 1 ? h("div", {class: "meta"}, "Versions: ", c.versions.flatMap((v, i) => [i ? " · " : "",
+    h("a", {href: "#", title: "Play this version", text: `${clock(v.seconds)} for ${v.platforms.map(p => NAMES[p] || p).join(", ")}`,
+      onclick: e => { e.preventDefault(); if (v.media && media.tagName === "VIDEO") { media.src = v.media; media.play().catch(() => {}); } }})])) : null;
+  const unfit = Object.entries(c.unfit || {}).map(([p, why]) => h("div", {class: "meta", style: "color:var(--warn)", text: `Not sent to ${NAMES[p] || p}: ${why}`}));
+  // TikTok by hand: for a public post without TikTok's audit and without the posting service.
+  const tkPost = (c.posts || {}).tiktok;
+  const canHand = c.media && S.settings.platforms.includes("tiktok") && !(c.unfit || {}).tiktok && c.state !== "dropped" && !(tkPost && ["sending", "scheduled", "processing", "posted"].includes(tkPost.state));
+  const byHand = canHand ? h("details", {}, h("summary", {text: tkPost && tkPost.state === "draft" ? "Posted the TikTok draft?" : "Post on TikTok by hand"}),
+    h("div", {class: "meta", style: "margin:8px 0", text: tkPost && tkPost.state === "draft"
+      ? "The draft is in your TikTok inbox. Copy the caption, post it in the TikTok app, then mark it here."
+      : "Copy the caption, open TikTok's upload page, drag the file in and post. Then mark it here, so Clipper does not send it there as well."}),
+    h("div", {class: "row"},
+      h("button", {class: "btn small", text: "Copy caption", onclick: async () => { try { await navigator.clipboard.writeText(caption.value); toast("Caption copied"); } catch (e) { toast("Could not copy. Select the caption above and copy it.", true); } }}),
+      h("button", {class: "btn small", text: "Show the file", onclick: () => act("/api/reveal", {id: c.id, platform: "tiktok"})}),
+      h("a", {class: "btn small", href: tk.upload_page, target: "_blank", rel: "noopener", text: "Open TikTok upload"}),
+      h("button", {class: "btn small primary", text: "Mark as posted", onclick: () => {
+        const link = prompt("Paste the link to the TikTok post, or leave empty:", "");
+        if (link !== null) act("/api/posted-by-hand", {id: c.id, platform: "tiktok", link}, "Marked as posted on TikTok");
+      }}))) : null;
+  const rest = !ready && ["queued", "posted"].includes(c.state) ? linked().filter(p => !(c.posts || {})[p] && !(c.unfit || {})[p]) : [];
   const again = () => {
     const ask = prompt("What should Claude change? Leave empty to let it look again.\nFor example: start a little later; a calmer title.", "");
     if (ask !== null) act("/api/reedit", {id: c.id, instruction: ask}, "Claude is editing the clip. It takes a minute or two.");
@@ -325,6 +380,7 @@ function buildCard(c) {
     h("details", {}, h("summary", {text: "YouTube description"}), desc),
     h("div", {class: "meta"}, "Footage: " + (c.creator || "unknown") + " · " + (c.permission || "no permission on file"),
       c.origin && c.origin.startsWith("http") ? [" · ", h("a", {href: c.origin, target: "_blank", rel: "noopener", text: "original"})] : null),
+    versions, unfit,
     posts.length ? h("div", {class: "posts"}, posts) : null,
     notes,
     c.busy ? h("div", {class: "meta", style: "color:var(--info)", text: c.busy + "…"}) : null,
@@ -338,6 +394,9 @@ function buildCard(c) {
     !ready && waiting ? h("div", {class: "row"},
       failed ? h("button", {class: "btn primary small", text: "Try again", onclick: () => act("/api/retry", {id: c.id}, "Sending again")}) : null,
       h("button", {class: "btn small", text: "Take back", title: "Remove the posts that have not been handed to a platform yet", onclick: () => act("/api/take-back", {id: c.id}, "Taken back")})) : null,
+    rest.length ? h("div", {class: "row"}, h("button", {class: "btn small", text: `Send to ${rest.map(p => NAMES[p] || p).join(", ")} as well`,
+      onclick: () => { if (confirm("Post this clip there now?")) act("/api/post", {id: c.id, when: "now", platforms: rest}, "Sent"); }})) : null,
+    tkOptions,
     ready ? h("div", {class: "row"}, boxes) : null,
     ready ? h("div", {class: "row"},
       h("button", {class: "btn primary small", text: "Post now", disabled: !connected(), title: connected() ? "" : "Connect your accounts first", onclick: () => send("now")}),
@@ -345,7 +404,8 @@ function buildCard(c) {
       save,
       S.ai.off ? null : h("button", {class: "btn small", text: "Edit again with Claude", onclick: again}),
       h("div", {class: "grow"}),
-      h("button", {class: "btn small danger", text: "Drop", onclick: () => { if (confirm("Drop this clip? It will not be posted.")) act("/api/drop", {id: c.id}, "Dropped"); }})) : null));
+      h("button", {class: "btn small danger", text: "Drop", onclick: () => { if (confirm("Drop this clip? It will not be posted.")) act("/api/drop", {id: c.id}, "Dropped"); }})) : null,
+    byHand));
   card.classList.toggle("busy", !!c.busy);
   return card;
 }
@@ -363,7 +423,7 @@ function renderClips() {
   for (const [id, entry] of cards) if (!keep.has(id)) { entry.el.remove(); cards.delete(id); }
   let previous = null;
   for (const c of show) {
-    const sig = JSON.stringify([c, linked(), !S.ai.off]);
+    const sig = JSON.stringify([c, linked(), !S.ai.off, S.posting.tiktok, S.settings.platforms]);
     let entry = cards.get(c.id);
     const busy = entry && (entry.el.dataset.dirty || entry.el.contains(document.activeElement) || (entry.el.querySelector("video") && !entry.el.querySelector("video").paused));
     if (!entry || (entry.sig !== sig && !busy)) {
@@ -441,26 +501,96 @@ function renderShell() {
 }
 
 // ---- Claude ----------------------------------------------------------------------
-let aiLoaded = false;
+let aiLoaded = false, aiNote = "";
+async function useAccount(id) {
+  const r = await act("/api/claude-use", {id});
+  if (r) toast(r.problem ? "Switched. " + r.problem : "Switched. Claude answers with this account.", !!r.problem);
+}
+function accountRow(a) {
+  return h("div", {class: "acct" + (a.active ? " active" : "")},
+    h("span", {class: "dot " + (a.problem ? "off" : a.active ? "on" : "")}),
+    h("div", {class: "who"}, h("b", {text: a.name}), h("span", {class: "meta", text: [a.label, a.detail, a.problem].filter(Boolean).join(" · ")})),
+    a.active ? h("span", {class: "tag state posted", text: "in use"}) : h("button", {class: "btn small primary", text: "Use this one", onclick: () => useAccount(a.id)}),
+    a.active ? h("button", {class: "btn small", text: "Test", onclick: async () => { const r = await act("/api/claude-test", {}); if (r) toast(r.problem || "Claude answers with this account.", !!r.problem); }}) : null,
+    h("button", {class: "btn small danger", text: "Remove", onclick: () => {
+      if (confirm(`Remove "${a.name}" from this computer?` + (a.kind === "login" ? " Its sign-in is removed too." : a.kind === "key" ? " Its key is deleted." : "")))
+        act("/api/claude-remove", {id: a.id}, "Removed");
+    }}));
+}
+function showAdd(kind) {
+  const box = $("ai-add"), ai = S.ai;
+  box.innerHTML = ""; box.classList.remove("hide");
+  const name = h("input", {type: "text", maxlength: 40, placeholder: kind === "login" ? "For example: Personal" : kind === "key" ? "For example: Work key" : "For example: Work AWS"});
+  const close = h("button", {class: "btn small", text: "Cancel", onclick: () => box.classList.add("hide")});
+  if (kind === "login") {
+    if (!ai.can_sign_in) {
+      box.append(h("p", {class: "sub", text: "Signing in uses Anthropic's own sign-in tool, which the installer puts on this computer. Run the installer again (it only adds what is missing) and come back, or add an API key instead."}), close);
+      return;
+    }
+    box.append(h("p", {class: "sub", text: "A browser tab opens on Anthropic's sign-in page. Sign in with the account you want and approve; this page picks it up by itself. To add a second account, sign in with that one in the tab."}),
+      h("div", {class: "form"}, h("div", {}, h("label", {text: "A name for this account (optional)"}), name)),
+      h("div", {class: "row", style: "margin-top:12px"}, h("button", {class: "btn primary", text: "Open the sign-in page", onclick: async () => {
+        const tab = window.open("", "_blank");  // opened on the click itself, so the browser does not block it
+        const r = await act("/api/claude-signin", {name: name.value.trim()});
+        if (r && r.url) { if (tab) tab.location = r.url; else location.href = r.url; box.classList.add("hide"); } else if (tab) tab.close();
+      }}), close));
+  } else if (kind === "key") {
+    const key = h("input", {type: "password", placeholder: "Paste the key here", autocomplete: "off"});
+    box.append(h("p", {class: "sub"}, "Create a key at ", h("a", {href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener", text: "console.anthropic.com"}), ". It is tested before it is saved."),
+      h("div", {class: "form"}, h("div", {}, h("label", {text: "A name for this account (optional)"}), name), h("div", {}, h("label", {text: "Claude API key"}), key)),
+      h("div", {class: "row", style: "margin-top:12px"}, h("button", {class: "btn primary", text: "Save and use", onclick: async () => {
+        const r = await act("/api/claude-add", {kind: "key", name: name.value.trim(), api_key: key.value.trim()}, "Saved. Claude answers with this key.");
+        if (r) box.classList.add("hide");
+      }}), close));
+  } else {
+    const profile = h("input", {type: "text", list: "ai-profiles", placeholder: "bedrock-sso", autocomplete: "off"});
+    const region = h("input", {type: "text", placeholder: "us-east-1", value: ai.aws_region || "us-east-1", autocomplete: "off"});
+    box.append(h("p", {class: "sub", text: "Uses an AWS profile that is set up on this computer. With single sign-on the AWS sign-in runs out after some hours; Clipper then says what to run."}),
+      h("datalist", {id: "ai-profiles"}, ai.aws_profiles.map(p => h("option", {value: p.name}))),
+      h("div", {class: "form"}, h("div", {}, h("label", {text: "A name for this account (optional)"}), name), h("div", {}, h("label", {text: "AWS profile"}), profile), h("div", {}, h("label", {text: "AWS region"}), region)),
+      h("div", {class: "row", style: "margin-top:12px"}, h("button", {class: "btn primary", text: "Save and use", onclick: async () => {
+        const r = await act("/api/claude-add", {kind: "bedrock", name: name.value.trim(), aws_profile: profile.value.trim(), aws_region: region.value.trim()});
+        if (r) { box.classList.add("hide"); toast(r.problem ? "Saved. " + r.problem : "Saved. Claude answers through Amazon Bedrock.", !!r.problem); }
+      }}), close));
+  }
+}
 function renderAi() {
-  const ai = S.ai;
-  const typing = ["ai-provider", "ai-model", "ai-profile", "ai-region", "ai-direction", "ai-key"].some(id => document.activeElement === $(id));
+  const ai = S.ai, active = ai.accounts.find(a => a.active);
+  const typing = ["ai-model", "ai-direction"].some(id => document.activeElement === $(id));
   if (!aiLoaded || !typing && $("tab-accounts").classList.contains("hide")) {
     $("ai-model").innerHTML = "";
     ai.models.forEach(m => $("ai-model").append(h("option", {value: m.id, text: `${m.label} (${m.price})`, selected: m.id === ai.model})));
     if (!ai.models.some(m => m.id === ai.model)) $("ai-model").append(h("option", {value: ai.model, text: ai.model, selected: true}));
-    $("ai-provider").value = ai.provider; $("ai-profile").value = ai.aws_profile; $("ai-region").value = ai.aws_region;
     $("ai-direction").value = ai.direction; $("ai-scout").checked = ai.scout; $("ai-edit").checked = ai.edit;
-    $("ai-profiles").innerHTML = ""; ai.aws_profiles.forEach(p => $("ai-profiles").append(h("option", {value: p.name})));
     aiLoaded = true;
   }
-  const bedrock = $("ai-provider").value === "bedrock";
-  $("ai-key-wrap").classList.toggle("hide", bedrock);
-  $("ai-profile-wrap").classList.toggle("hide", !bedrock); $("ai-region-wrap").classList.toggle("hide", !bedrock);
-  $("btn-ai-remove").classList.toggle("hide", !ai.has_key || bedrock);
-  $("ai-key").placeholder = ai.has_key ? "A key is saved. Paste a new one to replace it." : "Paste the key here";
+  const sig = JSON.stringify(ai.accounts);
+  if ($("ai-accounts").dataset.sig !== sig) {
+    $("ai-accounts").dataset.sig = sig;
+    $("ai-accounts").innerHTML = "";
+    if (ai.accounts.length) ai.accounts.forEach(a => $("ai-accounts").append(accountRow(a)));
+    else $("ai-accounts").append(h("p", {class: "sub", style: "margin:0", text: "No Claude account yet. Add one below; you can add several and switch between them here or at the top of the page."}));
+    // The same choice at the top of every tab.
+    const chip = $("chip-claude");
+    chip.innerHTML = "";
+    chip.append(h("span", {class: "dot " + (ai.off ? "off" : "on")}), h("span", {text: "Claude "}));
+    if (ai.accounts.length > 1) chip.append(h("select", {id: "claude-switch", "aria-label": "Claude account in use", onchange: e => useAccount(e.target.value)},
+      ai.accounts.map(a => h("option", {value: a.id, text: a.name, selected: a.active}))));
+    else chip.append(h("b", {text: ai.accounts.length ? ai.accounts[0].name : "not set up"}));
+  }
+  $("chip-claude").firstChild.className = "dot " + (ai.off ? "off" : "on");
+  const wait = $("ai-waiting");
+  wait.classList.toggle("hide", !ai.signin.waiting);
+  if (ai.signin.waiting && wait.dataset.url !== ai.signin.url) {
+    wait.dataset.url = ai.signin.url; wait.innerHTML = "";
+    wait.append(h("p", {class: "sub", style: "margin:0 0 10px", text: "Waiting for you to approve in the browser tab. It gives up after five minutes."}),
+      h("div", {class: "row"}, h("a", {class: "btn small", href: ai.signin.url, target: "_blank", rel: "noopener", text: "Open the sign-in page again"}),
+        h("button", {class: "btn small", text: "Cancel", onclick: () => act("/api/claude-signin-cancel", {})})));
+  }
+  if (ai.signin.note && ai.signin.note !== aiNote) toast(ai.signin.note, !ai.signin.note.startsWith("Signed in"));
+  aiNote = ai.signin.note;
   const used = ai.usage, cost = used.requests ? ` This month: ${used.requests} request(s), about $${used.cost.toFixed(2)}${ai.provider === "bedrock" ? " at Anthropic's list price (AWS bills at its own)" : ""}.` : "";
-  $("ai-status").textContent = (ai.off ? `Off: ${ai.off}.` : `On: ${ai.model} through ${ai.provider === "bedrock" ? "Amazon Bedrock" : "the Anthropic API"}.`) + cost;
+  $("ai-status").textContent = (ai.off ? `Off: ${ai.off}.` : `On: ${ai.model} with ${active ? active.name : "the saved account"}.`) + cost;
 }
 
 // ---- posting accounts --------------------------------------------------------------
@@ -471,10 +601,11 @@ const SIGNINS = {
             ["Enable the “YouTube Data API v3” for that project."],
             ["Create an OAuth client of the type “Desktop app” and copy its client ID and secret here. Nothing else has to be registered."]]},
   tiktok: {title: "TikTok", id: "Client key", secret: "Client secret",
-    rule: "TikTok lets an app you register yourself deliver a clip to your TikTok inbox as a draft (you add the caption and post it in the TikTok app; five drafts at a time), or post it privately. Posting publicly from an app needs TikTok's audit, which it does not give to tools for one's own accounts. For hands-off public posts on TikTok, use the posting service below.",
+    rule: "TikTok lets an app you register yourself deliver a clip to your TikTok inbox as a draft (you add the caption and post it in the TikTok app; five drafts at a time), or post it privately. Posting publicly from an app works only once TikTok has audited that app, and its criteria leave out tools for one's own accounts; Clipper does not go around that. Three ways to a public TikTok post: finish the draft in the TikTok app, post by hand from the clip (Clipper copies the caption and shows the file), or use the posting service below, which is hands-off. How Clipper posts is chosen under Settings.",
     steps: [["Create an app at ", ["https://developers.tiktok.com/apps", "developers.tiktok.com"], " (its Sandbox is enough) and add Login Kit and the Content Posting API."],
             ["In Login Kit choose Desktop and register this redirect address exactly: ", "REDIRECT"],
-            ["Give the app the scopes user.info.basic and video.upload (video.publish for private posts), add your TikTok account as a target user, and copy the client key and secret here."]]},
+            ["Give the app the scopes user.info.basic and video.upload (video.publish for private or public posts), add your TikTok account as a target user, and copy the client key and secret here."],
+            ["After changing between draft and posting under Settings, connect again: the two need different permissions."]]},
   meta: {title: "Facebook and Instagram", id: "App ID", secret: "App secret",
     rule: "One Facebook sign-in connects your Page and the Instagram professional account linked to it. Facebook takes a clip with its posting time; Instagram is sent when its time comes. Clips over 90 seconds go to Facebook as a Page video, because Page reels stop there. Meta's documentation does not say whether posts from an app that has not been reviewed are visible to everyone: check the first post while signed out.",
     steps: [["Create an app at ", ["https://developers.facebook.com/apps", "developers.facebook.com"], " with the use cases for managing a Page and for Instagram, and add yourself as its administrator."],
@@ -539,11 +670,24 @@ function searchRow(s) {
   const row = h("div", {class: "searchrow"}, q, sec, h("button", {class: "btn small danger", text: "✕", title: "Remove", onclick: () => row.remove()}));
   return row;
 }
+const CUT_WHY = {
+  tiktok: "TikTok's Creator Rewards Program only counts videos longer than one minute.",
+  youtube: "YouTube blocks a Short of more than 60 seconds worldwide when a copyright owner claims something in it, such as music playing in the game. Shorts may run to 3 minutes: put 180 to accept that risk.",
+  facebook: "Page reels stop at 90 seconds; anything longer goes up as a plain Page video.",
+  instagram: "Reels of more than 3 minutes are not recommended to new viewers.",
+};
 function fillSettings() {
   const s = S.settings;
   $("s-min").value = s.min_len; $("s-max").value = s.max_len; $("s-per").value = s.max_per_source; $("s-handle").value = s.handle;
   $("s-facecam").checked = s.no_facecam; $("s-talk").checked = s.no_commentary; $("s-cut").checked = s.no_cutscenes; $("s-bar").checked = s.progress_bar;
   $("s-slots").value = s.slots.join(", "); $("s-tz").value = s.timezone; $("s-tiktok").value = s.tiktok_post_mode; $("s-tiktok-direct").value = s.tiktok_direct; $("s-youtube").value = s.youtube_privacy;
+  $("s-tiktok-audience").value = s.tiktok_privacy_level; $("s-tiktok-comments").checked = s.tiktok_comments; $("s-tiktok-duet").checked = s.tiktok_duet; $("s-tiktok-stitch").checked = s.tiktok_stitch;
+  $("s-edits").innerHTML = "";
+  $("s-edits").append(h("b", {text: "Platform"}), h("b", {text: "At least (s)"}), h("b", {text: "At most (s)"}), h("b", {text: "Why"}));
+  Object.keys(NAMES).forEach(p => { const rule = s.edits[p] || {min_len: 0, max_len: 0}; $("s-edits").append(h("span", {text: NAMES[p]}),
+    h("input", {type: "number", min: 0, max: 600, value: rule.min_len, "data-edit": p, "data-k": "min_len", "aria-label": NAMES[p] + ": shortest, in seconds"}),
+    h("input", {type: "number", min: 0, max: 600, value: rule.max_len, "data-edit": p, "data-k": "max_len", "aria-label": NAMES[p] + ": longest, in seconds"}),
+    h("span", {class: "meta", text: CUT_WHY[p] || ""})); });
   $("s-auto").checked = s.auto_post; $("s-keep-dl").value = s.keep_downloads_days; $("s-keep-clips").value = s.keep_clips_days;
   $("s-platforms").innerHTML = "";
   Object.keys(NAMES).forEach(p => $("s-platforms").append(h("label", {class: "check"}, h("input", {type: "checkbox", value: p, checked: s.platforms.includes(p)}), NAMES[p])));
@@ -558,7 +702,9 @@ function readSettings() {
     filters: {no_facecam: $("s-facecam").checked, no_commentary: $("s-talk").checked, no_cutscenes: $("s-cut").checked},
     render: {progress_bar: $("s-bar").checked},
     schedule: {slots: $("s-slots").value.split(",").map(x => x.trim()).filter(Boolean), timezone: $("s-tz").value.trim()},
-    publish: {tiktok_post_mode: $("s-tiktok").value, tiktok_direct: $("s-tiktok-direct").value, youtube_privacy: $("s-youtube").value, platforms: [...$("s-platforms").querySelectorAll("input:checked")].map(x => x.value)},
+    edits: Object.fromEntries(Object.keys(NAMES).map(p => [p, Object.fromEntries([...$("s-edits").querySelectorAll(`[data-edit="${p}"]`)].map(i => [i.dataset.k, Number(i.value) || 0]))])),
+    publish: {tiktok_post_mode: $("s-tiktok").value, tiktok_direct: $("s-tiktok-direct").value, tiktok_privacy_level: $("s-tiktok-audience").value,
+      tiktok_comments: $("s-tiktok-comments").checked, tiktok_duet: $("s-tiktok-duet").checked, tiktok_stitch: $("s-tiktok-stitch").checked, youtube_privacy: $("s-youtube").value, platforms: [...$("s-platforms").querySelectorAll("input:checked")].map(x => x.value)},
     housekeeping: {keep_downloads_days: num("s-keep-dl"), keep_clips_days: num("s-keep-clips")},
     searches: [...$("searches").children].map(r => ({query: r.children[0].value.trim(), section: r.children[1].value})).filter(x => x.query),
     auto_post: $("s-auto").checked,
@@ -592,15 +738,14 @@ $("btn-connect").addEventListener("click", async () => {
 });
 $("a-profile").addEventListener("change", () => act("/api/connect", {api_key: "", profile: $("a-profile").value}, "Profile chosen"));
 $("btn-disconnect").addEventListener("click", () => { if (confirm("Remove the saved key from this computer?")) act("/api/disconnect", {}, "Disconnected"); });
-$("ai-provider").addEventListener("change", renderAi);
+$("btn-ai-signin").addEventListener("click", () => showAdd("login"));
+$("btn-ai-addkey").addEventListener("click", () => showAdd("key"));
+$("btn-ai-addaws").addEventListener("click", () => showAdd("bedrock"));
+$("chip-claude").addEventListener("click", e => { if (e.target.tagName !== "SELECT" && e.target.tagName !== "OPTION") document.querySelector('nav button[data-tab="accounts"]').click(); });
 $("btn-ai-save").addEventListener("click", async () => {
-  const key = $("ai-key").value.trim(), bedrock = $("ai-provider").value === "bedrock";
-  if (!bedrock && key) { if (!(await act("/api/ai-key", {api_key: key}))) return; $("ai-key").value = ""; }
-  const r = await act("/api/ai", {provider: $("ai-provider").value, model: $("ai-model").value, aws_profile: $("ai-profile").value.trim(),
-    aws_region: $("ai-region").value.trim() || "us-east-1", direction: $("ai-direction").value.trim(), scout: $("ai-scout").checked, edit: $("ai-edit").checked, test: true});
+  const r = await act("/api/ai", {model: $("ai-model").value, direction: $("ai-direction").value.trim(), scout: $("ai-scout").checked, edit: $("ai-edit").checked, test: true});
   if (r) { aiLoaded = false; toast(r.problem ? r.problem : "Saved. Claude answers.", !!r.problem); }
 });
-$("btn-ai-remove").addEventListener("click", () => { if (confirm("Remove the saved Claude key from this computer?")) act("/api/ai-key-remove", {}, "Key removed"); });
 $("btn-deliver").addEventListener("click", async () => {
   const r = await act("/api/deliver", {});
   if (r) toast(r.busy ? "Posts are being sent right now." : r.sent == null ? "Nothing is waiting to be sent." : `${r.sent} sent, ${r.failed} failed, ${r.waiting} waiting for their time.`);

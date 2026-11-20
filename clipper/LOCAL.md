@@ -34,7 +34,9 @@ In the app:
   and cuts the clips. Progress shows at the top and under Activity.
 - **Clips** shows each finished clip with a player. Edit its title and caption,
   then post it now, send it to the next free posting time, or drop it.
-- **Accounts** sets up Claude (an API key, or Amazon Bedrock), connects
+- **Accounts** sets up Claude (sign in with a Claude Console account, an API
+  key, or Amazon Bedrock; several accounts can be saved, and the one in use is
+  switched there or from the "Claude" chip at the top), connects
   YouTube, TikTok, Facebook and Instagram each with its own sign-in, optionally
   the posting service, and switches the daily run on or off. What each platform
   allows and the steps are in [ACCOUNTS.md](ACCOUNTS.md).

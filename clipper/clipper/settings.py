@@ -30,11 +30,12 @@ EDITABLE: dict[str, set[str]] = {
     "brand": {"handle"},
     "moments": {"min_len", "max_len", "max_per_source", "whole_clip_min", "whole_clip_max"},
     "schedule": {"timezone", "slots"},
-    "publish": {"mode", "profile", "platforms", "tiktok_post_mode", "tiktok_privacy_level", "tiktok_direct", "youtube_privacy", "youtube_notify",
+    "publish": {"mode", "profile", "platforms", "tiktok_post_mode", "tiktok_privacy_level", "tiktok_direct", "tiktok_comments", "tiktok_duet", "tiktok_stitch", "youtube_privacy", "youtube_notify",
                 "hold_for_review", "facebook_page_id", "prefer_service"},
     "filters": {"no_facecam", "no_commentary", "no_cutscenes"},
     "housekeeping": {"keep_downloads_days", "keep_clips_days"},
-    "ai": {"enabled", "provider", "model", "aws_profile", "aws_region", "scout", "edit", "direction", "effort", "scout_effort", "callouts"},
+    "ai": {"enabled", "provider", "model", "aws_profile", "aws_region", "scout", "edit", "direction", "effort", "scout_effort", "callouts",
+           "login_profile", "account", "accounts"},
     "render": {"progress_bar", "layout"},
 }
 
@@ -66,6 +67,11 @@ def update(data_root: Path, changes: dict[str, Any]) -> dict[str, Any]:
                 {"query": str(s["query"]).strip(), "section": str(s.get("section", "moments"))}
                 for s in values if str(s.get("query", "")).strip()
             ]
+            continue
+        if section == "edits":  # the cut each platform gets: {platform: {min_len, max_len}}
+            if not isinstance(values, dict) or any(not isinstance(v, dict) or set(v) - {"min_len", "max_len"} for v in values.values()):
+                raise ValueError("edits: each platform takes min_len and max_len")
+            current["edits"] = {**current.get("edits", {}), **{name: {k: float(n) for k, n in rule.items()} for name, rule in values.items()}}
             continue
         if section == "review":  # the earlier name of the Claude settings
             section = "ai"

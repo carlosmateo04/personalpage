@@ -3,7 +3,7 @@
 $root = $PSScriptRoot
 $py = Join-Path $root 'venv\Scripts\python.exe'
 $data = Join-Path $root 'data'
-$dirs = Get-ChildItem -Path (Join-Path $root 'tools') -Recurse -Include uv.exe, deno.exe, ffmpeg.exe |
+$dirs = Get-ChildItem -Path (Join-Path $root 'tools') -Recurse -Include uv.exe, deno.exe, ffmpeg.exe, ant.exe |
     ForEach-Object { $_.DirectoryName } | Select-Object -Unique
 $env:PATH = ($dirs -join ';') + ';' + $env:PATH
 $env:CLIPPER_DATA = $data

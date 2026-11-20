@@ -3,6 +3,7 @@
 import json
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -262,3 +263,50 @@ def test_second_clip_with_the_same_title_is_flagged(cfg, ledger, footage):
     assert summary["clips"] == 1 and rec["status"] == "held" and rec["seo"] == ["another clip already has this title"]
     ledger.clips["earlier"]["status"] = "dropped"  # a dropped clip's title is free again
     assert pipeline.update_clip(cfg, ledger, rec["id"], {"title": title})["seo"] == []
+
+
+# --- each platform's version of a clip ---------------------------------------------
+
+def test_a_platform_whose_rule_is_shorter_gets_its_own_render(cfg, ledger, footage):
+    quiet = lambda m: None
+    cfg.publish.hold_for_review = True
+    cfg.publish.platforms = ["tiktok", "instagram", "youtube", "facebook"]
+    # The test clip is about twenty seconds: YouTube and Facebook are set to take twelve, TikTok to take a minute or more.
+    cfg.edits = {"tiktok": {"min_len": 61, "max_len": 0}, "youtube": {"min_len": 0, "max_len": 12}, "facebook": {"min_len": 0, "max_len": 12}}
+    said: list[str] = []
+    plan = pipeline.plan(cfg, ledger, NOW, quiet)
+    pipeline.execute(cfg, ledger, now=NOW, log=said.append)
+    clip = plan["clips"][0]
+    rec = Ledger(ledger.path).clips[clip["id"]]
+    assert set(rec["cuts"]) == {"youtube", "facebook"} and rec["cuts"]["youtube"] == rec["cuts"]["facebook"]  # one render shared by the two
+    cut = rec["cuts"]["youtube"]
+    assert rec["start"] <= cut["start"] and cut["end"] <= rec["end"] and cut["end"] - cut["start"] <= 12
+    assert cut["start"] <= clip["peak"] <= cut["end"]  # the loud moment is in it
+    short = media.probe(cut["file"])
+    assert (short.width, short.height, short.has_audio, short.pixel_shape) == (1080, 1920, True, "1:1") and abs(short.duration - (cut["end"] - cut["start"])) < 0.5
+    assert pipeline.cover_of(cfg.path("out") / plan["run"] / f"{clip['id']}.mp4").exists() and pipeline.cover_of(Path(cut["file"])).exists()
+    assert rec["unfit"] == {"tiktok": f"the clip is {rec['end'] - rec['start']:.0f} seconds; tiktok is set to take 61 or more"}
+    assert any(f"also cut to {cut['end'] - cut['start']:.0f} seconds for youtube, facebook" in line for line in said)
+    # The short version's captions are the words spoken inside it, timed from its own start.
+    events = (cfg.path("work") / "captions" / f"{Path(cut['file']).stem}.ass").read_text(encoding="utf-8").split("[Events]")[1]
+    assert "Hook," in events and "Dialogue: " in events
+    assert [v["platforms"] for v in pipeline.variants.versions(rec, cfg.publish.platforms)] == [["instagram"], ["youtube", "facebook"]]
+
+    cfg.edits = {}  # no rules: rendering again leaves one version and removes the old short one
+    pipeline.render_versions(cfg, clip, cfg.path("out") / plan["run"], rec, quiet)
+    assert "cuts" not in rec and "unfit" not in rec and not Path(cut["file"]).exists()
+
+
+def test_a_clip_with_a_voiceover_keeps_one_version(cfg, ledger, footage):
+    quiet = lambda m: None
+    cfg.publish.hold_for_review = True
+    cfg.edits = {"youtube": {"min_len": 0, "max_len": 12}}
+    plan = pipeline.plan(cfg, ledger, NOW, quiet)
+    pipeline.execute(cfg, ledger, now=NOW, log=quiet)
+    cid = plan["clips"][0]["id"]
+    assert "youtube" in ledger.clips[cid]["cuts"]
+    voice = cfg.root / "take.wav"
+    sf.write(voice, (0.3 * np.sin(2 * np.pi * 220 * np.arange(48000 * 3) / 48000)).astype(np.float32), 48000)
+    assert pipeline.approve(cfg, ledger, [cid], {cid: str(voice)}, NOW, quiet) == 1
+    assert "cuts" not in ledger.clips[cid]  # the voice was recorded for the whole clip
+    assert len(list((cfg.path("out") / plan["run"]).glob("*.mp4"))) == 1

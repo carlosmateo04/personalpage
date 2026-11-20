@@ -20,7 +20,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from . import (captions, claude, gates, intake, media, metadata, moments, outbox, presenter, publish, render, report, review, schedule,
-               scout, sections, transcribe)
+               scout, sections, transcribe, variants)
 from .config import Config
 from .state import Ledger, now_iso
 from .transcribe import Word
@@ -249,28 +249,70 @@ def latest_plan(cfg: Config) -> Path | None:
     return plans[-1] if plans else None
 
 
-def render_clip(cfg: Config, clip: dict, run_dir: Path) -> Path:
+def render_clip(cfg: Config, clip: dict, run_dir: Path, cut: list[float] | None = None) -> Path:
+    """Render a clip, or with `cut` ([start, end] in the source video) a platform's shorter version of it.
+
+    A version carries the same headline, badge and credit; the captions, the on-screen notes and the cover
+    are the part of the clip's own that falls inside the cut.
+    """
+    out = run_dir / f"{clip['id']}.mp4"
     start, end = clip["start"], clip["end"]
+    notes, at, voice = clip.get("callouts") or [], clip.get("cover"), None
+    if cut:
+        out = variants.name_of(out, cut)
+        shift = cut[0] - start
+        start, end = cut
+        notes = [dict(note, at=round(note["at"] - shift, 1)) for note in notes if 0 <= note["at"] - shift <= (end - start) - captions.CALLOUT_SECONDS]
+        at = at - shift if isinstance(at, (int, float)) and 0 <= at - shift <= end - start else None
+    elif clip.get("voiceover"):
+        voice = Path(clip["voiceover"])
+        if not voice.exists():
+            raise media.MediaError(f"voiceover {voice} not found")
     meta = clip["meta"]
     section = cfg.section(clip.get("section") or meta.get("section", ""))  # the section may have been changed in plan.json
-    rel = [Word(w["w"], round(w["s"] - start, 3), round(w["e"] - start, 3)) for w in clip["words"]]
-    ass = cfg.path("work") / "captions" / f"{clip['id']}.ass"
+    rel = [Word(w["w"], round(w["s"] - start, 3), round(w["e"] - start, 3)) for w in clip["words"] if w["s"] >= start and w["e"] <= end]
+    ass = cfg.path("work") / "captions" / f"{out.stem}.ass"
     ass.parent.mkdir(parents=True, exist_ok=True)
     ass.write_text(captions.build(
         cfg, rel, end - start, hook=meta.get("hook", ""), label=meta.get("label", ""),
-        badge=section.label, badge_color=section.color, credit=meta.get("credit", ""), callouts=clip.get("callouts"),
+        badge=section.label, badge_color=section.color, credit=meta.get("credit", ""), callouts=notes,
     ), encoding="utf-8")
-    voice = Path(clip["voiceover"]) if clip.get("voiceover") else None
-    if voice and not voice.exists():
-        raise media.MediaError(f"voiceover {voice} not found")
-    out = render.render(cfg, Path(clip["source_path"]), start, end, ass, run_dir / f"{clip['id']}.mp4", voice)
+    render.render(cfg, Path(clip["source_path"]), start, end, ass, out, voice)
     got = media.probe(out)
     if abs(got.duration - (end - start)) > 1.0 or not got.has_audio:
         raise media.MediaError(f"render check failed: {got.duration:.1f}s, audio={got.has_audio}")
     # The cover: the frame the editor chose, else one a third of the way in (past the headline).
-    at = clip.get("cover")
     media.grab(out, (end - start) / 3 if at is None else float(at), cover_of(out), width=720)
     return out
+
+
+def render_versions(cfg: Config, clip: dict, run_dir: Path, rec: dict, log: Log = _log) -> None:
+    """Render the cut of each platform whose rules the clip's own length does not meet, and note them on the record.
+
+    A clip with a voiceover keeps one version: the voice was recorded for the whole clip.
+    """
+    for old in {entry["file"] for entry in (rec.get("cuts") or {}).values()}:
+        for stale in (Path(old), cover_of(Path(old))):
+            stale.unlink(missing_ok=True)
+    rec.pop("cuts", None)
+    rec.pop("unfit", None)
+    if clip.get("voiceover"):
+        return
+    found = variants.plan(cfg, clip)
+    made: dict[tuple, Path] = {}
+    cuts: dict[str, dict] = {}
+    for name, cut in found["cuts"].items():
+        if tuple(cut) not in made:
+            made[tuple(cut)] = render_clip(cfg, clip, run_dir, cut)
+        cuts[name] = {"start": cut[0], "end": cut[1], "file": str(made[tuple(cut)])}
+    if cuts:
+        rec["cuts"] = cuts
+        by_file: dict[str, list[str]] = {}
+        for name, entry in cuts.items():
+            by_file.setdefault(f"{entry['end'] - entry['start']:.0f} seconds", []).append(name)
+        log(f"  {clip['id']} also cut to " + "; ".join(f"{length} for {', '.join(names)}" for length, names in by_file.items()))
+    if found["unfit"]:
+        rec["unfit"] = found["unfit"]
 
 
 def cover_of(video: Path) -> Path:
@@ -325,6 +367,7 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
             continue
         try:
             video = render_clip(cfg, clip, run_dir)
+            render_versions(cfg, clip, run_dir, rec, log)
             rec["file"], rec["meta"] = str(video), clip["meta"]
             # The editor may have moved the cut; the ledger keeps what was actually made.
             rec.update(start=clip["start"], end=clip["end"], text=gates.normalise(clip.get("text", "")), cover=clip.get("cover"))
@@ -379,6 +422,7 @@ def approve(cfg: Config, ledger: Ledger, ids: list[str], voiceovers: dict[str, s
             clip = next(c for c in json.loads(plan_path.read_text(encoding="utf-8"))["clips"] if c["id"] == rec["id"])
             clip["voiceover"] = voiceovers[rec["id"]]
             video = render_clip(cfg, clip, plan_path.parent)
+            render_versions(cfg, clip, plan_path.parent, rec, log)
         _send(cfg, ledger, rec, rec["meta"], video, now, log)
         ledger.save()
         count += 1
@@ -390,6 +434,7 @@ def approve(cfg: Config, ledger: Ledger, ids: list[str], voiceovers: dict[str, s
 # --- actions on finished clips, used by the app -------------------------------
 
 READY = ("held", "rendered")  # rendered and waiting for the user
+TIKTOK_AUDIENCES = ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY")
 
 
 def clip_state(rec: dict) -> str:
@@ -425,9 +470,26 @@ def update_clip(cfg: Config, ledger: Ledger, clip_id: str, fields: dict) -> dict
             meta.setdefault(platform, {})["title"] = caption
     if "description" in fields:
         meta.setdefault("youtube", {})["description"] = str(fields["description"]).strip()[:5000]
+    if "tiktok" in fields:  # how this clip is posted on TikTok: audience, comments, duet, stitch, disclosure
+        chosen = fields["tiktok"] if isinstance(fields["tiktok"], dict) else {}
+        kept = {key: bool(chosen[key]) for key in ("comments", "duet", "stitch", "own_brand", "paid") if key in chosen}
+        if chosen.get("audience"):
+            if chosen["audience"] not in TIKTOK_AUDIENCES:
+                raise publish.PublishError("TikTok audience: choose everyone, friends, followers or only me")
+            kept["audience"] = chosen["audience"]
+        rec["tiktok"] = {**rec.get("tiktok", {}), **kept}
     rec["seo"] = text_problems(cfg, ledger, rec, meta)
     _kit(cfg, rec)
     ledger.save()
+    return rec
+
+
+def posted_by_hand(cfg: Config, ledger: Ledger, clip_id: str, platform: str, link: str = "") -> dict:
+    """The user posted this clip on a platform themselves: keep that on record and do not send it there."""
+    rec = ledger.clips[clip_id]
+    if not Path(rec.get("file", "")).name or rec.get("status") in ("planned", "dropped", "failed"):
+        raise publish.PublishError("only a finished clip can be marked as posted")
+    outbox.by_hand(cfg, ledger, rec, platform, link)
     return rec
 
 
@@ -445,7 +507,11 @@ def post_clip(cfg: Config, ledger: Ledger, clip_id: str, when: str = "now", plat
     """Send a ready clip to the connected accounts: straight away ("now") or at the next free posting time ("next")."""
     now = now or datetime.now(timezone.utc)
     rec = ledger.clips[clip_id]
-    if clip_state(rec) != "ready":
+    state = clip_state(rec)
+    unsent = [name for name in cfg.publish.platforms if name not in (rec.get("posts") or {})]
+    # A clip that is already out can still go to platforms it has not been sent to, when they are named
+    # (posted by hand on one, say, and the others still to go). Without names, nothing is sent a second time.
+    if state != "ready" and not (state in ("queued", "posted") and platforms and all(name in unsent for name in platforms)):
         raise publish.PublishError("this clip has already been sent or dropped")
     slot = None
     if when == "next":
@@ -508,6 +574,7 @@ def reedit(cfg: Config, ledger: Ledger, clip_id: str, instruction: str = "", log
     done = review.edit(cfg, draft, verdict)
     try:
         video = render_clip(cfg, draft, plan_path.parent)
+        render_versions(cfg, draft, plan_path.parent, rec, log)
     except media.MediaError as exc:
         raise publish.PublishError(f"the clip could not be rendered again: {str(exc)[:200]}") from exc
     rec.update(file=str(video), meta=draft["meta"], title=draft["meta"]["title"], section=cfg.section(draft.get("section", "")).name,

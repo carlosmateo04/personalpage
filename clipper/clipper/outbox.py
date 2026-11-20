@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import connectors, publish
+from . import connectors, publish, variants
 from .config import Config
 from .connectors import ConnectorError
 from .state import Ledger, Lock, now_iso
@@ -96,8 +96,14 @@ def enqueue(cfg: Config, ledger: Ledger, rec: dict, when: datetime | None, platf
             skipped[name] = "already sent or queued"
         elif not how.get(name):
             skipped[name] = "no account is connected"
+        elif name in (rec.get("unfit") or {}):
+            skipped[name] = rec["unfit"][name]  # the clip does not meet the length set for this platform
         else:
-            why = connectors.get(name, cfg).unfit(rec, float(rec.get("end", 0)) - float(rec.get("start", 0)), video.stat().st_size) if how[name] == "direct" else ""
+            shown, cut = variants.view(rec, name)  # the platform's own cut of the clip, where it has one
+            if not cut.exists():
+                why = "this platform's version of the clip is no longer on this computer"
+            else:
+                why = connectors.get(name, cfg).unfit(shown, float(shown.get("end", 0)) - float(shown.get("start", 0)), cut.stat().st_size) if how[name] == "direct" else ""
             if why:
                 skipped[name] = why
             else:
@@ -119,12 +125,20 @@ def _failed(post: dict, error: str, counts: dict) -> None:
     counts["failed"] += 1
 
 
-def _via_service(cfg: Config, rec: dict, video: Path, now: datetime, log: Log, counts: dict) -> None:
-    """Hand every post of this clip that goes through the posting service to it, in one upload."""
+def _via_service(cfg: Config, rec: dict, now: datetime, log: Log, counts: dict) -> None:
+    """Hand every post of this clip that goes through the posting service to it: one upload per version of the clip."""
     posts = rec["posts"]
-    names = [name for name, post in posts.items() if post["state"] == "waiting" and post.get("via") == "service"]
-    if not names:
-        return
+    by_file: dict[Path, list[str]] = {}
+    for name, post in posts.items():
+        if post["state"] == "waiting" and post.get("via") == "service":
+            by_file.setdefault(variants.view(rec, name)[1], []).append(name)
+    for video, names in by_file.items():
+        if video.exists():
+            _hand_over(cfg, rec, video, names, now, log, counts)
+
+
+def _hand_over(cfg: Config, rec: dict, video: Path, names: list[str], now: datetime, log: Log, counts: dict) -> None:
+    posts = rec["posts"]
     due = max(datetime.fromisoformat(posts[name]["due"]) for name in names)
     try:
         sent = publish.UploadPost(cfg).publish({"id": rec["id"], "meta": rec["meta"]}, video, due if due > now + timedelta(seconds=LEAD) else None, names)
@@ -153,11 +167,10 @@ def deliver(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log =
             posts = rec.get("posts")
             if not posts or (only and rec["id"] != only):
                 continue
-            video = Path(rec.get("file", ""))
             before = {name: post["state"] for name, post in posts.items()}
-            if video.exists():
-                _via_service(cfg, rec, video, now, log, counts)
+            _via_service(cfg, rec, now, log, counts)
             for name, post in posts.items():
+                shown, video = variants.view(rec, name)
                 if post["state"] == "sending":
                     started = datetime.fromisoformat(post.get("started", now_iso()).replace("Z", "+00:00"))
                     if (now - started).total_seconds() > STUCK:
@@ -183,7 +196,7 @@ def deliver(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log =
                 post.update(state="sending", started=now_iso())
                 ledger.save()  # on record before the upload starts, so a crash cannot lead to a second upload
                 try:
-                    sent = conn.send(rec, video, due if due > now + timedelta(seconds=LEAD) else None)
+                    sent = conn.send(shown, video, due if due > now + timedelta(seconds=LEAD) else None)
                 except ConnectorError as exc:
                     post["tries"] = post.get("tries", 0) + 1
                     post["error"] = str(exc)[:300]
@@ -263,6 +276,24 @@ def refresh(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log =
     ledger.save()
     log(f"status refreshed for {changed} clip(s)")
     return changed
+
+
+def by_hand(cfg: Config, ledger: Ledger, rec: dict, name: str, link: str = "") -> dict:
+    """Record that the user posted this clip on a platform themselves, so it is not sent there as well."""
+    if name not in publish.PLATFORMS:
+        raise publish.PublishError(f"unknown platform: {name}")
+    post = rec.setdefault("posts", {}).get(name, {})
+    if post.get("state") in ("sending", "scheduled", "processing"):
+        raise publish.PublishError(f"this clip is already on its way to {name}; take it back first")
+    if post.get("state") == "posted":
+        raise publish.PublishError(f"this clip is already posted on {name}")
+    link = link.strip()
+    if link and not link.lower().startswith(("https://", "http://")):
+        raise publish.PublishError("the link has to start with https://")
+    rec["posts"][name] = {"state": "posted", "via": "hand", "sent": now_iso(), "link": link[:300], "note": "posted by hand"}
+    settle(rec)
+    ledger.save()
+    return rec["posts"][name]
 
 
 def retry(cfg: Config, ledger: Ledger, rec: dict, now: datetime | None = None) -> list[str]:

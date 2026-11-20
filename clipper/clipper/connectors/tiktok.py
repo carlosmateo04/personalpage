@@ -5,17 +5,27 @@ hex SHA-256 of the verifier, not the usual base64url), with the browser sent
 back to this computer. The redirect address has to be registered in the TikTok
 developer app exactly as it is used here.
 
-What an app registered by its own user can do is narrow, by TikTok's rules:
+Three ways to post, chosen under Settings (`publish.tiktok_direct`):
 
   draft    the video is delivered to the account's TikTok inbox; the user opens the
            notification in the TikTok app, adds the caption and posts it. A caption
            cannot be sent along, and at most five drafts may be waiting at a time.
   private  the video is posted for the account owner's eyes only (SELF_ONLY), and
            only while the account itself is set to private.
+  public   the video is posted with the caption, for the audience chosen on the clip
+           (everyone, friends, only me) and with comments, duets and stitches allowed
+           or not. TikTok accepts this only from an app it has audited; from any
+           other app it refuses, and the clip then says so.
 
-Posting publicly straight from an app needs TikTok's audit, which it does not give
-to tools that post to their owner's accounts. TikTok has no scheduling either, so a
-clip is sent when its time comes.
+What an app registered by its own user can do without the audit is the first two.
+This connector does what TikTok's Content Posting API offers and nothing else: it
+does not imitate the TikTok app or drive a signed-in browser to get around the
+audit. TikTok has no scheduling, so a clip is sent when its time comes.
+
+Before every post TikTok's rules require asking the account what it allows
+(creator_info): the audiences it offers, whether it has comments, duets or
+stitches switched off, and how long a video it may post. A post never asks for
+more than that.
 
 Written from developers.tiktok.com/doc as it read on 20 November 2026 (Login Kit
 for Desktop, Content Posting API reference).
@@ -44,8 +54,10 @@ REFUSALS: dict[str, tuple[str, bool, bool, int]] = {
     "spam_risk_user_banned_from_posting": ("TikTok is not letting this account post at the moment", False, False, 0),
     "reached_active_user_cap": ("the TikTok app has reached its daily limit of accounts", True, False, 6 * 3600),
     "unaudited_client_can_only_post_to_private_accounts": (
-        "TikTok only lets an app it has not audited post to an account that is set to private; set the account to private in TikTok, or use draft mode",
+        "TikTok has not audited this app, so it only lets it post privately, and only to an account that is set to private. "
+        "Choose draft under Settings, post this clip by hand, or use the posting service for TikTok",
         False, False, 0),
+    "spam_risk_too_many_pending_share": ("five drafts are already waiting in the TikTok inbox; post or delete one in the TikTok app", True, False, 3600),
     "privacy_level_option_mismatch": ("TikTok does not offer the chosen privacy level for this account", False, False, 0),
     "invalid_file_upload": ("TikTok did not accept the video file", False, False, 0),
     "internal_error": ("TikTok had a problem of its own", True, False, 0),
@@ -56,6 +68,10 @@ FAILED = {"file_format_check_failed": "the file format is not supported", "durat
           "publish_cancelled": "the post was cancelled in TikTok", "auth_removed": "the access was withdrawn before the post finished",
           "spam_risk_too_many_posts": "TikTok's daily limit of posts is reached", "spam_risk_user_banned_from_posting": "the account may not post right now",
           "spam_risk_text": "TikTok flagged the caption", "spam_risk": "TikTok flagged the post"}
+
+
+AUDIENCES = {"PUBLIC_TO_EVERYONE": "Everyone", "MUTUAL_FOLLOW_FRIENDS": "Friends", "FOLLOWER_OF_CREATOR": "Followers", "SELF_ONLY": "Only me"}
+UPLOAD_PAGE = "https://www.tiktok.com/tiktokstudio/upload"  # where a clip is posted by hand
 
 
 def plan_chunks(size: int, chunk: int) -> tuple[int, int, list[tuple[int, int]]]:
@@ -94,6 +110,21 @@ class TikTok(Connector):
 
     def scopes(self) -> list[str]:
         return ["user.info.basic", "video.upload" if self.mode == "draft" else "video.publish"]
+
+    def options(self, clip: dict | None = None) -> dict[str, Any]:
+        """What a post asks for: the clip's own choices where it has them, else the settings."""
+        pub, own = self.cfg.publish, (clip or {}).get("tiktok") or {}
+        audience = "SELF_ONLY" if self.mode == "private" else str(own.get("audience") or pub.tiktok_privacy_level or "PUBLIC_TO_EVERYONE")
+        return {"audience": audience, "comments": bool(own.get("comments", pub.tiktok_comments)), "duet": bool(own.get("duet", pub.tiktok_duet)),
+                "stitch": bool(own.get("stitch", pub.tiktok_stitch)), "own_brand": bool(own.get("own_brand", False)),
+                "paid": bool(own.get("paid", self.cfg.campaign.paid))}
+
+    def creator(self) -> dict[str, Any]:
+        """What the account allows right now; remembered for the app to offer the same choices."""
+        found = self._post("/v2/post/publish/creator_info/query/", None, "reading the account")
+        self.remember(audiences=list(found.get("privacy_level_options") or []), name=str(found.get("creator_nickname") or self.account().get("name", "")),
+                      longest=int(found.get("max_video_post_duration_sec") or 0), checked=now_iso())
+        return found
 
     # --- sign-in -------------------------------------------------------------------
 
@@ -199,21 +230,32 @@ class TikTok(Connector):
         size = video.stat().st_size
         chunk, count, spans = plan_chunks(size, self.CHUNK)
         source = {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": count}
+        connected_for = self.account().get("mode") or self.mode
+        if (connected_for == "draft") != (self.mode == "draft"):
+            raise ConnectorError("TikTok was connected for " + ("drafts" if connected_for == "draft" else "posting")
+                                 + ", and the setting has changed since: connect TikTok again", reconnect=True)
         if self.mode == "draft":
             made = self._post("/v2/post/publish/inbox/video/init/", {"source_info": source}, "starting the upload")
         else:
-            creator = self._post("/v2/post/publish/creator_info/query/", None, "reading the account")
-            options = creator.get("privacy_level_options") or []
-            level = self.cfg.publish.tiktok_privacy_level or "SELF_ONLY"
-            if level not in options:
-                raise ConnectorError(f"TikTok does not offer {level} for this account (it offers: {', '.join(options) or 'nothing'})")
+            creator, want = self.creator(), self.options(clip)
+            offered = creator.get("privacy_level_options") or []
+            level = want["audience"]
+            if level not in offered:
+                names = ", ".join(AUDIENCES.get(o, o) for o in offered) or "nothing"
+                raise ConnectorError(f"TikTok does not offer \"{AUDIENCES.get(level, level)}\" for this account (it offers: {names})")
             longest = int(creator.get("max_video_post_duration_sec") or 0)
             seconds = float(clip.get("end", 0)) - float(clip.get("start", 0))
             if longest and seconds > longest:
                 raise ConnectorError(f"the clip is {seconds:.0f} seconds; this TikTok account may post up to {longest}")
+            if want["paid"] and level == "SELF_ONLY":
+                raise ConnectorError("a paid partnership cannot be posted as \"Only me\" on TikTok")
             cover = clip.get("cover")
-            info = {"title": str(clip["meta"]["tiktok"]["title"]), "privacy_level": level, "disable_duet": False, "disable_comment": False,
-                    "disable_stitch": False, "brand_content_toggle": bool(self.cfg.campaign.paid), "brand_organic_toggle": False, "is_aigc": False}
+            # What the account has switched off stays off, whatever the clip asks for.
+            info = {"title": str(clip["meta"]["tiktok"]["title"]), "privacy_level": level,
+                    "disable_comment": not want["comments"] or bool(creator.get("comment_disabled")),
+                    "disable_duet": not want["duet"] or bool(creator.get("duet_disabled")),
+                    "disable_stitch": not want["stitch"] or bool(creator.get("stitch_disabled")),
+                    "brand_content_toggle": want["paid"], "brand_organic_toggle": want["own_brand"], "is_aigc": False}
             if len(info["title"].encode("utf-16-le")) // 2 > 2200:
                 raise ConnectorError("the TikTok caption is over 2,200 characters")
             if cover is not None:
@@ -241,7 +283,9 @@ class TikTok(Connector):
                     raise ConnectorError("the upload to TikTok kept failing", retry=True)
         if self.mode == "draft":
             return Sent(publish_id, "draft", note="in the TikTok inbox: open the notification in the TikTok app, paste the caption and post it")
-        return Sent(publish_id, "processing", note="posted as private: only the account owner can see it until it is changed in TikTok")
+        if level == "SELF_ONLY":
+            return Sent(publish_id, "processing", note="posted as private: only the account owner can see it until it is changed in TikTok")
+        return Sent(publish_id, "processing", note=f"posted for: {AUDIENCES.get(level, level).lower()}")
 
     def status(self, post: dict) -> dict[str, Any]:
         data = self._post("/v2/post/publish/status/fetch/", {"publish_id": post["id"]}, "asking about the post")

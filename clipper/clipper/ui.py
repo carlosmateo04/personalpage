@@ -28,7 +28,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import check, claude, config, connectors, metadata, outbox, pipeline, publish, review, settings
+from . import check, claude, config, connectors, metadata, outbox, pipeline, publish, review, settings, signin, variants
+from .connectors import tiktok
 from .connectors import ConnectorError
 from .config import ROOT
 
@@ -64,6 +65,8 @@ class App:
         self.jobs: dict[str, str] = {}  # clips Claude is editing again right now
         self.job_errors: dict[str, str] = {}
         self.posting_log: deque[str] = deque(maxlen=60)
+        self.login: signin.Login | None = None  # a sign-in with Claude that is under way or just finished
+        self.login_note = ""  # what the last sign-in came to, for the page
         self._refreshed = 0.0
         self._cache: dict[str, tuple[float, object]] = {}
 
@@ -102,8 +105,13 @@ class App:
                 "via_service": name in cfg.publish.prefer_service,
             })
         meta = settings.account(cfg.data_root, "meta")
+        tik = settings.account(cfg.data_root, "tiktok")
         return {"platforms": platforms, "pages": meta.get("pages", []), "page": meta.get("page_id", ""), "config_id": meta.get("config_id", ""),
-                "tiktok_direct": cfg.publish.tiktok_direct}
+                "tiktok_direct": cfg.publish.tiktok_direct,
+                "tiktok": {"mode": cfg.publish.tiktok_direct, "connected_for": tik.get("mode", ""), "upload_page": tiktok.UPLOAD_PAGE,
+                           "audiences": [{"id": key, "label": label} for key, label in tiktok.AUDIENCES.items()
+                                         if not tik.get("audiences") or key in tik["audiences"]],
+                           "defaults": connectors.get("tiktok", cfg).options()}}
 
     def ai(self, cfg: config.Config) -> dict:
         return {
@@ -113,7 +121,87 @@ class App:
             "has_key": bool(claude.api_key(cfg)), "aws_profile": cfg.ai.aws_profile, "aws_region": cfg.ai.aws_region,
             "aws_profiles": self.cached("aws", 30, claude.aws_profiles), "scout": cfg.ai.scout, "edit": cfg.ai.edit,
             "direction": cfg.ai.direction, "usage": claude.usage(cfg),
+            "accounts": claude.accounts(cfg), "can_sign_in": bool(self.cached("ant", 30, signin.tool)),
+            "signin": {"waiting": self.login is not None and not self.login.done, "url": self.login.url if self.login else "",
+                       "note": self.login_note},
         }
+
+    # --- Claude accounts -------------------------------------------------------
+
+    def claude_signin(self, name: str) -> dict:
+        """Start a sign-in with Claude. Returns the page to approve on; the account is saved when the approval comes back."""
+        cfg = self.cfg()
+        if self.login is not None and not self.login.done:
+            self.login.cancel()
+        taken = set(signin.profiles()) | {a.get("profile", "") for a in claude.accounts(cfg)}
+        profile = next(f"clipper-{n}" for n in range(1, 1000) if f"clipper-{n}" not in taken)
+        try:
+            login = signin.Login(profile).start()
+        except (RuntimeError, OSError) as exc:
+            raise Problem(str(exc)) from exc
+        self.login, self.login_note = login, ""
+        deadline = time.time() + 20
+        while not login.url and not login.done and time.time() < deadline:
+            time.sleep(0.05)
+        if not login.url:
+            login.cancel()
+            raise Problem(login.error or "The sign-in tool gave no page to sign in on. Try again, or use an API key.")
+
+        def finish() -> None:
+            while not login.done:
+                time.sleep(0.2)
+            if self.login is not login:
+                return  # another sign-in was started in the meantime
+            if not login.ok:
+                self.login_note = login.error
+            else:
+                about = " \u00b7 ".join(v for v in (login.details.get("organization", ""), login.details.get("email", "")) if v)
+                label = name.strip() or login.details.get("organization", "") or "Claude account"
+                claude.add_account(self.cfg(), label, "login", profile=profile, detail=about[:120])
+                problem = claude.test(self.cfg())
+                self.login_note = f"Signed in: {label}." + (f" {problem}" if problem else "")
+            self._cache.clear()
+
+        threading.Thread(target=finish, daemon=True).start()
+        return {"ok": True, "url": login.url}
+
+    def claude_add(self, body: dict) -> str:
+        """Save a Claude account that is an API key or an AWS profile, and start using it. Returns a problem found, or ""."""
+        cfg = self.cfg()
+        kind, name = str(body.get("kind", "")), str(body.get("name", ""))
+        if kind == "key":
+            key = str(body.get("api_key", "")).strip()
+            if not key:
+                raise Problem("Paste the key first.")
+            if claude.unavailable(cfg).startswith("the anthropic package"):
+                raise Problem("Claude is not installed yet. Run the installer again, then add the key.")
+            cfg.ai.provider, cfg.ai.enabled = "anthropic", True  # for the test only; nothing is saved before the key works
+            why = claude.test(cfg, key)
+            if why:
+                raise Problem(why)
+            claude.add_account(self.cfg(), name, "key", key=key)
+            return ""
+        if kind == "bedrock":
+            profile = str(body.get("aws_profile", "")).strip()
+            if not profile:
+                raise Problem("Choose the AWS profile to sign in with.")
+            claude.add_account(cfg, name or f"Amazon Bedrock ({profile})", "bedrock", aws_profile=profile,
+                               aws_region=str(body.get("aws_region") or cfg.ai.aws_region or "us-east-1").strip())
+            now = self.cfg()
+            return self.claude_problem(now)  # an expired AWS sign-in is said, the account is kept
+        raise Problem("unknown kind of account")
+
+    @staticmethod
+    def claude_problem(cfg: config.Config) -> str:
+        """What is wrong with the Claude account in use, as a sentence, or "" when Claude answers with it."""
+        why = claude.unavailable(cfg)
+        return f"Claude cannot be used yet: {why}." if why else claude.test(cfg)
+
+    def claude_use(self, ident: str) -> str:
+        """Switch to another saved Claude account. Returns a problem found with it, or ""."""
+        claude.use_account(self.cfg(), ident)
+        now = self.cfg()
+        return self.claude_problem(now)
 
     def daily(self) -> dict:
         script = ROOT.parent / "schedule.ps1"
@@ -121,6 +209,14 @@ class App:
             return {"available": False, "on": False}
         found = subprocess.run(["schtasks", "/Query", "/TN", TASK], capture_output=True, text=True)
         return {"available": True, "on": found.returncode == 0}
+
+    @staticmethod
+    def _media(out: Path, video: Path) -> str:
+        """The address the page plays a clip file from, or "" when the file is gone."""
+        try:
+            return "/media/" + video.resolve().relative_to(out.resolve()).as_posix() if video.exists() else ""
+        except ValueError:
+            return ""
 
     def state(self) -> dict:
         cfg = self.cfg()
@@ -135,10 +231,7 @@ class App:
                 continue
             video = Path(rec.get("file", ""))
             section = cfg.section(rec.get("section", ""))
-            try:
-                media = "/media/" + video.resolve().relative_to(out.resolve()).as_posix() if video.exists() else ""
-            except ValueError:
-                media = ""
+            media = self._media(out, video)
             clips.append({
                 "id": rec["id"], "state": state, "title": meta.get("title", ""),
                 "caption": meta.get("tiktok", {}).get("title", ""),
@@ -158,6 +251,9 @@ class App:
                           for name, post in (rec.get("posts") or {}).items()},
                 "cover": media.replace(".mp4", ".cover.jpg") if media and pipeline.cover_of(video).exists() else "",
                 "busy": self.jobs.get(rec["id"], ""), "edit_error": self.job_errors.get(rec["id"], ""),
+                "versions": [{"seconds": v["seconds"], "platforms": v["platforms"], "media": self._media(out, Path(v["file"]))}
+                             for v in variants.versions(rec, cfg.publish.platforms)],
+                "unfit": rec.get("unfit", {}), "tiktok": rec.get("tiktok", {}),
             })
         latest = cfg.path("reports") / "latest.md"
         searches = [{"query": settings.search_text(s.url), "section": s.section or "moments"}
@@ -181,6 +277,10 @@ class App:
                 "auto_post": cfg.publish.mode == "live" and not cfg.publish.hold_for_review,
                 "tiktok_post_mode": cfg.publish.tiktok_post_mode, "youtube_privacy": cfg.publish.youtube_privacy,
                 "tiktok_direct": cfg.publish.tiktok_direct, "youtube_notify": cfg.publish.youtube_notify,
+                "tiktok_privacy_level": cfg.publish.tiktok_privacy_level or "PUBLIC_TO_EVERYONE", "tiktok_comments": cfg.publish.tiktok_comments,
+                "tiktok_duet": cfg.publish.tiktok_duet, "tiktok_stitch": cfg.publish.tiktok_stitch,
+                "edits": {name: {"min_len": rule.get("min_len", 0), "max_len": rule.get("max_len", 0)} for name, rule in cfg.edits.items()
+                          if name in publish.PLATFORMS},
                 "no_facecam": cfg.filters.no_facecam, "no_commentary": cfg.filters.no_commentary, "no_cutscenes": cfg.filters.no_cutscenes,
                 "keep_downloads_days": cfg.housekeeping.keep_downloads_days, "keep_clips_days": cfg.housekeeping.keep_clips_days,
                 "progress_bar": cfg.render.progress_bar, "searches": searches,
@@ -395,6 +495,16 @@ class App:
             outbox.refresh(cfg, ledger, now, lambda message: None)
         return counts
 
+    def reveal(self, cfg: config.Config, rec: dict, platform: str = "") -> None:
+        """Show a clip's file in the file manager, selected: the version this platform gets."""
+        video = variants.view(rec, platform)[1] if platform else Path(rec.get("file", ""))
+        if not video.exists():
+            raise Problem("The clip file is no longer on this computer.")
+        if os.name == "nt":
+            subprocess.Popen(["explorer", f"/select,{video}"])  # noqa: S603, S607 - opens Explorer on the file
+        else:
+            raise Problem(f"The file is {video}")
+
     def set_daily(self, on: bool, at: str = "06:00") -> None:
         script = ROOT.parent / "schedule.ps1"
         if os.name != "nt" or not script.exists():
@@ -441,6 +551,24 @@ class App:
                 settings.set_secret(cfg.data_root, "anthropic_api_key", "")
             elif name == "ai":
                 return {"ok": True, "problem": self.set_ai(body)}
+            elif name == "claude-signin":
+                return self.claude_signin(str(body.get("name", "")))
+            elif name == "claude-signin-cancel":
+                if self.login is not None:
+                    self.login.cancel()
+                self.login, self.login_note = None, ""
+            elif name == "claude-add":
+                return {"ok": True, "problem": self.claude_add(body)}
+            elif name == "claude-use":
+                return {"ok": True, "problem": self.claude_use(str(body.get("id", "")))}
+            elif name == "claude-test":
+                return {"ok": True, "problem": self.claude_problem(cfg)}
+            elif name == "claude-remove":
+                claude.remove_account(cfg, str(body.get("id", "")))
+            elif name == "posted-by-hand":
+                pipeline.posted_by_hand(cfg, ledger, body["id"], str(body.get("platform", "")), str(body.get("link", "")))
+            elif name == "reveal":
+                self.reveal(cfg, ledger.clips[body["id"]], str(body.get("platform", "")))
             elif name == "connect-account":
                 return self.connect_start(str(body.get("platform", "")), body)
             elif name == "disconnect-account":

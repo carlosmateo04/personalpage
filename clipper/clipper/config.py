@@ -235,7 +235,10 @@ class Publish:
     tiktok_privacy_level: str = ""  # empty keeps the account default
     youtube_privacy: str = "public"  # public | unlisted | private
     youtube_notify: bool = True  # tell subscribers about each upload
-    tiktok_direct: str = "draft"  # TikTok connected directly: draft (lands in the TikTok inbox to finish there) | private (posted, only you can see it)
+    tiktok_direct: str = "draft"  # TikTok connected directly: draft (lands in the TikTok inbox) | private (only you see it) | public (needs TikTok's audit of your app)
+    tiktok_comments: bool = True  # what a direct TikTok post allows, unless set on the clip
+    tiktok_duet: bool = True
+    tiktok_stitch: bool = True
     prefer_service: list[str] = field(default_factory=list)  # platforms sent through the posting service even when connected directly
     hold_for_review: bool = False  # plan and render, but schedule nothing until `approve`
 
@@ -254,7 +257,10 @@ class Ai:
     """
 
     enabled: bool = True
-    provider: str = "anthropic"  # anthropic (an API key) | bedrock (an AWS profile on this computer)
+    provider: str = "anthropic"  # anthropic (an API key) | login (a browser sign-in) | bedrock (an AWS profile on this computer)
+    login_profile: str = ""  # login: the name of the sign-in on this computer
+    account: str = ""  # which of the saved Claude accounts is in use (set by the app)
+    accounts: list[dict[str, Any]] = field(default_factory=list)  # the saved accounts: id, name, kind and what reaches them; never a key
     model: str = "claude-opus-5-5"
     aws_profile: str = ""  # bedrock: the profile to sign in with; empty uses the default credentials
     aws_region: str = "us-east-1"
@@ -282,6 +288,19 @@ class Gates:
     )
 
 
+def default_edits() -> dict[str, dict[str, float]]:
+    """The cut each platform gets, in seconds; 0 means no limit. Why each number is what it is:
+
+    tiktok     over a minute: TikTok's Creator Rewards Program only counts videos longer than one minute
+    youtube    under a minute: YouTube blocks a Short of more than 60 seconds worldwide when a copyright owner claims
+               something in it (music playing in the game, for one); a Short may otherwise run to 3 minutes
+    facebook   90 seconds at most: that is where Page reels stop
+    instagram  3 minutes at most: longer reels are not recommended to new viewers
+    """
+    return {"tiktok": {"min_len": 61, "max_len": 0}, "youtube": {"min_len": 0, "max_len": 59},
+            "facebook": {"min_len": 0, "max_len": 90}, "instagram": {"min_len": 0, "max_len": 180}}
+
+
 @dataclass
 class Config:
     brand: Brand = field(default_factory=Brand)
@@ -301,6 +320,7 @@ class Config:
     publish: Publish = field(default_factory=Publish)
     ai: Ai = field(default_factory=Ai)
     accounts: dict[str, Any] = field(default_factory=dict)  # connected posting accounts, kept by the app
+    edits: dict[str, Any] = field(default_factory=default_edits)  # the cut each platform gets: min_len and max_len in seconds
     gates: Gates = field(default_factory=Gates)
     root: Path = ROOT
 
@@ -374,6 +394,7 @@ def load(path: str | Path | None = None) -> Config:
     from . import settings  # settings made in the app on this computer win over config.toml
 
     data = settings.overlay(data, settings.load(Config().data_root))
+    data["edits"] = {**default_edits(), **{k: {**default_edits().get(k, {}), **v} for k, v in (data.get("edits") or {}).items() if isinstance(v, dict)}}
     if "review" in data:  # the earlier name of [ai]; frames meant something else there
         old = {k: v for k, v in data.pop("review").items() if k in ("enabled", "model", "effort")}
         data["ai"] = {**old, **data.get("ai", {})}
@@ -385,8 +406,12 @@ def load(path: str | Path | None = None) -> Config:
 def validate(cfg: Config) -> None:
     if cfg.publish.mode not in ("dry_run", "live"):
         raise ConfigError("publish.mode must be dry_run or live")
-    if cfg.publish.tiktok_direct not in ("draft", "private"):
-        raise ConfigError("publish.tiktok_direct must be draft or private")
+    if cfg.publish.tiktok_direct not in ("draft", "private", "public"):
+        raise ConfigError("publish.tiktok_direct must be draft, private or public")
+    for name, rule in cfg.edits.items():
+        low, high = rule.get("min_len", 0), rule.get("max_len", 0)
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 for v in (low, high)) or (high and low > high):
+            raise ConfigError(f"edits.{name}: min_len and max_len are seconds, 0 or more, and min_len cannot be above max_len")
     if cfg.publish.youtube_privacy not in ("public", "unlisted", "private"):
         raise ConfigError("publish.youtube_privacy must be public, unlisted or private")
     if cfg.render.layout not in ("blur", "crop", "stack"):
@@ -413,8 +438,8 @@ def validate(cfg: Config) -> None:
     efforts = ("low", "medium", "high", "xhigh", "max")
     if cfg.ai.effort not in efforts or cfg.ai.scout_effort not in efforts:
         raise ConfigError(f"ai.effort and ai.scout_effort must be one of: {', '.join(efforts)}")
-    if cfg.ai.provider not in ("anthropic", "bedrock"):
-        raise ConfigError("ai.provider must be anthropic or bedrock")
+    if cfg.ai.provider not in ("anthropic", "login", "bedrock"):
+        raise ConfigError("ai.provider must be anthropic, login or bedrock")
     if not 4 <= cfg.ai.frames <= 25:
         raise ConfigError("ai.frames must be between 4 and 25")
     if not 20 <= cfg.ai.max_frames <= 300:

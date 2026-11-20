@@ -189,3 +189,78 @@ def test_dropping_and_running(app):
     state = call(app, "/api/state")[1]
     assert state["run"]["running"] is False and any("plan" in line for line in state["run"]["log"])
     assert state["run"]["log"][-1].startswith("Finished")
+
+
+# --- the versions of a clip, TikTok's options and posts made by hand ---------------------
+
+def test_the_page_is_told_which_version_each_platform_gets(app):
+    short = app.data / "out" / "20261120-000000" / "c1.59s.mp4"
+    short.write_bytes(b"short version")
+    ledger = Ledger(app.data / "state" / "ledger.json")
+    ledger.clips["c1"]["cuts"] = {"youtube": {"start": 36.0, "end": 95.0, "file": str(short)}}
+    ledger.clips["c1"]["unfit"] = {"facebook": "the clip is 90 seconds; facebook is set to take 120 or more"}
+    ledger.save()
+    clip = call(app, "/api/state")[1]["clips"][0]
+    assert clip["versions"] == [{"seconds": 90, "platforms": ["tiktok", "instagram"], "media": "/media/20261120-000000/c1.mp4"},
+                                {"seconds": 59, "platforms": ["youtube"], "media": "/media/20261120-000000/c1.59s.mp4"}]
+    assert clip["unfit"] == {"facebook": "the clip is 90 seconds; facebook is set to take 120 or more"}
+    assert call(app, "/media/20261120-000000/c1.59s.mp4")[1] == b"short version"  # the page can play it
+    status, body, _ = call(app, "/api/reveal", {"id": "c1", "platform": "youtube"})  # Explorer is opened on Windows; elsewhere the path is said
+    assert status in (200, 400) and (status == 200 or "c1.59s.mp4" in body["error"])
+
+
+def test_the_cut_each_platform_gets_is_set_in_the_settings(app):
+    got = call(app, "/api/state")[1]["settings"]["edits"]
+    assert got == {"tiktok": {"min_len": 61, "max_len": 0}, "youtube": {"min_len": 0, "max_len": 59},
+                   "facebook": {"min_len": 0, "max_len": 90}, "instagram": {"min_len": 0, "max_len": 180}}
+    assert call(app, "/api/settings", {"edits": {"youtube": {"min_len": 0, "max_len": 180}, "tiktok": {"min_len": 0, "max_len": 0}}})[0] == 200
+    got = call(app, "/api/state")[1]["settings"]["edits"]
+    assert got["youtube"] == {"min_len": 0, "max_len": 180} and got["tiktok"] == {"min_len": 0, "max_len": 0} and got["facebook"]["max_len"] == 90
+    status, body, _ = call(app, "/api/settings", {"edits": {"facebook": {"min_len": 120, "max_len": 90}}})
+    assert status == 400 and "min_len cannot be above max_len" in body["error"]
+    assert call(app, "/api/state")[1]["settings"]["edits"]["facebook"] == {"min_len": 0, "max_len": 90}  # the bad value was not kept
+
+
+def test_tiktok_options_are_set_for_all_clips_and_for_one(app):
+    state = call(app, "/api/state")[1]
+    assert state["posting"]["tiktok"]["mode"] == "draft" and state["posting"]["tiktok"]["upload_page"] == "https://www.tiktok.com/tiktokstudio/upload"
+    assert state["posting"]["tiktok"]["defaults"] == {"audience": "PUBLIC_TO_EVERYONE", "comments": True, "duet": True, "stitch": True, "own_brand": False, "paid": False}
+    assert [a["label"] for a in state["posting"]["tiktok"]["audiences"]] == ["Everyone", "Friends", "Followers", "Only me"]
+    assert call(app, "/api/settings", {"publish": {"tiktok_direct": "public", "tiktok_privacy_level": "MUTUAL_FOLLOW_FRIENDS", "tiktok_duet": False}})[0] == 200
+    state = call(app, "/api/state")[1]
+    assert state["posting"]["tiktok"]["mode"] == "public" and state["settings"]["tiktok_direct"] == "public"
+    assert state["posting"]["tiktok"]["defaults"]["audience"] == "MUTUAL_FOLLOW_FRIENDS" and state["posting"]["tiktok"]["defaults"]["duet"] is False
+    assert call(app, "/api/settings", {"publish": {"tiktok_direct": "everyone"}})[0] == 400
+
+    assert call(app, "/api/clip", {"id": "c1", "tiktok": {"audience": "SELF_ONLY", "comments": False, "own_brand": True, "anything": "else"}})[0] == 200
+    assert call(app, "/api/state")[1]["clips"][0]["tiktok"] == {"audience": "SELF_ONLY", "comments": False, "own_brand": True}
+    assert Ledger(app.data / "state" / "ledger.json").clips["c1"]["title"] == "Car falls through the map"  # the text was left alone
+    status, body, _ = call(app, "/api/clip", {"id": "c1", "tiktok": {"audience": "THE_WORLD"}})
+    assert status == 400 and "TikTok audience" in body["error"]
+
+
+def test_a_clip_posted_by_hand_is_marked_and_the_others_can_still_be_sent(app, monkeypatch):
+    status, body, _ = call(app, "/api/posted-by-hand", {"id": "c1", "platform": "tiktok", "link": "tiktok.com/x"})
+    assert status == 400 and "https://" in body["error"]
+    assert call(app, "/api/posted-by-hand", {"id": "c1", "platform": "tiktok", "link": "https://www.tiktok.com/@me/video/7"})[0] == 200
+    clip = call(app, "/api/state")[1]["clips"][0]
+    assert clip["state"] == "posted" and clip["posts"]["tiktok"] == {"state": "posted", "link": "https://www.tiktok.com/@me/video/7", "views": None,
+                                                                       "note": "posted by hand", "via": "hand"}
+    assert call(app, "/api/posted-by-hand", {"id": "c1", "platform": "tiktok"})[0] == 400  # once
+    assert call(app, "/api/posted-by-hand", {"id": "missing", "platform": "tiktok"})[0] == 400
+
+    from upload_post import UploadPostClient
+
+    api = ThreadingHTTPServer(("127.0.0.1", 0), FakeApi)
+    threading.Thread(target=api.serve_forever, daemon=True).start()
+    monkeypatch.setattr(UploadPostClient, "BASE_URL", f"http://127.0.0.1:{api.server_port}/api")
+    FakeApi.calls = []
+    assert call(app, "/api/connect", {"api_key": "my-key"})[0] == 200
+    assert call(app, "/api/post", {"id": "c1", "when": "now"})[0] == 400  # without names nothing is sent for a clip that is already out
+    assert call(app, "/api/post", {"id": "c1", "when": "now", "platforms": ["tiktok"]})[0] == 400  # and never where it already is
+    assert call(app, "/api/post", {"id": "c1", "when": "now", "platforms": ["youtube"]})[0] == 200  # the others, when named
+    method, path, headers, fields = FakeApi.calls[-1]
+    assert (method, path) == ("POST", "/api/upload") and fields["platform[]"] == ["youtube"]
+    posts = call(app, "/api/state")[1]["clips"][0]["posts"]
+    assert (posts["tiktok"]["via"], posts["youtube"]["state"], posts["youtube"]["via"]) == ("hand", "processing", "service")
+    api.shutdown()

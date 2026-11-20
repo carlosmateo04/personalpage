@@ -16,6 +16,7 @@ class Fake(Connector):
     """A platform that records what it is sent. `plan` holds what the next sends do: a Sent, or an error to raise."""
 
     sent: list = []
+    got: dict = {}  # per platform: the file and the cut it was handed
     plan: list = []
     answers: dict = {}
 
@@ -26,6 +27,7 @@ class Fake(Connector):
 
     def send(self, clip, video, when):
         type(self).sent.append((self.name, clip["id"], when))
+        type(self).got[self.name] = (Path(video).name, clip["start"], clip["end"], clip.get("cover"))
         step = type(self).plan.pop(0) if type(self).plan else Sent(f"{self.name}-1", "scheduled" if when else "posted", f"https://{self.name}.example/1")
         if isinstance(step, Exception):
             raise step
@@ -50,7 +52,7 @@ class Tok(Fake):
 def box(cfg, ledger, tmp_path, monkeypatch):
     """A finished clip and two connected platforms: one that schedules by itself, one that does not."""
     monkeypatch.setattr(connectors, "ALL", {"youtube": Tube, "tiktok": Tok})
-    Fake.sent, Fake.plan, Fake.answers, Fake.on = [], [], {}, {"youtube", "tiktok"}
+    Fake.sent, Fake.plan, Fake.answers, Fake.on, Fake.got = [], [], {}, {"youtube", "tiktok"}, {}
     cfg.publish.platforms = ["youtube", "tiktok", "instagram"]
     video = tmp_path / "c1.mp4"
     video.write_bytes(b"video")
@@ -227,3 +229,107 @@ def test_the_posting_service_takes_its_platforms_in_one_upload(box, monkeypatch)
     outbox.enqueue(cfg, ledger, ledger.clips["boom"], None, ["instagram"], now=NOW)
     outbox.deliver(cfg, ledger, NOW, lines.append)
     assert ledger.clips["boom"]["posts"]["instagram"]["error"] == "upload failed: Invalid API key" and ledger.clips["boom"]["status"] == "failed"
+
+
+# --- each platform's own version of a clip ------------------------------------------
+
+def test_each_platform_is_sent_its_own_version_of_the_clip(box, tmp_path):
+    cfg, ledger, rec = box
+    short = tmp_path / "c1.59s.mp4"
+    short.write_bytes(b"short video")
+    rec["cover"] = 40.0  # 40 seconds into the clip
+    rec["cuts"] = {"youtube": {"start": 36.0, "end": 95.0, "file": str(short)}}
+    outbox.enqueue(cfg, ledger, rec, None, now=NOW)
+    outbox.deliver(cfg, ledger, NOW, lambda m: None)
+    assert Fake.got["youtube"] == ("c1.59s.mp4", 36.0, 95.0, 14.0)  # the short version, with the cover moved along with the cut
+    assert Fake.got["tiktok"] == ("c1.mp4", 10.0, 100.0, 40.0)  # the clip as it is
+    assert rec["start"] == 10.0 and rec["file"].endswith("c1.mp4")  # the record itself is not changed by sending
+
+
+def test_a_cover_outside_a_platforms_cut_is_left_to_the_platform(box, tmp_path):
+    cfg, ledger, rec = box
+    short = tmp_path / "c1.59s.mp4"
+    short.write_bytes(b"short video")
+    rec["cover"] = 5.0  # before the short version starts
+    rec["cuts"] = {"youtube": {"start": 36.0, "end": 95.0, "file": str(short)}}
+    outbox.enqueue(cfg, ledger, rec, None, ["youtube"], NOW)
+    outbox.deliver(cfg, ledger, NOW, lambda m: None)
+    assert Fake.got["youtube"] == ("c1.59s.mp4", 36.0, 95.0, None)
+
+
+def test_a_platform_whose_length_rule_the_clip_does_not_meet_is_left_out_with_the_reason(box, tmp_path):
+    cfg, ledger, rec = box
+    rec["unfit"] = {"tiktok": "the clip is 45 seconds; tiktok is set to take 61 or more"}
+    result = outbox.enqueue(cfg, ledger, rec, None, now=NOW)
+    assert result["queued"] == ["youtube"] and result["skipped"]["tiktok"] == "the clip is 45 seconds; tiktok is set to take 61 or more"
+
+    rec2 = dict(rec, id="c2", posts={}, unfit={}, cuts={"youtube": {"start": 36.0, "end": 95.0, "file": str(tmp_path / "gone.mp4")}})
+    rec2.pop("posts")
+    ledger.clips["c2"] = rec2
+    result = outbox.enqueue(cfg, ledger, rec2, None, now=NOW)  # the version's file was deleted
+    assert result["queued"] == ["tiktok"] and "no longer on this computer" in result["skipped"]["youtube"]
+
+
+def test_the_posting_service_gets_one_upload_per_version(box, tmp_path, monkeypatch):
+    cfg, ledger, rec = box
+    Fake.on = set()
+    monkeypatch.setenv("UPLOAD_POST_API_KEY", "key")
+    cfg.publish.profile = "gta6clips"
+    short = tmp_path / "c1.59s.mp4"
+    short.write_bytes(b"short video")
+    rec["cuts"] = {"youtube": {"start": 36.0, "end": 95.0, "file": str(short)}}
+    uploads = []
+
+    class Service:
+        def __init__(self, cfg):
+            pass
+
+        def publish(self, clip, video, when, names):
+            uploads.append((Path(video).name, sorted(names)))
+            return {"request_id": f"req-{len(uploads)}"}
+
+    monkeypatch.setattr(publish, "UploadPost", Service)
+    outbox.enqueue(cfg, ledger, rec, None, now=NOW)
+    outbox.deliver(cfg, ledger, NOW, lambda m: None)
+    assert sorted(uploads) == [("c1.59s.mp4", ["youtube"]), ("c1.mp4", ["instagram", "tiktok"])]
+    ids = {name: post["id"] for name, post in rec["posts"].items()}
+    assert ids["tiktok"] == ids["instagram"] != ids["youtube"]  # two uploads, each post tied to its own
+
+
+# --- a post made by hand --------------------------------------------------------------
+
+def test_a_post_made_by_hand_is_kept_on_record_and_not_sent_again(box):
+    cfg, ledger, rec = box
+    post = outbox.by_hand(cfg, ledger, rec, "tiktok", " https://www.tiktok.com/@leonidaclips/video/7 ")
+    assert (post["state"], post["via"], post["link"]) == ("posted", "hand", "https://www.tiktok.com/@leonidaclips/video/7")
+    assert rec["status"] == "posted" and rec["links"] == {"tiktok": "https://www.tiktok.com/@leonidaclips/video/7"}
+    result = outbox.enqueue(cfg, ledger, rec, None, now=NOW)  # the others still go out; TikTok is not sent a second time
+    assert result["queued"] == ["youtube"] and result["skipped"]["tiktok"] == "already sent or queued"
+    outbox.deliver(cfg, ledger, NOW, lambda m: None)
+    assert [name for name, _, _ in Fake.sent] == ["youtube"]
+    with pytest.raises(publish.PublishError, match="already posted on tiktok"):
+        outbox.by_hand(cfg, ledger, rec, "tiktok")
+
+
+def test_by_hand_refuses_what_would_double_post_or_is_not_a_link(box):
+    cfg, ledger, rec = box
+    outbox.enqueue(cfg, ledger, rec, LATER, now=NOW)
+    outbox.deliver(cfg, ledger, NOW, lambda m: None)  # YouTube holds it until its time; TikTok waits here
+    with pytest.raises(publish.PublishError, match="already on its way to youtube; take it back first"):
+        outbox.by_hand(cfg, ledger, rec, "youtube")
+    with pytest.raises(publish.PublishError, match="has to start with https://"):
+        outbox.by_hand(cfg, ledger, rec, "tiktok", "javascript:alert(1)")
+    with pytest.raises(publish.PublishError, match="unknown platform"):
+        outbox.by_hand(cfg, ledger, rec, "myspace")
+    assert outbox.by_hand(cfg, ledger, rec, "tiktok")["state"] == "posted"  # a waiting post can be done by hand instead
+    assert outbox.deliver(cfg, ledger, LATER, lambda m: None)["sent"] == 0 and [name for name, _, _ in Fake.sent] == ["youtube"]
+
+
+def test_a_draft_finished_in_the_tiktok_app_can_be_marked_as_posted(box):
+    cfg, ledger, rec = box
+    Fake.plan = [Sent("yt-1", "posted", "https://youtube.example/1"), Sent("tt-1", "draft", note="in the TikTok inbox")]
+    outbox.enqueue(cfg, ledger, rec, None, now=NOW)
+    outbox.deliver(cfg, ledger, NOW, lambda m: None)
+    assert states(rec)["tiktok"] == "draft"
+    outbox.by_hand(cfg, ledger, rec, "tiktok")
+    assert states(rec) == {"youtube": "posted", "tiktok": "posted"} and rec["posts"]["tiktok"]["via"] == "hand"

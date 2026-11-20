@@ -14,7 +14,7 @@ read on 20 November 2026; they decide what "connected directly" can mean.
 | YouTube | Public uploads, scheduled by YouTube itself | Yes |
 | Facebook | Page reels and videos, scheduled by Facebook itself | Yes |
 | Instagram | Reels, sent when their time comes (this computer must be on) | Yes |
-| TikTok | A draft in your TikTok inbox, or a private post | Public posts |
+| TikTok | A draft in your TikTok inbox, a private post, or (once TikTok has audited your app) a public post | Public posts |
 
 You can mix: connect what works directly, and tick "through the posting
 service" for a platform where you prefer the service.
@@ -25,22 +25,40 @@ the next free one. The Accounts tab always shows the exact address to register.
 
 ## Claude
 
-Claude picks the moments in each video and edits each clip. Two ways to reach it:
+Claude picks the moments in each video and edits each clip. You can save
+several Claude accounts and switch between them: under Accounts with "Use this
+one", or from the "Claude" chip at the top of every tab. The one in use is
+marked; "Test" asks Claude one free question with it. "Remove" deletes the
+account's key or sign-in from this computer.
 
-**An Anthropic API key.** Create an account at console.anthropic.com, add
-credit, create an API key and paste it in the app. Works unattended.
+Three kinds of account:
 
-**Amazon Bedrock.** Choose "Amazon Bedrock" and the AWS profile to sign in
+**Sign in with Claude.** Press the button, give the account a name if you
+like, and approve on Anthropic's sign-in page in the browser tab that opens.
+The app notices by itself and starts using it. To add a second account, press
+the button again and sign in with that one in the tab. The sign-in is to a
+**Claude Console account** (console.anthropic.com), the kind that is billed for
+what it uses. Anthropic does not let other apps use a Claude.ai chat
+subscription (Pro or Max), so that kind of account cannot be signed in here.
+The sign-in is done by Anthropic's own tool (`ant`), which the Windows
+installer adds; if the button says the tool is missing, run the installer
+again. The sign-in renews itself.
+
+**An API key.** Create a key at console.anthropic.com (the account needs
+credit), choose "Add an API key" and paste it. It is tested before it is
+saved. Works unattended.
+
+**Amazon Bedrock.** Choose "Add Amazon Bedrock" and the AWS profile to sign in
 with (the app lists the profiles on this computer). If the profile uses single
 sign-on, the sign-in runs out after some hours and the app then says what to
 run (`aws sso login --profile <name>`), so this way suits runs you start
 yourself more than the daily run. Use an AWS account you are entitled to use
 for this.
 
-What is sent: frames of the video, what is said in it and its title. Model,
-effort and what the channel wants ("direction") are in the same panel. The
-panel shows the month's requests and an estimated cost; expect roughly one
-request per video plus one per clip.
+What is sent: frames of the video, what is said in it and its title. Model
+and what the channel wants ("direction") are in the same panel. The panel
+shows the month's requests and an estimated cost; expect roughly one request
+per video plus one per clip.
 
 ## YouTube
 
@@ -75,21 +93,46 @@ in the app withdraws the access at Google as well.
 your TikTok inbox as a **draft**, which you open in the TikTok app, add the
 caption to and post (the caption cannot be sent along; five drafts may wait at
 a time), or post **privately** (only you can see it, and only while the
-account is set to private). Posting publicly from an app needs TikTok's audit,
-and TikTok's published criteria exclude tools that upload to their owner's own
-accounts. There is no way around that with your own app. For hands-off public
-posts on TikTok, use the posting service for TikTok.
+account is set to private). Posting publicly from an app needs TikTok's audit
+of that app, and TikTok's published criteria leave out tools that upload to
+their owner's own accounts.
+
+Clipper posts through TikTok's official service only. It does not imitate the
+TikTok app or drive a signed-in browser to get around the audit: that breaks
+TikTok's terms, is what its bot detection looks for, and puts the account you
+want to earn with at risk.
+
+That leaves four ways to a TikTok post, chosen under Settings and on each clip:
+
+| Way | What you do | Public? |
+|---|---|---|
+| Draft (default) | Open the notification in the TikTok app, paste the caption, post | Yes, by your tap |
+| By hand, from the clip | "Post on TikTok by hand": Clipper copies the caption, shows the file and opens TikTok's upload page; then "Mark as posted" | Yes |
+| The posting service | Nothing; tick "TikTok through the posting service" | Yes, hands-off |
+| Post with the caption ("public") | Nothing, once TikTok has audited your app | Yes, hands-off |
+| Private | Nothing | No: only you see it |
+
+With "public", each clip has its own **TikTok post options**: who can watch
+(from what the account offers), comments, duets, stitches, and "promotes my
+own brand". The defaults are under Settings. Before every post Clipper asks
+TikTok what the account allows, as TikTok requires, and never asks for more.
+From an app that has not been audited TikTok refuses a public post, and the
+clip then says so and offers the other ways.
+
+"Mark as posted" keeps the clip's record straight (and stops Clipper from
+sending it to TikTok as well); the clip can still be sent to the other
+platforms afterwards.
 
 1. Create an app at https://developers.tiktok.com/apps (its Sandbox is enough)
    and add **Login Kit** and **Content Posting API**.
 2. In Login Kit choose **Desktop** and register the redirect address the app
    shows, exactly (`http://127.0.0.1:8765/oauth/tiktok/`).
 3. Give the app the scopes `user.info.basic` and `video.upload` (drafts) or
-   `video.publish` (private posts), add your TikTok account as a target user,
-   and copy the client key and secret into the app.
+   `video.publish` (private or public posts), add your TikTok account as a
+   target user, and copy the client key and secret into the app.
 
-Draft or private is chosen under Settings; connect again after changing it,
-because the two need different permissions.
+After changing between draft and posting under Settings, connect again: the
+two need different permissions, and the clip says so if you forget.
 
 ## Facebook and Instagram
 
@@ -138,3 +181,30 @@ looks every 15 minutes. If the computer was off, they go out when it is next
 on. A failed post is tried again by itself when that can help (no connection,
 a daily limit); otherwise the clip shows what is wrong and a "Try again"
 button. Nothing is ever sent twice.
+
+## The cut each platform gets
+
+A clip is made once, at the length set under Settings (about 1:30). Each
+platform then gets the version its rules ask for (Settings, "The cut each
+platform gets"):
+
+| Platform | Default | Why |
+|---|---|---|
+| TikTok | at least 61 seconds | Its Creator Rewards Program only counts videos longer than one minute |
+| YouTube | at most 59 seconds | A Short of more than 60 seconds is blocked worldwide when a copyright owner claims something in it (music in the game, for one). Shorts may run to 3 minutes: set 180 to accept that |
+| Facebook | at most 90 seconds | Page reels stop there; longer goes up as a plain Page video |
+| Instagram | at most 180 seconds | Longer reels are not recommended to new viewers |
+
+Where the clip is longer than a platform's maximum, Clipper renders a second
+version around the moment the clip builds to, with the same headline and its
+own captions and cover, and sends that platform the short one. The clip card
+lists the versions and plays each. A clip shorter than a platform's minimum is
+not sent there, and the card says why. 0 means no limit.
+
+These are format rules. Being paid also depends on each platform accepting the
+videos as original work: TikTok's programme asks for original videos, YouTube
+excludes reused content, Facebook's programme is by invitation. Cutting,
+captions and headlines do not make someone else's gameplay original in the
+platforms' eyes; your own gameplay, or footage you have permission to use with
+something of your own added, is what those rules are about. See
+`reports/GTA 6 paid clipping feasibility.md`.

@@ -4,9 +4,11 @@ Every AI step goes through `ask`: picking the moments in a video (scout.py),
 checking and editing a clip (review.py), and a re-edit asked for in the app.
 One request, one answer in a fixed shape.
 
-Two ways to reach Claude, chosen in the app under Accounts:
+Three ways to reach Claude. Any number of accounts can be saved in the app under
+Accounts, and the one in use is switched at will:
 
-  anthropic   an API key from console.anthropic.com (ANTHROPIC_API_KEY, or the one saved in the app)
+  login       a sign-in in the browser with Anthropic's own tool (see signin.py); no key to handle
+  anthropic   an API key from console.anthropic.com (ANTHROPIC_API_KEY, or one saved in the app)
   bedrock     Claude through Amazon Bedrock, signed in with an AWS profile on this computer
 
 Without either the clipper carries on with its loudness-based finder and rule-based titles.
@@ -25,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import settings
+from . import settings, signin
 from .config import Config
 
 # Models offered in the app, with the first-party list price per million tokens (input, output) used
@@ -53,7 +55,11 @@ class ClaudeError(RuntimeError):
 # --- reaching Claude ------------------------------------------------------------
 
 def api_key(cfg: Config) -> str:
-    return os.environ.get("ANTHROPIC_API_KEY") or settings.get_secret(cfg.data_root, "anthropic_api_key")
+    """The key in use: the environment's, else the chosen account's, else the one saved before there were accounts."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return os.environ["ANTHROPIC_API_KEY"]
+    own = settings.get_secret(cfg.data_root, f"anthropic_api_key_{cfg.ai.account}") if cfg.ai.account else ""
+    return own or settings.get_secret(cfg.data_root, "anthropic_api_key")
 
 
 def model_id(cfg: Config, model: str | None = None) -> str:
@@ -94,6 +100,10 @@ def unavailable(cfg: Config) -> str:
         if not cfg.ai.aws_profile and not (os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_PROFILE")):
             return "no AWS profile is chosen (pick one in the app under Accounts)"
         return ""
+    if cfg.ai.provider == "login":
+        if not signin.exists(cfg.ai.login_profile):
+            return "the Claude sign-in is no longer on this computer (sign in again in the app under Accounts)"
+        return ""
     if not api_key(cfg):
         return "no Claude API key is saved (add one in the app under Accounts)"
     return ""
@@ -128,6 +138,9 @@ def client(cfg: Config, key: str | None = None):
                                           base_url=os.environ.get("CLIPPER_BEDROCK_URL") or None)
         except Exception as exc:  # noqa: BLE001 - AWS raises many kinds of sign-in error
             raise ClaudeError(_aws_hint(cfg, exc), fatal=True) from exc
+    if cfg.ai.provider == "login" and not key:
+        # The SDK reads the named sign-in itself and renews its token when it runs out.
+        return anthropic.Anthropic(profile=cfg.ai.login_profile, timeout=TIMEOUT)
     return anthropic.Anthropic(api_key=key or api_key(cfg), timeout=TIMEOUT)
 
 
@@ -144,7 +157,8 @@ def test(cfg: Config, key: str | None = None) -> str:
     except ClaudeError as exc:
         return str(exc)[0].upper() + str(exc)[1:] + "."
     except anthropic.AuthenticationError:
-        return "Anthropic did not accept this key." if cfg.ai.provider != "bedrock" else "AWS did not accept the sign-in."
+        return {"bedrock": "AWS did not accept the sign-in.", "login": "The Claude sign-in has run out. Sign in again."}.get(
+            cfg.ai.provider, "Anthropic did not accept this key.")
     except anthropic.PermissionDeniedError:
         return f"This account is not allowed to use the model {model_id(cfg)}."
     except anthropic.NotFoundError:
@@ -159,6 +173,93 @@ def test(cfg: Config, key: str | None = None) -> str:
             return hint[0].upper() + hint[1:] + "."
         raise
     return ""
+
+
+# --- the saved accounts -------------------------------------------------------------
+
+KINDS = {"login": "Signed in with Claude", "key": "API key", "bedrock": "Amazon Bedrock"}
+
+
+def accounts(cfg: Config) -> list[dict[str, Any]]:
+    """The Claude accounts saved on this computer, each as the app shows it; the one in use has `active`.
+
+    A key or an AWS profile set up before there were accounts shows as an account too.
+    """
+    saved = [dict(a) for a in cfg.ai.accounts if isinstance(a, dict) and a.get("id")]
+    if not saved:
+        if cfg.ai.provider == "bedrock" and cfg.ai.aws_profile:
+            saved.append({"id": "", "name": f"Amazon Bedrock ({cfg.ai.aws_profile})", "kind": "bedrock",
+                          "aws_profile": cfg.ai.aws_profile, "aws_region": cfg.ai.aws_region})
+        elif settings.get_secret(cfg.data_root, "anthropic_api_key"):
+            saved.append({"id": "", "name": "API key", "kind": "key"})
+    for account in saved:
+        account["active"] = account["id"] == cfg.ai.account
+        account["label"] = KINDS.get(account.get("kind", ""), "")
+        if account.get("kind") == "login" and not signin.exists(account.get("profile", "")):
+            account["problem"] = "the sign-in is no longer on this computer"
+    return saved
+
+
+def _store(cfg: Config, saved: list[dict[str, Any]], use: dict[str, Any] | None) -> None:
+    """Write the account list and, when `use` is given, make that account the one in use."""
+    keep = ("id", "name", "kind", "profile", "aws_profile", "aws_region", "detail", "added")
+    changes: dict[str, Any] = {"accounts": [{k: a[k] for k in keep if k in a} for a in saved if a.get("id")]}
+    if use is not None:
+        changes.update(account=use["id"], enabled=True, provider={"key": "anthropic"}.get(use["kind"], use["kind"]))
+        if use["kind"] == "login":
+            changes["login_profile"] = use["profile"]
+        if use["kind"] == "bedrock":
+            changes.update(aws_profile=use["aws_profile"], aws_region=use.get("aws_region") or "us-east-1")
+    settings.update(cfg.data_root, {"ai": changes})
+
+
+def add_account(cfg: Config, name: str, kind: str, key: str = "", **fields: str) -> dict[str, Any]:
+    """Save a Claude account and start using it. A key goes to the credential store, never into the settings."""
+    saved = accounts(cfg)
+    if any(not a["id"] for a in saved):  # the one from before there were accounts gets a place in the list
+        old = next(a for a in saved if not a["id"])
+        old["id"] = "first"
+        if old["kind"] == "key":
+            settings.set_secret(cfg.data_root, "anthropic_api_key_first", settings.get_secret(cfg.data_root, "anthropic_api_key"))
+            settings.set_secret(cfg.data_root, "anthropic_api_key", "")
+    taken = {a["id"] for a in saved}
+    ident = next(f"a{n}" for n in range(1, 1000) if f"a{n}" not in taken)
+    label = " ".join(name.split())[:40] or {"login": "Claude account", "key": "API key", "bedrock": "Amazon Bedrock"}[kind]
+    account = {"id": ident, "name": label, "kind": kind, "added": datetime.now(timezone.utc).strftime("%Y-%m-%d"), **{k: v for k, v in fields.items() if v}}
+    if kind == "key":
+        settings.set_secret(cfg.data_root, f"anthropic_api_key_{ident}", key)
+    if cfg.ai.account == "" and any(a["id"] == "first" for a in saved):
+        settings.update(cfg.data_root, {"ai": {"account": "first"}})
+    _store(cfg, [*saved, account], account)
+    return account
+
+
+def use_account(cfg: Config, ident: str) -> dict[str, Any]:
+    saved = accounts(cfg)
+    chosen = next((a for a in saved if a["id"] == ident), None)
+    if chosen is None:
+        raise KeyError(ident)
+    _store(cfg, saved, chosen)
+    return chosen
+
+
+def remove_account(cfg: Config, ident: str) -> None:
+    """Forget an account: its key is deleted, its sign-in is removed from this computer."""
+    saved = accounts(cfg)
+    gone = next((a for a in saved if a["id"] == ident), None)
+    if gone is None:
+        raise KeyError(ident)
+    if gone["kind"] == "key":
+        settings.set_secret(cfg.data_root, f"anthropic_api_key_{ident}" if ident else "anthropic_api_key", "")
+    if gone["kind"] == "login":
+        signin.logout(gone.get("profile", ""))
+    left = [a for a in saved if a["id"] != ident]
+    if gone.get("active") and left and left[0]["id"]:
+        _store(cfg, left, left[0])  # the next one takes over
+    else:
+        _store(cfg, left, None)
+        if gone.get("active"):
+            settings.update(cfg.data_root, {"ai": {"account": "", "provider": "anthropic", "login_profile": "", "aws_profile": ""}})
 
 
 # --- asking ---------------------------------------------------------------------
@@ -195,7 +296,8 @@ def ask(cfg: Config, system: str, content: list[dict], schema: dict, effort: str
         with BetaFallbackState():  # one request is one conversation; nothing to pin afterwards
             response = api.beta.messages.create(**request)
     except anthropic.AuthenticationError as exc:
-        raise ClaudeError("the Claude sign-in was not accepted" if cfg.ai.provider == "bedrock" else "the Claude API key was not accepted", fatal=True) from exc
+        said = {"bedrock": "the Claude sign-in was not accepted", "login": "the Claude sign-in has run out: sign in again in the app under Accounts"}
+        raise ClaudeError(said.get(cfg.ai.provider, "the Claude API key was not accepted"), fatal=True) from exc
     except anthropic.PermissionDeniedError as exc:
         raise ClaudeError(f"this account may not use the model {request['model']}", fatal=True) from exc
     except anthropic.NotFoundError as exc:

@@ -279,12 +279,14 @@ class FakeTikTok(Recorder):
     options: list = ["FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]
     longest = 600
     post_status: dict = {"status": "PROCESSING_UPLOAD"}
+    off: dict = {"comment_disabled": False, "duet_disabled": True, "stitch_disabled": True}  # what the account itself has switched off
 
     @classmethod
     def reset(cls) -> None:
         cls.calls, cls.fail, cls.stored, cls.serial, cls.put_failures, cls.challenge = [], {}, b"", 0, 0, ""
         cls.scope, cls.longest, cls.post_status = "user.info.basic,video.upload", 600, {"status": "PROCESSING_UPLOAD"}
         cls.options = ["FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]
+        cls.off = {"comment_disabled": False, "duet_disabled": True, "stitch_disabled": True}
 
     def answer(self, data: dict, code: str = "ok", status: int = 200, message: str = "") -> None:
         self.reply(status, {"data": data, "error": {"code": code, "message": message, "log_id": "20261120"}})
@@ -328,7 +330,7 @@ class FakeTikTok(Recorder):
         elif path == "/v2/post/publish/creator_info/query/":
             if not self.refuse("creator"):
                 self.answer({"creator_username": "leonidaclips", "creator_nickname": "Leonida Clips", "privacy_level_options": cls.options,
-                             "comment_disabled": False, "duet_disabled": True, "stitch_disabled": True, "max_video_post_duration_sec": cls.longest})
+                             **cls.off, "max_video_post_duration_sec": cls.longest})
         elif path == "/v2/post/publish/status/fetch/":
             if not self.refuse("status"):
                 self.answer(dict(cls.post_status))

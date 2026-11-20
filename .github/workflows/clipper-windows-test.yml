@@ -27,7 +27,28 @@ jobs:
 
       - name: Install with the one-line installer (Windows PowerShell 5.1)
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}  # only so that looking up the sign-in tool's latest release is not rate-limited on a shared machine
         run: Get-Content -Raw clipper\install.ps1 | Invoke-Expression
+
+      - name: Anthropic's sign-in tool was installed and is the one the app looks for
+        shell: powershell
+        run: |
+          $root = $env:CLIPPER_DIR
+          $ant = Get-ChildItem -Path (Join-Path $root 'tools') -Recurse -Filter ant.exe | Select-Object -First 1
+          if (-not $ant) { throw 'the installer did not install ant.exe (its note above says why)' }
+          & $ant.FullName --version
+          if ($LASTEXITCODE -ne 0) { throw 'ant.exe does not run' }
+          $env:PATH = $ant.DirectoryName + ';' + $env:PATH
+          Set-Location (Join-Path $root 'app')
+          $found = & (Join-Path $root 'venv\Scripts\python.exe') -c "from clipper import signin; print(signin.tool())"
+          Write-Host "the app finds: $found"
+          if (-not $found) { throw 'the app does not recognise the installed sign-in tool' }
+          # The commands the app runs exist in this version of the tool.
+          & $ant.FullName auth login --help
+          if ($LASTEXITCODE -ne 0) { throw 'ant has no "auth login" command' }
+          $help = (& $ant.FullName auth login --help 2>&1 | Out-String)
+          foreach ($flag in '--profile', '--no-browser', '--callback-port') { if ($help -notmatch [regex]::Escape($flag)) { Write-Host "::warning::ant auth login --help does not mention $flag" } }
 
       - name: Run the tests
         shell: powershell
