@@ -79,41 +79,71 @@ title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trai
 section = "moments"
 min_views = 2000
 min_minutes = 3
-max_minutes = 75
-max_hours = 0.75
-max_items = 1
+max_minutes = 240
+look_at = 25
+max_items = 2
+max_hours = 0.5                  # only the first half hour of a long video is fetched
 
 [[sources]]
 type = "ytdlp"
-url = "https://www.youtube.com/results?search_query=gta+6+police+chase+stunt+no+commentary&sp=EgIIAw%253D%253D"
+url = "https://www.youtube.com/results?search_query=gta+6+free+roam+open+world+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
 title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
 section = "moments"
-min_views = 1000
-min_minutes = 1
-max_minutes = 30
+min_views = 500
+min_minutes = 3
+max_minutes = 240
+look_at = 25
 max_items = 1
+max_hours = 0.5
 
 [[sources]]
 type = "ytdlp"
-url = "https://www.youtube.com/results?search_query=gta+6+easter+egg+secret+location+no+commentary&sp=EgIIAw%253D%253D"
+url = "https://www.youtube.com/results?search_query=gta+6+police+chase+no+commentary&sp=EgIIAw%253D%253D"
+title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+section = "moments"
+min_views = 500
+min_minutes = 1
+max_minutes = 60
+look_at = 25
+max_items = 1
+max_hours = 0.5
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.youtube.com/results?search_query=gta+6+easter+egg+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
 title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
 section = "findings"
-min_views = 500
+min_views = 200
 min_minutes = 1
-max_minutes = 20
+max_minutes = 30
+look_at = 25
 max_items = 1
 
 [[sources]]
 type = "ytdlp"
-url = "https://www.youtube.com/results?search_query=gta+6+how+to+guide+no+commentary&sp=EgIIAw%253D%253D"
+url = "https://www.youtube.com/results?search_query=gta+6+secret+location+no+commentary&sp=EgIIAw%253D%253D"
+title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
+title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
+section = "findings"
+min_views = 200
+min_minutes = 1
+max_minutes = 30
+look_at = 25
+max_items = 1
+
+[[sources]]
+type = "ytdlp"
+url = "https://www.youtube.com/results?search_query=gta+6+how+to+no+commentary&sp=EgIIAw%253D%253D"
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
 title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
 section = "tricks"
-min_views = 500
+min_views = 200
 min_minutes = 1
-max_minutes = 20
+max_minutes = 30
+look_at = 25
 max_items = 1
 
 [[sources]]
@@ -122,9 +152,10 @@ url = "https://www.youtube.com/results?search_query=gta+6+glitch+no+commentary&s
 title_any = ["no commentary", "no talking", "gameplay only", "raw gameplay"]
 title_none = ["reaction", "reacts", "live", "stream", "podcast", "review", "trailer", "leak"]
 section = "glitches"
-min_views = 500
+min_views = 200
 min_minutes = 1
-max_minutes = 20
+max_minutes = 30
+look_at = 25
 max_items = 1
 
 # Your own recordings: drop video files into clipper/inbox/.
@@ -143,11 +174,14 @@ require_speech = false           # clips may have no speech at all
 block_channels = ["Rockstar Games", "Take-Two Interactive"]   # never taken from
 credit_format = "Credit: {creator}"                           # on the clip and in every caption
 
+# Clip length. TikTok only pays for videos longer than one minute, and YouTube
+# Shorts and Instagram Reels stop at three minutes, so clips run 61 to 120 seconds.
 [moments]
-min_len = 18                     # seconds, for passages cut from long videos
-max_len = 45
+min_len = 61                     # seconds, for passages cut from long videos
+max_len = 120
 max_per_source = 3
-whole_clip_max = 62              # videos up to this length are used whole
+whole_clip_min = 61              # a short video is used whole only if it is at least this long...
+whole_clip_max = 180             # ...and at most this long
 
 [captions]
 mode = "highlight"               # highlight: the spoken word pops in colour; sweep: colour fills across the line

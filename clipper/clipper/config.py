@@ -88,7 +88,7 @@ class Filters:
     require_speech: bool = False  # gameplay-only clips often have no speech at all
     commentary_words: list[str] = field(
         default_factory=lambda: [
-            "chat", "clip that", "clip it", "gifted", "subs", "donation", "donations", "this game", "gta", "gta 6", "gta six",
+            "chat", "clip that", "clip it", "gifted", "subs", "donation", "donations", "this game", "gta", "gta 6", "gta6", "gta six", "gta vi",
             "grand theft auto", "rockstar", "gameplay", "walkthrough", "cutscene", "cutscenes", "npc", "npcs", "easter egg",
             "playstation", "ps5", "xbox", "frame rate", "fps", "this video", "today's video", "my channel",
             "welcome back to", "what's up guys", "hey guys", "let me know in the comments", "like and subscribe",
@@ -124,6 +124,7 @@ class Moments:
     min_gap: float = 20.0  # seconds between two clips from the same source
     min_score: float = 1.5
     whole_clip_max: float = 62.0  # videos up to this length (for example Twitch clips) are used whole
+    whole_clip_min: float = 5.0  # ...unless they are shorter than this
     w_loud: float = 1.0
     w_rate: float = 0.5
     w_words: float = 1.0

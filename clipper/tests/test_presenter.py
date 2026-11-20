@@ -3,7 +3,7 @@
 import numpy as np
 import soundfile as sf
 
-from clipper import config, intake, metadata, moments, presenter
+from clipper import config, gates, intake, metadata, moments, presenter
 from conftest import speak
 from test_intake import FakeSite
 
@@ -104,3 +104,60 @@ def test_sources_can_filter_by_title(cfg, ledger, tmp_path, monkeypatch):
     items = intake.collect(cfg, ledger, lambda m: None)
     assert [i.title for i in items] == ["GTA 6 Police Chase - No Commentary"]
     assert sum("--skip-download" in c for c in site.calls) == 1  # the others were dropped on their titles alone
+
+
+def _talk(cfg, script, duration):
+    """Timed words from (start second, sentence) pairs."""
+    words = []
+    for at, sentence in script:
+        words += speak(sentence, at, 0.4)
+    return presenter.commentary(cfg, words, duration)
+
+
+def test_a_spoken_intro_does_not_rule_out_a_long_video(cfg):
+    game = [(t, "get in the car we have to go now") for t in range(120, 2600, 90)]
+    intro = [(4, "hey guys welcome back to my channel"), (9, "this is gta 6 gameplay with no commentary")]
+    verdict, avoid = _talk(cfg, intro + game, 2700.0)
+    assert verdict == "parts" and len(avoid) == 1
+    assert avoid[0][0] == 0.0 and 40 < avoid[0][1] < 60  # the intro plus half a minute, nothing else
+    assert presenter.clock(avoid[0][1]).startswith("0:")
+
+
+def test_commentary_all_the_way_through_rules_it_out(cfg):
+    game = [(t, "get in the car we have to go now") for t in range(120, 2600, 90)]
+    chatter = [(t, "chat this game is crazy look at the graphics") for t in range(30, 2600, 300)]
+    verdict, avoid = _talk(cfg, sorted(chatter + game), 2700.0)
+    assert verdict == "throughout" and len(avoid) >= 4
+
+
+def test_stray_words_in_game_dialogue_are_ignored(cfg):
+    game = [(t, "get in the car we have to go now") for t in range(120, 2600, 90)]
+    assert _talk(cfg, game + [(1000, "we need to chat about the money")], 2700.0) == ("none", [])
+    assert _talk(cfg, game, 2700.0) == ("none", [])
+
+
+def test_clips_meet_the_length_the_platforms_pay_for(tmp_path):
+    """With the project's own settings, every clip cut from a long video runs 61 to 120 seconds."""
+    from clipper import config as cfgmod
+
+    real = cfgmod.load()  # the config.toml that ships with the clipper
+    assert (real.moments.min_len, real.moments.max_len) == (61, 120)
+    assert (real.moments.whole_clip_min, real.moments.whole_clip_max) == (61, 180)
+    rate = 16000
+    audio = np.random.default_rng(9).normal(0, 0.01, rate * 600).astype(np.float32)
+    for at, length in ((100, 15), (300, 40), (480, 8)):  # three bursts of action of different lengths
+        audio[at * rate : (at + length) * rate] *= 30
+    wav = tmp_path / "long.wav"
+    sf.write(wav, audio, rate)
+    shout = speak("get down! go go go!", 305.0, 0.4)  # one shouted line inside the second burst
+    found = moments.find(real.moments, wav, shout, 600.0)
+    assert len(found) == 3
+    for clip in found:
+        assert 60.99 <= clip.duration <= 121, clip.duration  # 61 s, give or take float rounding
+    starts = sorted(c.start for c in found)
+    assert starts[0] <= 100 and 250 <= starts[1] <= 300 and starts[2] <= 480
+    short = moments.Candidate(0.0, 40.0, 20.0, 3.0, [])
+    from clipper.state import Ledger
+    assert any("too short" in r for r in gates.check(real, short, "s", Ledger(tmp_path / "l.json"), whole=True))
+    ok = moments.Candidate(0.0, 95.0, 40.0, 3.0, [])
+    assert gates.check(real, ok, "s", Ledger(tmp_path / "l.json"), whole=True) == []

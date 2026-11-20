@@ -115,6 +115,46 @@ def talk(cfg: Config, text: str) -> list[str]:
     return found
 
 
+def talk_times(cfg: Config, words: list) -> list[tuple[float, str]]:
+    """(time, phrase) for every commentator phrase in a timed transcript."""
+    tokens = [re.sub(r"[^a-z0-9']", "", w.w.lower()) for w in words]
+    hits: list[tuple[float, str]] = []
+    for phrase in cfg.filters.commentary_words:
+        parts = phrase.lower().split()
+        for i in range(len(tokens) - len(parts) + 1):
+            if tokens[i : i + len(parts)] == parts:
+                hits.append((words[i].s, phrase))
+    return sorted(hits)
+
+
+def commentary(cfg: Config, words: list, duration: float) -> tuple[str, list[tuple[float, float]]]:
+    """How much of a long video has someone talking about the game over it.
+
+    Returns a verdict and the stretches to keep clear of:
+      "none"        nothing worth acting on (at most a stray word or two)
+      "parts"       a spoken intro, outro or aside: the video is usable, those stretches are not
+      "throughout"  commentary all the way through: the video is not gameplay-only
+    """
+    hits = talk_times(cfg, words)
+    if len(hits) < 3 or len({phrase for _, phrase in hits}) < 2:
+        return "none", []
+    stretches: list[list[float]] = []
+    for t, _ in hits:  # phrases within a minute of each other belong to the same stretch
+        if stretches and t - stretches[-1][1] <= 60:
+            stretches[-1][1] = t
+        else:
+            stretches.append([t, t])
+    padded = [(max(0.0, a - 30), min(duration, b + 30)) for a, b in stretches]
+    covered = sum(b - a for a, b in padded) / max(duration, 1.0)
+    if len(padded) >= 4 or covered > 0.25:
+        return "throughout", padded
+    return "parts", padded
+
+
+def clock(seconds: float) -> str:
+    return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
+
+
 def check(cfg: Config, path: Path, start: float, end: float, text: str, title: str = "") -> list[str]:
     """Reasons this footage is not gameplay-only; empty means it passes."""
     reasons: list[str] = []

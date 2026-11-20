@@ -78,9 +78,9 @@ jobs:
           $root = $env:CLIPPER_DIR
           $env:CLIPPER_CONFIG = Join-Path $root 'test-config.toml'
           $inbox = Join-Path $root 'data\inbox'
-          $sample = Join-Path $root 'models\sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8\test_wavs\0.wav'
           $ff = (Get-ChildItem -Path (Join-Path $root 'tools') -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName
-          & $ff -y -loglevel error -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=20" -stream_loop 2 -i $sample -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest (Join-Path $inbox 'second clip.mp4')
+          # No speech this time: the first test video's words would make this one count as the same moment.
+          & $ff -y -loglevel error -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=20" -f lavfi -i "sine=frequency=330:duration=20" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest (Join-Path $inbox 'second clip.mp4')
           if ($LASTEXITCODE -ne 0) { throw 'could not make the second test video' }
           # The same script the daily schedule runs: it writes a log instead of printing.
           powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'run.ps1') -Daily

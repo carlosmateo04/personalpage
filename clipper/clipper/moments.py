@@ -187,8 +187,10 @@ def _window(cfg: Moments, i: int, score: np.ndarray, sents: list[Sentence], word
     next_start = words[end_word + 1].s if end_word < len(words) - 1 else total
     start = max(prev_end, words[start_word].s - 0.25, 0.0)
     end = min(next_start, words[end_word].e + 0.45, total)
-    if end - start > cfg.max_len + 1 or end - start < min(cfg.min_len, 8):
+    if end - start > cfg.max_len + 1:
         return None
+    if end - start < cfg.min_len:  # not enough talk to fill a clip: pad it with the action around it
+        return _plain_window(cfg, peak, start, end, words, total)
     return round(start, 2), round(end, 2)
 
 

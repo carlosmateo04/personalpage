@@ -16,6 +16,7 @@
 # Optional environment variables:
 #   CLIPPER_DIR       install somewhere else
 #   CLIPPER_SKIP_RUN  set to 1 to install without making clips
+#   CLIPPER_FRESH     set to 1 to forget which videos were already looked at
 
 function Install-Clipper {
     $ErrorActionPreference = 'Stop'
@@ -71,6 +72,12 @@ function Install-Clipper {
     }
 
     New-Item -ItemType Directory -Force -Path $tools, $data | Out-Null
+
+    if ($env:CLIPPER_FRESH -eq '1') {
+        # Forget which videos were already looked at, so they are considered again.
+        $ledger = Join-Path $data 'state\ledger.json'
+        if (Test-Path $ledger) { Remove-Item $ledger; Write-Host 'Starting fresh: the record of videos already looked at was cleared.' }
+    }
 
     Step 'Tools: uv, ffmpeg, deno'
     $uvDir = Get-Tool 'uv' 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip' 'uv.exe'

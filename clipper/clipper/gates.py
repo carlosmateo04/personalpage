@@ -25,7 +25,7 @@ def check(cfg: Config, cand: Candidate, source_id: str, ledger: Ledger, whole: b
     """
     g, m = cfg.gates, cfg.moments
     reasons: list[str] = []
-    shortest, longest = (5.0, m.whole_clip_max) if whole else (m.min_len - 0.5, m.max_len + 1)
+    shortest, longest = (m.whole_clip_min, m.whole_clip_max) if whole else (m.min_len - 0.5, m.max_len + 1)
     if cand.duration < shortest:
         reasons.append(f"too short ({cand.duration:.0f}s)")
     if cand.duration > longest:
