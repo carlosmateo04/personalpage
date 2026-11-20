@@ -95,7 +95,7 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
         del ledger.clips[stale]
 
     for item in intake.collect(cfg, ledger, log):
-        log(f"analysing {item.name}")
+        log(f"analysing: {item.name[:70]}")
 
         def leave_out(reason: str) -> None:
             ledger.sources[item.source_id] = {"name": item.name, "origin": item.origin, "creator": item.creator,
@@ -105,11 +105,13 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
 
         try:
             # Gameplay only: a video with a streamer on camera or talking over it is left out whole.
+            minutes = media.probe(item.path).duration / 60
             if cfg.filters.no_facecam:
-                on_camera, where = presenter.facecam(cfg, item.path, 0.0, media.probe(item.path).duration)
+                on_camera, where = presenter.facecam(cfg, item.path, 0.0, minutes * 60)
                 if on_camera:
                     leave_out(f"streamer facecam ({where})")
                     continue
+            log(f"  transcribing {minutes:.0f} min of audio and looking for highlights (about {max(1, round(minutes / 6))} min)")
             found = analyse(cfg, item.path, item.source_id, intake.load_chat(item.chat_file), item.views)
         except (media.MediaError, transcribe.TranscribeError) as exc:
             problems.append(f"{item.name}: {exc}")

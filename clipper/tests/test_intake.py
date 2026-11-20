@@ -85,7 +85,7 @@ class FakeSite:
                   "license": "Creative Commons Attribution license (reuse allowed)"},
         }
 
-    def __call__(self, args, timeout=0):
+    def __call__(self, args, timeout=0, tick=None):
         import json as j
         import subprocess as sp
 
@@ -168,7 +168,7 @@ def test_failed_fetches_are_retried_then_given_up(cfg, ledger, tmp_path, monkeyp
     site = FakeSite(tmp_path)
     real = site.__call__
 
-    def broken(args, timeout=0):
+    def broken(args, timeout=0, tick=None):
         if "--print" in args:  # every download fails
             site.calls.append(args)
             return sp.CompletedProcess(args, 1, "", "ERROR: ffmpeg exited with code 251")
@@ -215,3 +215,22 @@ def test_runtime_versions_are_checked(monkeypatch):
     assert bootstrap.js_runtime() == ("deno", "2.5.1")
     fake({"deno", "node"}, {"deno": "deno 1.46.0\n", "node": "v22.1.0\n"})
     assert bootstrap.js_runtime() == ("node", "22.1.0")  # old deno, usable node
+
+
+def test_long_downloads_report_progress_and_give_up_cleanly(monkeypatch, tmp_path):
+    import sys
+
+    slow = [sys.executable, "-c", "import time; print('started', flush=True); time.sleep(30)"]
+    monkeypatch.setattr(intake, "runtime_args", lambda: [])
+    monkeypatch.setattr(intake, "HEARTBEAT", 0.2)
+    real_popen = intake.subprocess.Popen
+    monkeypatch.setattr(intake.subprocess, "Popen", lambda cmd, **kw: real_popen(slow, **{k: v for k, v in kw.items() if k != "env"}))
+    ticks = []
+    got = intake._yt(["ignored"], timeout=1, tick=ticks.append)
+    assert got.returncode == 124 and "gave up" in got.stderr  # stopped, not raised
+    assert len(ticks) >= 2 and ticks == sorted(ticks)  # it reported in while waiting
+
+    quick = [sys.executable, "-c", "import sys; print('hello'); print('oops', file=sys.stderr); sys.exit(3)"]
+    monkeypatch.setattr(intake.subprocess, "Popen", lambda cmd, **kw: real_popen(quick, **{k: v for k, v in kw.items() if k != "env"}))
+    got = intake._yt(["ignored"])
+    assert (got.returncode, got.stdout.strip(), got.stderr.strip()) == (3, "hello", "oops")

@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,8 @@ from .state import Ledger, now_iso
 Log = Callable[[str], None]
 BOT_CHECK = ("confirm you", "not a bot", "captcha", "429", "too many requests")
 PAUSE = 1.0  # seconds between requests to a site
+HEARTBEAT = 60.0  # seconds between "still downloading" lines
+FETCH_LIMIT = 3600  # seconds one download may take
 
 
 @dataclass
@@ -123,11 +126,33 @@ def runtime_args() -> list[str]:
     return ["--js-runtimes", "node"] if js_runtime()[0] == "node" else []
 
 
-def _yt(args: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
-    """Run yt-dlp. Kept in one place so tests can replace it."""
+def _yt(args: list[str], timeout: int = 1800, tick: Callable[[float], None] | None = None) -> subprocess.CompletedProcess:
+    """Run yt-dlp. Kept in one place so tests can replace it.
+
+    `tick` is called about once a minute with the seconds elapsed, so a long
+    download can report that it is still going. A run that outlasts `timeout`
+    is stopped and reported as failed rather than raising.
+    """
     cmd = [sys.executable, "-m", "yt_dlp", "--no-warnings", *runtime_args(), *args]
     env = {**os.environ, "PYTHONUTF8": "1"}  # titles with emoji or accents arrive intact on Windows too
-    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
+    started = time.time()
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:  # files, not pipes: nothing to deadlock on
+        proc = subprocess.Popen(cmd, stdout=out, stderr=err, env=env)
+        code: int | None = None
+        while code is None:
+            try:
+                code = proc.wait(timeout=HEARTBEAT if tick else min(timeout, 3600))
+            except subprocess.TimeoutExpired:
+                elapsed = time.time() - started
+                if elapsed >= timeout:
+                    proc.kill()
+                    proc.wait()
+                    return subprocess.CompletedProcess(cmd, 124, "", f"gave up after {elapsed / 60:.0f} minutes")
+                if tick:
+                    tick(elapsed)
+        out.seek(0)
+        err.seek(0)
+        return subprocess.CompletedProcess(cmd, code, out.read().decode("utf-8", "replace"), err.read().decode("utf-8", "replace"))
 
 
 def _json(text: str) -> dict:
@@ -167,6 +192,8 @@ def fetch_args(src: Source, url: str, dest_dir: Path, duration: float = 0.0) -> 
     limit = int(src.max_hours * 3600)
     if not duration or duration > limit:
         args += ["--download-sections", f"*0-{limit}"]  # only the first hours of a long video
+    else:
+        args += ["--concurrent-fragments", "4"]  # a whole video downloads faster in parallel pieces
     return [*args, "-o", str(dest_dir / "%(extractor)s-%(id)s.%(ext)s"), "--print", "after_move:filepath", url]
 
 
@@ -178,6 +205,7 @@ def _channel(meta: dict) -> str:
 def _ytdlp(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
     downloads = cfg.path("work") / "downloads"
     downloads.mkdir(parents=True, exist_ok=True)
+    log(f"looking for videos: {src.url[:110]}")
     entries, err = listing(src)
     if not entries:
         log(f"nothing listed at {src.url}: {err}")
@@ -226,7 +254,16 @@ def _ytdlp(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
             _skip(ledger, sid, title, url, "skipped", f"not {src.category} ({', '.join(categories) or 'no category'})")
             continue
 
-        got = _yt(fetch_args(src, url, downloads, float(meta.get("duration") or 0)))
+        length = float(meta.get("duration") or 0)
+        part = f"the first {src.max_hours * 60:.0f} min of {length / 60:.0f}" if length > src.max_hours * 3600 else f"{length / 60:.0f} min"
+        log(f"downloading: {title[:70]} ({part})")
+        began = time.time()
+
+        def still_going(elapsed: float) -> None:
+            size = sum(f.stat().st_size for f in downloads.iterdir() if f.is_file() and f.stat().st_mtime >= began - 2)
+            log(f"  still downloading: {size / 1e6:.0f} MB so far, {elapsed / 60:.0f} min elapsed")
+
+        got = _yt(fetch_args(src, url, downloads, length), timeout=FETCH_LIMIT, tick=still_going)
         path = next((Path(p.strip()) for p in reversed(got.stdout.splitlines()) if p.strip() and Path(p.strip()).exists()), None)
         if path is None:
             err = got.stderr.strip()
