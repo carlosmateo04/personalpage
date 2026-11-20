@@ -543,7 +543,7 @@ class App:
         url, kept = conn.auth_url(redirect, state)
         for old in [key for key, held in self.pending.items() if time.time() - held["at"] > 900]:
             del self.pending[old]
-        self.pending[state] = {"name": name, "kept": kept, "redirect": redirect, "at": time.time()}
+        self.pending[state] = {"name": name, "kept": kept, "redirect": redirect, "at": time.time(), "channel": self.channel}
         return {"ok": True, "url": url}
 
     def connect_finish(self, query: dict) -> tuple[bool, str]:
@@ -551,7 +551,7 @@ class App:
         waiting = self.pending.pop(query.get("state", ""), None)
         if waiting is None or time.time() - waiting["at"] > 900:
             return False, "This sign-in is no longer waiting. Go back to Clipper and press Connect again."
-        conn = connectors.get(waiting["name"], self.cfg())
+        conn = connectors.get(waiting["name"], self.cfg(waiting.get("channel")))  # the channel the sign-in was started for
         try:
             account = conn.finish(waiting["redirect"], query, waiting["kept"])
         except ConnectorError as exc:
