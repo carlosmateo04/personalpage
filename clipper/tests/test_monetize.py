@@ -116,6 +116,12 @@ def test_a_still_picture_is_told_from_a_moving_one(tmp_path):
     assert monetize.frozen(still, 0.0, 10.0) > 0.9
     assert monetize.frozen(moving, 0.0, 10.0) == 0.0
     assert monetize.frozen(tmp_path / "missing.mp4", 0.0, 10.0) is None
+    # A video with a keyframe every half second, as downloaded videos have every few seconds: only those are compared.
+    for name, picture, want in (("still-k.mp4", "color=c=navy:size=320x180:rate=10:duration=10", 1.0), ("moving-k.mp4", "testsrc2=size=320x180:rate=10:duration=10", 0.0)):
+        path = tmp_path / name
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", picture, "-c:v", "libx264", "-preset", "ultrafast", "-g", "5",
+                        "-pix_fmt", "yuv420p", str(path)], check=True)
+        assert len(monetize._keyframes(path, 0.0, 10.0)) >= 6 and monetize.frozen(path, 0.0, 10.0) == want
 
 
 # --- the check ----------------------------------------------------------------------------

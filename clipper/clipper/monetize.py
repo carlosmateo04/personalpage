@@ -142,8 +142,31 @@ def music(cfg: Config, src: Path, start: float, end: float) -> list[float] | Non
         return None
 
 
+def _keyframes(src: Path, start: float, end: float) -> list | None:
+    """The clip's keyframes as small grey pictures. Reading only those is quick even for a 4K video."""
+    try:
+        import numpy as np
+
+        got = subprocess.run(["ffmpeg", "-loglevel", "error", "-skip_frame", "nokey", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(src),
+                              "-an", "-vsync", "passthrough", "-vf", "scale=64:36,format=gray", "-f", "rawvideo", "-"], capture_output=True, timeout=300)
+    except (OSError, subprocess.SubprocessError, ImportError):
+        return None
+    if got.returncode != 0:
+        return None
+    count = len(got.stdout) // (64 * 36)
+    return [np.frombuffer(got.stdout, dtype=np.uint8, count=64 * 36, offset=n * 64 * 36).astype(np.int16) for n in range(count)]
+
+
 def frozen(src: Path, start: float, end: float) -> float | None:
-    """The share of a clip (0 to 1) during which the picture does not move. None when it could not be looked at."""
+    """The share of a clip (0 to 1) during which the picture does not move. None when it could not be looked at.
+
+    Where the clip has enough keyframes (every few seconds in most videos) they are compared with each
+    other; otherwise the whole clip is watched, which takes longer.
+    """
+    frames = _keyframes(src, start, end)
+    if frames is not None and len(frames) >= 6:
+        same = sum(1 for one, other in zip(frames, frames[1:]) if float(abs(one - other).mean()) < 1.0)
+        return round(same / (len(frames) - 1), 2)
     try:
         got = subprocess.run(["ffmpeg", "-hide_banner", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", str(src), "-an",
                               "-vf", "fps=5,scale=160:-2,freezedetect=n=0.002:d=2", "-f", "null", "-"],
