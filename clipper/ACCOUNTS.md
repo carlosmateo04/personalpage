@@ -19,6 +19,10 @@ read on 20 November 2026; they decide what "connected directly" can mean.
 You can mix: connect what works directly, and tick "through the posting
 service" for a platform where you prefer the service.
 
+The redirect addresses below carry the port the app runs on: 8765, unless
+something else on the computer already uses it, in which case the app takes
+the next free one. The Accounts tab always shows the exact address to register.
+
 ## Claude
 
 Claude picks the moments in each video and edits each clip. Two ways to reach it:

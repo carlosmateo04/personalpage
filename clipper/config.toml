@@ -248,10 +248,18 @@ timezone = "America/New_York"
 slots = ["11:30", "15:00", "19:00", "21:30"]   # one clip is posted in each slot, every day
 max_days_ahead = 3               # extra good clips fill the following days
 
+# Posting. The accounts are connected in the app under Accounts (see ACCOUNTS.md);
+# nothing about them is in this file. Each platform is reached directly through
+# its own service when its account is connected, otherwise through the posting
+# service (Upload-Post) when a key for that is saved.
 [publish]
-mode = "dry_run"                 # dry_run: nothing is posted. live: clips are scheduled through Upload-Post
-profile = ""                     # the Upload-Post profile your social accounts are connected to
+mode = "dry_run"                 # dry_run: a run posts nothing by itself. live: finished clips go into the outbox
 platforms = ["tiktok", "instagram", "youtube", "facebook"]
-facebook_page_id = ""
-tiktok_post_mode = "DIRECT_POST" # MEDIA_UPLOAD sends clips to your TikTok drafts instead
-hold_for_review = true           # finished clips wait in the app until you post them; false posts them by itself
+hold_for_review = true           # finished clips wait in the app until you post them; false queues them by itself
+youtube_privacy = "public"       # public, unlisted or private
+youtube_notify = true            # tell subscribers about each upload
+tiktok_direct = "draft"          # TikTok connected directly: "draft" (lands in your TikTok inbox to finish there) or "private"
+facebook_page_id = ""            # set by choosing the Page in the app
+prefer_service = []              # platforms to send through the posting service even when connected directly, e.g. ["tiktok"]
+profile = ""                     # the posting service's profile your accounts are connected to
+tiktok_post_mode = "DIRECT_POST" # through the posting service: MEDIA_UPLOAD sends clips to your TikTok drafts instead
