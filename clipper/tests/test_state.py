@@ -52,35 +52,36 @@ def test_when_both_change_the_same_clip_the_later_save_stands(tmp_path):
     one.clips["x"]["title"] = "one again"  # one changes it once more without having seen two's version
     one.save()
     assert Ledger(path).clips["x"]["title"] == "one again"
-    assert not path.with_suffix(".lock").exists() and not path.with_suffix(".tmp").exists()
+    assert not path.with_suffix(".tmp").exists()  # the small lock file stays; what counts is that nobody holds it
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == 1
 
 
-def test_a_lock_is_held_by_one_at_a_time_and_an_abandoned_one_is_taken_over(tmp_path):
+def test_a_lock_is_held_by_one_at_a_time_and_ends_with_the_process_that_holds_it(tmp_path):
     path = tmp_path / "state" / "deliver.lock"
     with Lock(path, wait=0) as held:
-        assert held and path.read_text().split()[0] == str(os.getpid())
+        assert held
         with Lock(path, wait=0.2) as second:
             assert second is False  # busy
-        assert path.exists()  # the second attempt left the first one's lock alone
-    assert not path.exists()
+        with Lock(path, wait=0) as third:
+            assert third is False  # and still held by the first
+    with Lock(path, wait=0) as held:
+        assert held  # free again once the first let go
 
-    # Left behind by a process that is gone: taken over at once.
-    gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True)
-    path.write_text(f"{gone.stdout.strip()} {time.time():.0f}")
-    with Lock(path, wait=0) as held:
-        assert held
-    # Held by a live process for longer than it could take: taken over too.
-    path.write_text(f"{os.getpid()} {time.time() - 500:.0f}")
-    with Lock(path, wait=0, stale=100) as held:
-        assert held
-    path.write_text(f"{os.getpid()} {time.time():.0f}")
-    with Lock(path, wait=0, stale=100) as held:
-        assert held is False
-    path.unlink()
-    path.write_text("garbage")
-    os.utime(path, (time.time() - 60, time.time() - 60))
-    with Lock(path, wait=0) as held:
+    # A process that dies while holding the lock leaves nothing to clean up: the lock goes with it.
+    root = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
+    holder = subprocess.Popen([sys.executable, "-c", (
+        "import sys, time; sys.path.insert(0, sys.argv[1])\n"
+        "from pathlib import Path\n"
+        "from clipper.state import Lock\n"
+        "lock = Lock(Path(sys.argv[2]), wait=0)\n"
+        "print(lock.__enter__(), flush=True)\n"
+        "time.sleep(60)\n"), root, str(path)], stdout=subprocess.PIPE, text=True)
+    assert holder.stdout.readline().strip() == "True"
+    with Lock(path, wait=0.2) as held:
+        assert held is False  # held by the other process
+    holder.kill()
+    holder.wait()
+    with Lock(path, wait=5) as held:
         assert held
 
 
@@ -100,3 +101,18 @@ def test_saves_from_many_processes_at_once_lose_nothing(tmp_path):
     workers = [subprocess.Popen([sys.executable, "-c", script, root, str(path), name]) for name in ("a", "b", "c", "d")]
     assert [w.wait(timeout=120) for w in workers] == [0, 0, 0, 0]
     assert len(Ledger(path).clips) == 60
+
+
+def test_saves_and_reads_from_many_processes_at_once(tmp_path):
+    """Writers saving while readers keep opening the file, as a run and the app do."""
+    path = tmp_path / "ledger.json"
+    Ledger(path).save()
+    root = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
+    writer = ("import sys; sys.path.insert(0, sys.argv[1])\nfrom pathlib import Path\nfrom clipper.state import Ledger\n"
+              "for n in range(40):\n    ledger = Ledger(Path(sys.argv[2]))\n    ledger.clips[f'{sys.argv[3]}-{n}'] = {'id': n}\n    ledger.save()\n")
+    reader = ("import sys; sys.path.insert(0, sys.argv[1])\nfrom pathlib import Path\nfrom clipper.state import Ledger\n"
+              "for n in range(400):\n    Ledger(Path(sys.argv[2]))\n")
+    workers = [subprocess.Popen([sys.executable, "-c", writer, root, str(path), name]) for name in ("a", "b", "c")]
+    workers += [subprocess.Popen([sys.executable, "-c", reader, root, str(path)]) for _ in range(3)]
+    assert [w.wait(timeout=180) for w in workers] == [0] * 6
+    assert len(Ledger(path).clips) == 120

@@ -25,84 +25,78 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        import ctypes
-
-        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not handle:
-            return False
-        ctypes.windll.kernel32.CloseHandle(handle)
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+def _retry(action, tries: int = 40, pause: float = 0.025):
+    """Run a file operation, trying again when another process has the file open for a moment (Windows refuses then)."""
+    for attempt in range(tries):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(pause)
 
 
 class Lock:
-    """A lock file that keeps two processes from doing the same thing at once.
+    """Keeps two processes from doing the same thing at once.
 
         with Lock(path, wait=0) as held:
             if held: ...
 
-    `wait` is how long to keep trying, in seconds. A lock whose owner is no longer
-    running, or that is older than `stale` seconds, is taken over.
+    It is a lock of the operating system on a small file, not the file's mere
+    existence: when the process holding it ends, however it ends, the lock is
+    gone with it, so nothing ever has to be "taken over". `wait` is how long to
+    keep trying, in seconds. The file itself stays where it is.
     """
 
-    def __init__(self, path: Path, wait: float = 10.0, stale: float = 60.0):
-        self.path, self.wait, self.stale = Path(path), wait, stale
-        self.held = False
+    def __init__(self, path: Path, wait: float = 10.0, stale: float = 0.0):
+        self.path, self.wait = Path(path), wait  # `stale` is accepted for older callers; an OS lock cannot go stale
+        self.fd: int | None = None
 
     def _take(self) -> bool:
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT)
         try:
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return False
-        with os.fdopen(fd, "w") as fh:
-            fh.write(f"{os.getpid()} {time.time():.0f}")
-        return True
+            if os.name == "nt":
+                import msvcrt
 
-    def _abandoned(self) -> bool:
-        try:
-            pid, _, since = self.path.read_text().partition(" ")
-            return not _alive(int(pid)) or time.time() - float(since) > self.stale
-        except (OSError, ValueError):
-            # Unreadable: being written right now, or damaged. Old enough means damaged.
-            try:
-                return time.time() - self.path.stat().st_mtime > min(self.stale, 5.0)
-            except OSError:
-                return False
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return False
+        self.fd = fd
+        return True
 
     def __enter__(self) -> bool:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         deadline = time.time() + self.wait
         while True:
             if self._take():
-                self.held = True
                 return True
-            if self._abandoned():
-                try:
-                    self.path.unlink()
-                except OSError:
-                    pass
-                continue
             if time.time() >= deadline:
                 return False
-            time.sleep(0.05)
+            time.sleep(0.02)
 
     def __exit__(self, *exc) -> None:
-        if self.held:
-            try:
-                self.path.unlink()
-            except OSError:
-                pass
-            self.held = False
+        if self.fd is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(self.fd, 0, os.SEEK_SET)
+                msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(self.fd)
+        self.fd = None
 
 
 class Ledger:
@@ -115,7 +109,7 @@ class Ledger:
     def _read(self) -> dict[str, Any]:
         if not self.path.exists():
             return {}
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        return json.loads(_retry(lambda: self.path.read_text(encoding="utf-8")))
 
     def _remember(self) -> None:
         """What each record looked like when it was last read or written, to tell later what was changed here."""
@@ -137,7 +131,7 @@ class Ledger:
         one in the ledger.
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with Lock(self.path.with_suffix(".lock"), wait=15.0, stale=30.0):
+        with Lock(self.path.with_suffix(".lock"), wait=30.0):
             disk = self._read()
             for kind in KINDS:
                 mine, theirs, base = self.data[kind], disk.get(kind, {}), self._base[kind]
@@ -159,7 +153,7 @@ class Ledger:
             self.data["runs"] = (self.data.get("runs", [])[:self._runs] + elsewhere + self.data.get("runs", [])[self._runs:])[-90:]
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.data, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
-            os.replace(tmp, self.path)
+            _retry(lambda: os.replace(tmp, self.path))  # a reader in another process can hold the file for an instant
             self._remember()
 
     def taken_slots(self) -> set[str]:
