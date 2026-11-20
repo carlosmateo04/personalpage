@@ -67,12 +67,17 @@ def extract_audio(src: Path, dst: Path, rate: int = 16000) -> Path:
 
 
 def contact_sheet(src: Path, start: float, end: float, out: Path, shots: int = 4) -> Path:
-    """One image with a few frames from a stretch of video, side by side, for a quick look."""
+    """One image with frames taken evenly across a stretch of video, in reading order, for a quick look.
+
+    Up to four frames sit side by side; more are laid out in rows of four.
+    """
     out.parent.mkdir(parents=True, exist_ok=True)
     span = max(end - start, 0.5)
+    cols = min(shots, 4)
+    rows = -(-shots // cols)
     run(
         ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{start:.2f}", "-t", f"{span:.2f}", "-i", str(src),
-         "-vf", f"fps={shots / span:.5f},scale=400:-2,tile={shots}x1", "-frames:v", "1", "-q:v", "5", str(out)],
+         "-vf", f"fps={shots / span:.5f},scale=400:-2,tile={cols}x{rows}", "-frames:v", "1", "-q:v", "5", str(out)],
         "contact sheet",
     )
     return out

@@ -193,3 +193,41 @@ def test_odd_shaped_footage_still_renders_square_pixels(cfg, ledger):
         cfg.render.layout = layout
         out = media.probe(render.render(cfg, video, 0.0, 6.0, ass, cfg.root / f"odd-{layout}.mp4"))
         assert (out.width, out.height, out.pixel_shape) == (1080, 1920, "1:1"), layout
+
+
+def test_reviewed_clip_is_made_with_the_reviews_title(cfg, ledger, footage, monkeypatch):
+    """plan -> review -> execute, with the review's answer supplied by the test."""
+    from clipper import review
+
+    cfg.publish.hold_for_review = True
+    result = pipeline.plan(cfg, ledger, NOW, lambda m: None)
+    monkeypatch.setattr(review, "ask", lambda cfg, clip: {
+        "keep": True, "reason": "Gameplay.", "section": "tricks", "title": "Fastest way across the bridge",
+        "hook": "Skip the traffic", "summary": "The player jumps the bridge gap."})
+    plan_path = cfg.path("out") / result["run"] / "plan.json"
+    assert review.apply(cfg, plan_path, lambda m: None) == {"kept": 1, "dropped": 0, "failed": 0}
+    summary = pipeline.execute(cfg, ledger, plan_path, NOW, lambda m: None)
+    assert summary["clips"] == 1 and summary["failed"] == 0
+    rec = ledger.clips[result["clips"][0]["id"]]
+    assert rec["status"] == "held" and rec["title"] == "Fastest way across the bridge" and rec["section"] == "tricks"
+    assert rec["review"]["keep"] and rec["meta"]["hook"] == "Skip the traffic" and rec["meta"]["badge"] == "TRICK"
+    kit = __import__("pathlib").Path(rec["file"]).with_suffix(".txt").read_text(encoding="utf-8")
+    assert "Fastest way across the bridge" in kit and "The player jumps the bridge gap." in kit
+    text = report.build(cfg, ledger, summary, NOW)
+    assert "## Automatic review" in text and "1 kept, 0 dropped" in text
+
+
+def test_clip_the_review_rejects_is_not_made(cfg, ledger, footage, monkeypatch):
+    from clipper import review
+
+    result = pipeline.plan(cfg, ledger, NOW, lambda m: None)
+    monkeypatch.setattr(review, "ask", lambda cfg, clip: {
+        "keep": False, "reason": "A loading screen fills most of the clip.", "section": "moments", "title": "", "hook": "", "summary": ""})
+    plan_path = cfg.path("out") / result["run"] / "plan.json"
+    assert review.apply(cfg, plan_path, lambda m: None) == {"kept": 0, "dropped": 1, "failed": 0}
+    summary = pipeline.execute(cfg, ledger, plan_path, NOW, lambda m: None)
+    assert summary["clips"] == 0 and summary["failed"] == 0 and not list(plan_path.parent.glob("*.mp4"))
+    rec = ledger.clips[result["clips"][0]["id"]]
+    assert rec["status"] == "dropped" and "file" not in rec and "loading screen" in rec["reason"]
+    text = report.build(cfg, ledger, summary, NOW)
+    assert "0 kept, 1 dropped" in text and "A loading screen fills most of the clip." in text

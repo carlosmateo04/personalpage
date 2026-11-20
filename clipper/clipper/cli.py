@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import config, media, pipeline, publish, report, sections, transcribe
+from . import config, media, pipeline, publish, report, review, sections, transcribe
 from .bootstrap import js_runtime
 from .captions import build as build_captions
 from .metadata import build as build_meta
@@ -37,6 +37,8 @@ def cmd_doctor(cfg, args) -> int:
         line(True, publish.publisher(cfg).check())
     except publish.PublishError as exc:
         line(False, str(exc))
+    why = review.unavailable(cfg)
+    print(f"     automatic review: {'off: ' + why if why else 'on, ' + cfg.review.model}")
     return 0 if ok else 1
 
 
@@ -83,10 +85,36 @@ def cmd_execute(cfg, args) -> int:
     return _finish(cfg, ledger, summary)
 
 
+def _review(cfg, plan_path: Path) -> None:
+    """The automatic review of a plan, when a Claude API key is there; otherwise the rule-based titles stay."""
+    why = review.unavailable(cfg)
+    if why:
+        print(f"automatic review skipped: {why}")
+        return
+    print(f"automatic review of the planned clips ({cfg.review.model})")
+    review.apply(cfg, plan_path)
+
+
+def cmd_review(cfg, args) -> int:
+    plan_path = Path(args.plan) if args.plan else pipeline.latest_plan(cfg)
+    if plan_path is None:
+        print("no plan.json found; run `plan` first", file=sys.stderr)
+        return 1
+    why = review.unavailable(cfg)
+    if why:
+        print(f"automatic review not possible: {why}", file=sys.stderr)
+        return 1
+    result = review.apply(cfg, plan_path)
+    return 1 if result["failed"] else 0
+
+
 def cmd_run(cfg, args) -> int:
     ledger = pipeline.ledger_of(cfg)
     result = pipeline.plan(cfg, ledger)
-    summary = pipeline.execute(cfg, ledger, cfg.path("out") / result["run"] / "plan.json")
+    plan_path = cfg.path("out") / result["run"] / "plan.json"
+    if result["clips"]:
+        _review(cfg, plan_path)
+    summary = pipeline.execute(cfg, ledger, plan_path)
     return _finish(cfg, ledger, summary)
 
 
@@ -140,7 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("execute", help="render and schedule the planned clips")
     p.add_argument("--plan")
     p.set_defaults(fn=cmd_execute)
-    sub.add_parser("run", help="plan + execute").set_defaults(fn=cmd_run)
+    p = sub.add_parser("review", help="have Claude check the planned clips and write their titles (needs a Claude API key)")
+    p.add_argument("--plan")
+    p.set_defaults(fn=cmd_review)
+    sub.add_parser("run", help="plan, review, execute").set_defaults(fn=cmd_run)
     p = sub.add_parser("approve", help="schedule clips held for review")
     p.add_argument("ids", nargs="*")
     p.add_argument("--voiceover", action="append", metavar="CLIP_ID=FILE")

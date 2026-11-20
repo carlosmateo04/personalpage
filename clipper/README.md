@@ -5,9 +5,12 @@ captions and schedules them on TikTok, Instagram Reels, YouTube Shorts and
 Facebook Reels, several times a day.
 
 ```
-footage -> transcript -> best moments -> quality checks -> titles + hashtags
-        -> vertical render with captions -> posting slots -> report
+footage -> transcript -> best moments -> quality checks -> automatic review
+        -> titles + hashtags -> vertical render with captions -> posting slots -> report
 ```
+
+The stages in order, the settings each one runs with, and how this compares
+with published clipping systems: `ARCHITECTURE.md`.
 
 ## The model
 
@@ -52,8 +55,35 @@ recommended or paid for.
 
 What gets left out is listed in the report under "Left out: not gameplay-only".
 The talk check cannot catch a commentator with no camera who never uses such
-words. `plan` writes a strip of four frames per clip (`out/<run>/<id>.jpg`) next
-to the transcript in `plan.json`, so a reviewer can catch those before `execute`.
+words; the automatic review below is there for those.
+
+## Automatic review
+
+`[review]` in `config.toml`; it runs between `plan` and `execute` when a Claude
+API key is saved (in the app under Accounts, or `ANTHROPIC_API_KEY`).
+
+For each planned clip, `plan` writes one image with frames taken evenly across
+it (`out/<run>/<id>.jpg`: eight frames for a clip of 40 s or more, four for a
+shorter one). The review sends that image, the clip's transcript and the source
+video's title to Claude, which answers in a fixed form:
+
+- **keep or drop**, with a reason. Dropped: a streamer seen or heard, story
+  cutscenes and spoilers, menus and loading screens, footage that is not the
+  game, slurs, gambling or political promotion, personal information.
+- **section**: findings, tricks, glitches or moments.
+- **title, on-screen headline and a one-line summary**, written from what the
+  frames and the transcript show.
+
+The clip is then rendered with that headline and its captions are rebuilt
+around that title, so nothing needs editing by hand. The verdicts are in
+`plan.json` (`review`), on each clip in the app and in the report under
+"Automatic review".
+
+Without a key the run carries on with rule-based titles (the video's own title,
+or a line spoken in the clip). If a request fails for one clip, that clip keeps
+its rule-based title; if the key is refused, the review stops and the run goes
+on. The model is `claude-opus-5-5` with the API's server-side fallback switched
+on; at a dozen clips a day the cost is tens of cents.
 
 ## The app
 
@@ -63,8 +93,9 @@ python3 -m clipper ui
 
 A page in your browser, served from this computer only: the finished clips with
 a player, editable titles and captions, post now or at the next free time, a
-"Make clips now" button with live progress, settings, and the connection to the
-posting service. On Windows the installer adds a desktop shortcut for it.
+"Make clips now" button with live progress, settings, the connection to the
+posting service and the key for the automatic review. On Windows the installer
+adds a desktop shortcut for it.
 
 Posting goes through Upload-Post: one key covers TikTok, Instagram, YouTube and
 Facebook. Direct connections to each platform are not built in, because uploads
@@ -104,8 +135,9 @@ The full daily run (reads `config.toml`, posts nothing while `publish.mode = "dr
 | `doctor` | Checks ffmpeg, the speech models, the font, the config and the posting service |
 | `clip VIDEO` | One-off: finished clips from a file into `out/manual/` |
 | `plan` | Collects footage, finds moments, writes `out/<run>/plan.json` |
+| `review` | Has Claude check the planned clips, drop the unsuitable ones and write the titles |
 | `execute` | Renders the planned clips and schedules them |
-| `run` | `plan` followed by `execute` |
+| `run` | `plan`, `review` (when a key is saved), `execute` |
 | `approve [IDS] [--voiceover ID=FILE]` | Schedules clips held for review, optionally mixing in a voiceover |
 | `status` | Pulls post links and view counts, rewrites the report |
 | `report` | Prints the report |
@@ -132,7 +164,9 @@ off: only if you point `"voiceover"` at a recording of your own is it mixed in.
 - **Quality checks** (`gates.py`): rejects clips that are too short, mostly
   silent, overlap a clip already made, repeat a moment from another video, or
   mention a banned term (gambling sponsors and political terms by default).
-- **Metadata** (`metadata.py`): the title is the punchiest sentence in the clip.
+- **Metadata** (`metadata.py`): without the automatic review, the title is the
+  video's own title or the punchiest sentence in the clip; with it, the title
+  the review wrote. The captions for each platform are built around it.
   When `campaign.paid = true` every caption starts with `#ad`, the video carries
   an on-screen paid label, and the platforms' own paid-content flag is set.
 - **Schedule** (`schedule.py`): one clip per slot in `schedule.slots`; extra good
@@ -183,7 +217,13 @@ python3 -m pytest -q tests
 The posting tests run against a local stand-in for the Upload-Post API. They pin
 down the requests this code sends; the stand-in's responses are assumptions.
 
+The review tests run against a local stand-in for the Claude API in the same
+way: they pin down what is sent and how each kind of answer is handled.
+
 ## Not yet verified against live services
+
+- The automatic review against the real Claude API: no key was available where
+  this was built, so no real clip has been judged or titled by it yet.
 
 - Uploading through a real Upload-Post account, and the exact shape of its
   status and analytics responses (links and views are extracted defensively).

@@ -35,7 +35,12 @@ In the app:
 - **Clips** shows each finished clip with a player. Edit its title and caption,
   then post it now, send it to the next free posting time, or drop it.
 - **Accounts** connects the posting service (one key covers TikTok, Instagram,
-  YouTube and Facebook) and switches the daily run on or off.
+  YouTube and Facebook), takes the Claude API key for the automatic review, and
+  switches the daily run on or off.
+- With a Claude API key saved, every new clip is checked before it is made:
+  clips that are not pure gameplay are dropped, and the title, headline and
+  description are written for you. Without one, Clipper writes simpler titles
+  by rule and you can edit them on each clip.
 - **Settings** holds clip length, posting times, searches and the rest. What
   you change there is kept in `clipper-run\data\settings.json` and survives
   updates.
@@ -89,11 +94,19 @@ python -m clipper status
 python -m clipper plan
 ```
 
-Review `out/<newest run>/plan.json` (see below), then:
+With a Claude API key saved, let it check the plan and write the titles:
+
+```bash
+python -m clipper review
+```
+
+(Without a key, review `out/<newest run>/plan.json` yourself; see below.) Then:
 
 ```bash
 python -m clipper execute
 ```
+
+`python -m clipper run` does all three in one go.
 
 While `publish.mode = "dry_run"` in `config.toml` nothing is posted. The finished
 clips are in `out/<run>/`: each `.mp4` has a `.txt` next to it with the title,
@@ -112,8 +125,11 @@ Claude desktop app, or `claude` in a terminal there) and say:
    date, and that the one-time setup above is done (`python -m clipper doctor`
    reports no FAIL line).
 2. Run `python -m clipper status`, then `python -m clipper plan`.
-3. Open the newest `clipper/out/<run>/plan.json`. For each planned clip read its
-   transcript (`text`) and look at its frame strip (the image at `sheet`), then:
+3. If `python -m clipper doctor` says the automatic review is on, run
+   `python -m clipper review` and go to step 4. Otherwise do the review
+   yourself: open the newest `clipper/out/<run>/plan.json`, and for each planned
+   clip read its transcript (`text`) and look at its frames (the image at
+   `sheet`), then:
    - **Gameplay only.** Set `"drop": true` if a streamer or commentator can be
      heard (someone reacting to or talking about the game from outside it,
      rather than characters in the game speaking) or seen (a webcam box, a chat

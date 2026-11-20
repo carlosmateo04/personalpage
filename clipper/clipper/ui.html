@@ -169,6 +169,24 @@
     </div>
     <div class="panel"><h2>Connected accounts</h2><p class="sub" id="a-status">Not connected yet.</p><div class="row" id="a-platforms"></div></div>
     <div class="panel">
+      <h2>Automatic review</h2>
+      <p class="sub">Before a clip is made, Claude looks at frames from it and reads what is said. It drops clips that are not pure gameplay (a streamer on screen or talking, cutscenes, menus), picks the section and writes the title, the headline and the description, so nothing has to be edited by hand. Without a key, Clipper writes the titles by its own simpler rules.</p>
+      <ol class="steps">
+        <li>Create an account at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> and add a few dollars of credit.</li>
+        <li>Create an API key there and paste it below.</li>
+      </ol>
+      <div class="form">
+        <div><label>Claude API key</label><input type="password" id="r-key" placeholder="Paste the key here" autocomplete="off"></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="btn-review-key">Save and test</button>
+        <button class="btn danger hide" id="btn-review-remove">Remove key</button>
+        <label class="check hide" id="r-enabled-wrap"><input type="checkbox" id="r-enabled"> Review clips automatically</label>
+      </div>
+      <p class="sub" id="r-status" style="margin-top:12px">Not set up yet.</p>
+      <p class="meta">For each clip, one image of its frames, its transcript and the source video's title are sent to Anthropic. The key is kept on this computer and is never shown again.</p>
+    </div>
+    <div class="panel">
       <h2>Daily run</h2><p class="sub">Make clips by itself every morning while this computer is on and you are signed in.</p>
       <div class="row">
         <input type="text" id="d-at" value="06:00" style="width:90px" title="Time of day, 24-hour">
@@ -266,6 +284,7 @@ function buildCard(c) {
     h("div", {class: "meta"}, "Footage: " + (c.creator || "unknown") + " · " + (c.permission || "no permission on file"),
       c.origin && c.origin.startsWith("http") ? [" · ", h("a", {href: c.origin, target: "_blank", rel: "noopener", text: "original"})] : null),
     links.length ? h("div", {class: "meta row"}, links) : null,
+    c.review ? h("div", {class: "meta", text: "Review: " + c.review}) : null,
     c.error ? h("div", {class: "meta", style: "color:var(--bad)", text: c.error}) : null,
     ready ? h("div", {class: "row"}, boxes) : null,
     ready ? h("div", {class: "row"},
@@ -338,6 +357,12 @@ function renderShell() {
     else if (p) $("a-platforms").append(h("span", {class: "meta", text: "Upload-Post did not list which accounts are connected to this profile. Check them on its website."}));
   }
   $("btn-disconnect").classList.toggle("hide", !acc.connected);
+  const rv = S.review;
+  $("r-status").textContent = !rv.has_key ? "Not set up yet. Titles are written by Clipper's own rules."
+    : rv.off ? `Key saved, but the review is off: ${rv.off}.` : `On. Every new clip is checked and titled by ${rv.model}.`;
+  $("btn-review-remove").classList.toggle("hide", !rv.has_key);
+  $("r-enabled-wrap").classList.toggle("hide", !rv.has_key);
+  if (document.activeElement !== $("r-enabled")) $("r-enabled").checked = rv.enabled;
   const wrap = $("a-profile-wrap"), sel = $("a-profile");
   wrap.classList.toggle("hide", acc.profiles.length < 2);
   if (acc.profiles.length >= 2 && document.activeElement !== sel) {
@@ -409,6 +434,12 @@ $("btn-connect").addEventListener("click", async () => {
 });
 $("a-profile").addEventListener("change", () => act("/api/connect", {api_key: "", profile: $("a-profile").value}, "Profile chosen"));
 $("btn-disconnect").addEventListener("click", () => { if (confirm("Remove the saved key from this computer?")) act("/api/disconnect", {}, "Disconnected"); });
+$("btn-review-key").addEventListener("click", async () => {
+  const r = await act("/api/review-key", {api_key: $("r-key").value}, "Key saved. New clips will be reviewed automatically.");
+  if (r) $("r-key").value = "";
+});
+$("btn-review-remove").addEventListener("click", () => { if (confirm("Remove the saved Claude key from this computer?")) act("/api/review-key-remove", {}, "Key removed"); });
+$("r-enabled").addEventListener("change", () => act("/api/settings", {review: {enabled: $("r-enabled").checked}}, $("r-enabled").checked ? "Automatic review on" : "Automatic review off"));
 $("btn-daily").addEventListener("click", () => act("/api/daily", {on: !S.daily.on, at: $("d-at").value.trim()}, S.daily.on ? "Daily run switched off" : "Daily run switched on"));
 
 refresh();

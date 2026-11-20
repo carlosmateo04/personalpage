@@ -32,6 +32,7 @@ EDITABLE: dict[str, set[str]] = {
     "publish": {"mode", "profile", "platforms", "tiktok_post_mode", "youtube_privacy", "hold_for_review", "facebook_page_id"},
     "filters": {"no_facecam", "no_commentary"},
     "housekeeping": {"keep_downloads_days", "keep_clips_days"},
+    "review": {"enabled"},
     "render": {"progress_bar", "layout"},
 }
 

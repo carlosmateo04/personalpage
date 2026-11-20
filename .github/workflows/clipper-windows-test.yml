@@ -117,8 +117,9 @@ jobs:
             $state.clips | Select-Object id, state, title, seconds, media | Format-Table
             if (@($state.clips).Count -lt 2) { throw 'the app does not list the clips' }
             $clip = $state.clips | Where-Object { $_.media } | Select-Object -First 1
-            $video = Invoke-WebRequest -Uri ('http://127.0.0.1:8765' + $clip.media) -Headers @{ Range = 'bytes=0-1023' } -UseBasicParsing
-            if ($video.StatusCode -ne 206) { throw 'the app does not serve the clip video' }
+            # curl.exe, because Windows PowerShell's Invoke-WebRequest refuses a Range header
+            $code = & curl.exe -s -o NUL -w '%{http_code}' -r 0-1023 ('http://127.0.0.1:8765' + $clip.media)
+            if ($code -ne '206') { throw "the app does not serve the clip video in ranges (answered $code)" }
             $denied = $false
             try { Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/state' -Headers @{ 'X-Clipper-Token' = 'wrong' } } catch { $denied = $true }
             if (-not $denied) { throw 'the app answered without the right token' }

@@ -130,6 +130,19 @@ def build(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime |
         lines += [f"- {_cell(src.get('name', ''))} ({_cell(src.get('creator') or '-')}): {_cell(src['reason'])}" for src in presented[:20]]
         lines.append("")
 
+    def recent_clip(c: dict) -> bool:
+        stamp = c.get("created")
+        return bool(stamp) and now - datetime.fromisoformat(stamp.replace("Z", "+00:00")) < timedelta(hours=24)
+
+    reviewed = [c for c in clips if c.get("review") and recent_clip(c)]
+    if reviewed:
+        cut = [c for c in reviewed if not c["review"].get("keep", True)]
+        lines += ["## Automatic review", "", f"{len(reviewed)} clip(s) checked by {reviewed[0]['review'].get('by', 'Claude')}: "
+                  f"{len(reviewed) - len(cut)} kept, {len(cut)} dropped.", ""]
+        if cut:
+            lines += [f"- Dropped, from {_cell(c.get('source_name', ''))} at {int(c.get('start', 0)) // 60}:{int(c.get('start', 0)) % 60:02d}: "
+                      f"{_cell(c['review'].get('reason', ''))}" for c in cut[:20]] + [""]
+
     failed = [c for c in clips if c.get("status") == "failed"]
     if failed:
         lines += ["## Failed clips", ""] + [f"- `{c['id']}` {_cell(c.get('title', ''))}: {_cell(c.get('error', ''))}" for c in failed] + [""]

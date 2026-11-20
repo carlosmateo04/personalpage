@@ -235,6 +235,16 @@ class Publish:
 
 
 @dataclass
+class Review:
+    """The automatic review: Claude looks at each planned clip, drops the unsuitable ones and writes the titles."""
+
+    enabled: bool = True  # only takes effect when a Claude API key is saved; without one the rule-based titles are used
+    model: str = "claude-opus-5-5"
+    effort: str = "low"  # low | medium | high: how long the model thinks about each clip
+    frames: int = 8  # frames per clip shown to the reviewer
+
+
+@dataclass
 class Gates:
     min_words: int = 12
     min_words_whole: int = 4  # for short clips that are used whole
@@ -263,6 +273,7 @@ class Config:
     seo: Seo = field(default_factory=Seo)
     schedule: Schedule = field(default_factory=Schedule)
     publish: Publish = field(default_factory=Publish)
+    review: Review = field(default_factory=Review)
     gates: Gates = field(default_factory=Gates)
     root: Path = ROOT
 
@@ -360,6 +371,10 @@ def validate(cfg: Config) -> None:
             raise ConfigError(f"sources: unknown type {s.type!r}")
         if s.type == "ytdlp" and not s.url:
             raise ConfigError("sources: a ytdlp source needs `url`")
+    if cfg.review.effort not in ("low", "medium", "high"):
+        raise ConfigError("review.effort must be low, medium or high")
+    if not 2 <= cfg.review.frames <= 12:
+        raise ConfigError("review.frames must be between 2 and 12")
     if not cfg.sections:
         raise ConfigError("at least one [[sections]] entry is needed")
     names = [sec.name for sec in cfg.sections]

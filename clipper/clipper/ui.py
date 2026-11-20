@@ -27,7 +27,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import config, pipeline, publish, settings
+from . import config, pipeline, publish, review, settings
 from .config import ROOT
 
 PAGE = Path(__file__).with_name("ui.html")
@@ -97,6 +97,7 @@ class App:
                 "when": datetime.fromisoformat(rec["slot"]).astimezone(tz).strftime("%a %d %b, %H:%M") if rec.get("slot") else "",
                 "media": media, "links": rec.get("links", {}), "views": rec.get("views", {}),
                 "sent_to": rec.get("publish", {}).get("platforms", []), "error": rec.get("error", ""),
+                "review": rec.get("review", {}).get("summary") or rec.get("review", {}).get("reason", ""),
             })
         latest = cfg.path("reports") / "latest.md"
         searches = [{"query": settings.search_text(s.url), "section": s.section or "moments"}
@@ -106,6 +107,8 @@ class App:
             "run": {"running": self.running(), "exit": self.exit_code, "log": list(self.log)[-200:],
                     "minutes": round((time.time() - self.started) / 60) if self.running() else 0},
             "accounts": self.accounts(cfg),
+            "review": {"enabled": cfg.review.enabled, "has_key": bool(review.api_key(cfg)), "model": cfg.review.model,
+                       "off": review.unavailable(cfg)},
             "daily": self.daily(),
             "report": latest.read_text(encoding="utf-8") if latest.exists() else "",
             "folder": str(out),
@@ -186,6 +189,20 @@ class App:
         settings.update(cfg.data_root, {"publish": {"mode": "dry_run", "hold_for_review": True}})
         self._accounts = None
 
+    def set_review_key(self, key: str) -> None:
+        """Save the Claude API key for the automatic review, after checking that it works."""
+        cfg = self.cfg()
+        key = key.strip()
+        if not key:
+            raise Problem("Paste the key first.")
+        if review.unavailable(cfg).startswith("the anthropic package"):
+            raise Problem("The automatic review is not installed yet. Run the installer again, then add the key.")
+        why = review.check_key(key, cfg.review.model)
+        if why:
+            raise Problem(why)
+        settings.set_secret(cfg.data_root, "anthropic_api_key", key)
+        settings.update(cfg.data_root, {"review": {"enabled": True}})
+
     def set_daily(self, on: bool, at: str = "06:00") -> None:
         script = ROOT.parent / "schedule.ps1"
         if os.name != "nt" or not script.exists():
@@ -222,6 +239,10 @@ class App:
                 return {"ok": True, "accounts": self.connect(body.get("api_key", ""), body.get("profile", ""))}
             elif name == "disconnect":
                 self.disconnect()
+            elif name == "review-key":
+                self.set_review_key(str(body.get("api_key", "")))
+            elif name == "review-key-remove":
+                settings.set_secret(cfg.data_root, "anthropic_api_key", "")
             elif name == "daily":
                 self.set_daily(bool(body.get("on")), str(body.get("at") or "06:00"))
             elif name == "open":

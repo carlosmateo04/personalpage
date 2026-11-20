@@ -34,15 +34,13 @@ if ($Daily) {
     & {
         "---- daily run started $(Get-Date -Format 'yyyy-MM-dd HH:mm') ----"
         Invoke-Clipper status
-        Invoke-Clipper plan
-        Invoke-Clipper execute
+        Invoke-Clipper run   # plan, automatic review (when a Claude key is saved), render
         Invoke-Clipper cleanup
         "---- daily run finished $(Get-Date -Format 'yyyy-MM-dd HH:mm') ----"
     } 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $log -Append -Encoding utf8
 } else {
     Invoke-Clipper status
-    Invoke-Clipper plan
-    Invoke-Clipper execute
+    Invoke-Clipper run
     $out = Join-Path $data 'out'
     if (Test-Path $out) { Start-Process explorer.exe $out }
 }

@@ -175,7 +175,8 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
             "slot": slot.isoformat(), "voiceover": "", "drop": False,
         }
         try:  # a strip of frames, so whoever reviews the plan can see what happens in the clip
-            clip["sheet"] = str(media.contact_sheet(item.path, cand.start, cand.end, run_dir / f"{clip_id}.jpg"))
+            shots = cfg.review.frames if cand.end - cand.start >= 40 else min(4, cfg.review.frames)
+            clip["sheet"] = str(media.contact_sheet(item.path, cand.start, cand.end, run_dir / f"{clip_id}.jpg", shots))
         except media.MediaError:
             clip["sheet"] = ""
         clips.append(clip)
@@ -255,8 +256,13 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
         if clip.get("section") != clip["meta"].get("section"):
             sec = cfg.section(clip.get("section", ""))
             clip["meta"].update(section=sec.name, badge=sec.label, badge_color=sec.color, playlist=sec.youtube_playlist_id)
+        if clip.get("review"):
+            rec["review"] = clip["review"]
         if clip.get("drop"):
             rec["status"] = "dropped"
+            if clip.get("review") and not clip["review"].get("keep", True):
+                rec["reason"] = clip["review"].get("reason", "")
+                log(f"  {rec['id']} not rendered: the review dropped it")
             ledger.save()
             continue
         try:

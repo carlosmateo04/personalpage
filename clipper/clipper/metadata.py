@@ -28,7 +28,8 @@ def _shorten(text: str, limit: int) -> str:
     return cut + "…"
 
 
-def _tidy(text: str, limit: int) -> str:
+def tidy(text: str, limit: int) -> str:
+    """A title as it should be shown: one line, no trailing punctuation, profanity masked, not too long."""
     text = re.sub(r"\s+", " ", text).strip().strip('"').strip()
     text = re.sub(r"[.,;:]+$", "", text)
     text = mask_profanity(text)
@@ -76,7 +77,7 @@ def best_quote(cfg: Config, cand: Candidate, section: Section | None = None, lim
         score += 1.0 if 4 <= n <= 11 else (-1.0 if n < 3 else -0.5 * max(0, n - 14) / 4)
         if score > best_score:
             best, best_score = text, score
-    return _tidy(_FILLER.sub("", best), limit)
+    return tidy(_FILLER.sub("", best), limit)
 
 
 def hashtags(cfg: Config, clip_id: str, count: int, section: Section | None = None) -> list[str]:
@@ -98,7 +99,7 @@ def build(cfg: Config, cand: Candidate, clip_id: str, creator: str, section: Sec
     """
     section = section or cfg.section("")
     game = cfg.brand.game
-    given = _tidy(clean_source_title(source_title, game), 60)
+    given = tidy(clean_source_title(source_title, game), 60)
     spoken = best_quote(cfg, cand, section)
     said = False  # whether the title is something a person in the clip says
     if whole and len(given.split()) >= 2:
@@ -114,6 +115,17 @@ def build(cfg: Config, cand: Candidate, clip_id: str, creator: str, section: Sec
         title = f"{quote} ({game})"
     else:
         title = quote
+    return compose(cfg, clip_id, creator, section, title, _shorten(quote, 48), origin)
+
+
+def compose(cfg: Config, clip_id: str, creator: str, section: Section, title: str, hook: str, origin: str = "",
+            summary: str = "") -> dict:
+    """The captions for every platform, built around a title that has already been decided.
+
+    `build` decides the title by rule; the automatic review calls this with the
+    title, headline and one-line summary it wrote after looking at the clip.
+    """
+    game = cfg.brand.game
     paid = cfg.campaign.paid
     tag = cfg.campaign.disclosure_tag if paid else ""
     credit = cfg.campaign.credit or (cfg.rights.credit_format.format(creator=creator) if creator else "")
@@ -132,6 +144,8 @@ def build(cfg: Config, cand: Candidate, clip_id: str, creator: str, section: Sec
         partner = f" with {cfg.campaign.name}" if cfg.campaign.name else ""
         yt_lines.append(f"Paid partnership{partner}. {cfg.campaign.disclosure_tag}")
     yt_lines.append(title)
+    if summary:
+        yt_lines.append(summary)
     if credit:
         yt_lines.append(f"{credit}. Original: {origin}" if origin.startswith("http") else credit)
     if cfg.seo.fan_channel_note:
@@ -139,7 +153,8 @@ def build(cfg: Config, cand: Candidate, clip_id: str, creator: str, section: Sec
     yt_lines.append(" ".join(hashtags(cfg, clip_id, 4, section)))
     return {
         "title": title,
-        "hook": _shorten(quote, 48),
+        "hook": hook,
+        "summary": summary,
         "label": f"{cfg.campaign.disclosure_label} · {cfg.campaign.disclosure_tag}" if paid else "",
         "section": section.name,
         "badge": section.label,

@@ -170,6 +170,16 @@ no_facecam = true                # leave out footage with a streamer's webcam on
 no_commentary = true             # leave out footage where someone talks about the game over it
 require_speech = false           # clips may have no speech at all
 
+# The automatic review. It only runs when a Claude API key is saved in the app
+# (Accounts) or given as ANTHROPIC_API_KEY; the key itself never goes in this file.
+# For each planned clip, Claude sees frames from it and its transcript, drops it if
+# it is not pure gameplay, picks the section and writes the title and headline.
+[review]
+enabled = true
+model = "claude-opus-5-5"
+effort = "low"                   # low, medium or high: how long it thinks about each clip
+frames = 8                       # frames shown per clip
+
 [rights]
 block_channels = ["Rockstar Games", "Take-Two Interactive"]   # never taken from
 credit_format = "Credit: {creator}"                           # on the clip and in every caption
