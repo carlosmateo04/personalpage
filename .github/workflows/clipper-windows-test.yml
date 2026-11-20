@@ -72,6 +72,21 @@ jobs:
           $clips = @(Get-ChildItem -Recurse (Join-Path $env:CLIPPER_DATA 'out') -Filter *.mp4)
           if ($clips.Count -lt 1) { throw 'no clip was made' }
 
+      - name: System check of the parts that need no outside service
+        shell: powershell
+        run: |
+          $root = $env:CLIPPER_DIR
+          $py = Join-Path $root 'venv\Scripts\python.exe'
+          $tools = Join-Path $root 'tools'
+          $dirs = Get-ChildItem -Path $tools -Recurse -Include uv.exe, deno.exe, ffmpeg.exe | ForEach-Object { $_.DirectoryName } | Select-Object -Unique
+          $env:PATH = ($dirs -join ';') + ';' + $env:PATH
+          $env:CLIPPER_MODELS = Join-Path $root 'models'
+          $env:CLIPPER_DATA = Join-Path $root 'data'
+          Set-Location (Join-Path $root 'app')
+          # Finding and downloading videos are left out: this test never touches a real video site.
+          & $py -m clipper --config (Join-Path $root 'test-config.toml') check tools clip review posting
+          if ($LASTEXITCODE -ne 0) { throw 'the system check found a problem' }
+
       - name: Daily run script and the schedule switch
         shell: powershell
         run: |

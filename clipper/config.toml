@@ -28,6 +28,7 @@ color = "#FFE600"
 cues = ["easter egg", "secret", "hidden", "i found", "we found", "found a", "discovered", "did you know", "detail",
         "nobody noticed", "reference", "never seen", "mystery", "bigfoot", "ufo", "alien", "ghost"]
 hashtags = ["#gta6secrets", "#gta6eastereggs"]
+keyword = "Secret"               # what people search for; captions read "<title> | GTA 6 Secret"
 youtube_playlist_id = ""         # optional: a playlist on your channel for this section
 
 [[sections]]
@@ -37,6 +38,7 @@ color = "#00E0FF"
 cues = ["how to", "trick", "tip", "pro tip", "fastest way", "easy way", "easiest way", "unlock", "cheat", "shortcut",
         "all you have to do", "you just need", "money fast", "best way"]
 hashtags = ["#gta6tips", "#gta6tricks"]
+keyword = "Tips"
 youtube_playlist_id = ""
 
 [[sections]]
@@ -46,6 +48,7 @@ color = "#7CFF4F"
 cues = ["glitch", "glitched", "bug", "bugged", "broken", "clipped through", "fell through", "under the map",
         "out of bounds", "launched", "physics"]
 hashtags = ["#gta6glitch", "#gta6bugs"]
+keyword = "Glitch"
 youtube_playlist_id = ""
 
 [[sections]]
@@ -54,6 +57,7 @@ label = "HIGHLIGHT"
 color = "#FF2E93"
 cues = []
 hashtags = ["#gta6highlights", "#gta6moments"]
+keyword = "Gameplay"
 youtube_playlist_id = ""
 
 # ---------------------------------------------------------------------------

@@ -234,3 +234,55 @@ def test_long_downloads_report_progress_and_give_up_cleanly(monkeypatch, tmp_pat
     monkeypatch.setattr(intake.subprocess, "Popen", lambda cmd, **kw: real_popen(quick, **{k: v for k, v in kw.items() if k != "env"}))
     got = intake._yt(["ignored"])
     assert (got.returncode, got.stdout.strip(), got.stderr.strip()) == (3, "hello", "oops")
+
+
+def test_single_video_page_is_asked_about_by_its_page_not_its_media_file(cfg, ledger, tmp_path, monkeypatch):
+    """A page holding one video lists itself with `url` set to the media file; the page knows the length and the uploader."""
+    import json as j
+    import subprocess as sp
+
+    calls = []
+
+    def fake(args, timeout=0, tick=None):
+        calls.append(args)
+        page = {"_type": "video", "id": "v1", "title": "Tank against a six-star chase", "duration": 571.7, "creator": "GameV",
+                "url": "https://cdn.example/files/v1.webm", "webpage_url": "https://site/details/v1"}
+        if "--flat-playlist" in args or "--skip-download" in args:
+            return sp.CompletedProcess(args, 0, j.dumps(page), "")
+        out = tmp_path / "v1.mp4"
+        out.write_bytes(b"video")
+        return sp.CompletedProcess(args, 0, f"{out}\n", "")
+
+    monkeypatch.setattr(intake, "_yt", fake)
+    monkeypatch.setattr(intake, "PAUSE", 0)
+    cfg.sources = [config.Source(type="ytdlp", url="https://site/details/v1", max_hours=0.5)]
+    items = intake.collect(cfg, ledger, lambda m: None)
+    assert [(i.creator, i.origin, i.title) for i in items] == [("GameV", "https://site/details/v1", "Tank against a six-star chase")]
+    asked, fetched = calls[1], calls[2]
+    assert asked[-1] == "https://site/details/v1" and fetched[-1] == "https://site/details/v1"
+    assert "--download-sections" not in fetched  # 9.5 minutes is under the half-hour limit: taken whole
+
+
+def test_video_of_unknown_length_is_taken_whole_when_its_start_cannot_be_cut_out(cfg, ledger, tmp_path, monkeypatch):
+    import json as j
+    import subprocess as sp
+
+    fetches, logs = [], []
+
+    def fake(args, timeout=0, tick=None):
+        if "--flat-playlist" in args or "--skip-download" in args:
+            return sp.CompletedProcess(args, 0, j.dumps({"_type": "video", "id": "f1", "title": "raw file", "webpage_url": "https://site/f1.webm"}), "")
+        fetches.append(args)
+        if "--download-sections" in args:
+            return sp.CompletedProcess(args, 1, "", "ERROR: ffmpeg exited with code 251")
+        out = tmp_path / "f1.mp4"
+        out.write_bytes(b"video")
+        return sp.CompletedProcess(args, 0, f"{out}\n", "")
+
+    monkeypatch.setattr(intake, "_yt", fake)
+    monkeypatch.setattr(intake, "PAUSE", 0)
+    cfg.sources = [config.Source(type="ytdlp", url="https://site/f1.webm")]
+    items = intake.collect(cfg, ledger, logs.append)
+    assert len(items) == 1 and len(fetches) == 2
+    assert fetches[1][fetches[1].index("--max-filesize") + 1] == "3G" and "--download-sections" not in fetches[1]
+    assert any("fetching the whole video" in line for line in logs)

@@ -42,6 +42,7 @@ When you keep a clip:
 - title: what happens in the clip, in plain words, at most 60 characters. No clickbait, no all-caps, no emoji, no hashtags. Do not name the game in it.
 - hook: the same idea as a short headline shown on the video for the first seconds, at most 40 characters.
 - summary: one sentence saying what the viewer sees.
+- tags: three to five short phrases a viewer would type into search to find this exact clip, in lower case, each starting with "gta 6" (for example "gta 6 police chase", "gta 6 tank"). Only things that are in the clip.
 
 Describe only what the frames and the transcript show. If you cannot tell what happens, say so in the reason and reject the clip rather than guess. Always give a short reason for your decision."""
 
@@ -54,8 +55,9 @@ SCHEMA = {
         "title": {"type": "string"},
         "hook": {"type": "string"},
         "summary": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["keep", "reason", "section", "title", "hook", "summary"],
+    "required": ["keep", "reason", "section", "title", "hook", "summary", "tags"],
     "additionalProperties": False,
 }
 
@@ -193,7 +195,8 @@ def apply(cfg: Config, plan_path: Path, log: Log = print) -> dict:
         hook = metadata.tidy(str(verdict.get("hook", "")), 48) or title[:48]
         clip["section"] = section.name
         clip["meta"] = metadata.compose(cfg, clip["id"], clip.get("creator", ""), section, title, hook, clip.get("origin", ""),
-                                        summary=str(verdict.get("summary", "")).strip()[:300])
+                                        summary=str(verdict.get("summary", "")).strip()[:300],
+                                        tags=verdict.get("tags") if isinstance(verdict.get("tags"), list) else None)
         clip["review"]["summary"] = clip["meta"].get("summary", "")
         kept += 1
         log(f"  {clip['id']} kept [{section.name}]: {title}")

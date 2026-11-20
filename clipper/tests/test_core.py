@@ -205,3 +205,36 @@ def test_cleanup_deletes_only_old_files_in_its_own_folders(cfg):
     assert not (out / "20261001-000000").exists()  # the emptied run folder goes too
     assert new_video.exists() and new_clip.exists() and other.exists() and outbox.exists() and inbox.exists()
     assert result["files"] == 4 and result["bytes"] == 1000 + 10 + 10 + 10
+
+
+def test_search_check_passes_a_good_clip_and_names_what_is_wrong_with_a_bad_one(cfg):
+    from clipper import metadata
+
+    section = cfg.section("tricks")
+    good = metadata.compose(cfg, "c1", "RawPlay", section, "Fastest way across the bridge", "Skip the traffic", "https://example.com/v",
+                            summary="The player jumps the gap.", tags=["gta 6 bridge jump"])
+    assert metadata.proof(cfg, good) == []
+    assert good["youtube"]["title"] == "Fastest way across the bridge | GTA 6 Tips #shorts"
+    assert all("#gta6" in good[p]["title"].split() for p in ("tiktok", "instagram", "facebook"))  # the main tag is on every clip
+
+    assert metadata.proof(cfg, metadata.compose(cfg, "c2", "", cfg.section("moments"), "GTA 6 Highlight", "GTA 6 Highlight")) == [
+        "the title only names the game and the section; it does not say what happens"]
+
+    bad = metadata.compose(cfg, "c3", "RawPlay", section, "INSANE UNBELIEVABLE CASINO MONEY TRICK YOU HAVE TO SEE", "x")
+    bad["tiktok"]["title"] = "look at this #one #one"
+    bad["youtube"]["title"] = "Money trick"
+    bad["youtube"]["tags"] = ["money"]
+    problems = metadata.proof(cfg, bad)
+    for expected in ("the title is mostly capital letters", "the YouTube title does not name GTA 6", "the YouTube title does not end in #shorts",
+                     "YouTube needs at least 3 tags, one of them naming GTA 6", "the TikTok caption needs 3 to 10 hashtags",
+                     "the TikTok caption repeats a hashtag", "the TikTok caption does not name GTA 6",
+                     "the TikTok caption does not credit the source", "the text uses a banned term: casino"):
+        assert expected in problems, expected
+
+
+def test_youtube_tags_stay_under_the_limit(cfg):
+    from clipper import metadata
+
+    cfg.seo.youtube_tags = [f"gta 6 tag number {n} with some extra words" for n in range(40)]
+    meta = metadata.compose(cfg, "c1", "RawPlay", cfg.section("moments"), "Tank against a six-star chase", "Tank time")
+    assert 300 < sum(len(t) + 1 for t in meta["youtube"]["tags"]) <= 500 and metadata.proof(cfg, meta) == []

@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import config, media, pipeline, publish, report, review, sections, transcribe
+from . import check, config, media, pipeline, publish, report, review, sections, transcribe
 from .bootstrap import js_runtime
 from .captions import build as build_captions
 from .metadata import build as build_meta
@@ -40,6 +40,22 @@ def cmd_doctor(cfg, args) -> int:
     why = review.unavailable(cfg)
     print(f"     automatic review: {'off: ' + why if why else 'on, ' + cfg.review.model}")
     return 0 if ok else 1
+
+
+def cmd_check(cfg, args) -> int:
+    """Try each part of the system on this computer and say which work."""
+    marks = {"ok": "ok     ", "problem": "PROBLEM", "skipped": "skipped"}
+
+    def show(result: dict) -> None:
+        if args.json:  # one line per event, for the app
+            print(json.dumps(result, ensure_ascii=False), flush=True)
+        elif result["status"] != "running":
+            print(f"{marks[result['status']]}  {result['name']}: {result['detail']}", flush=True)
+
+    results = check.run(cfg, show, args.only or None)
+    if not args.json:
+        print(f"\n{check.summary(results)}")
+    return 1 if any(r["status"] == "problem" for r in results) else 0
 
 
 def cmd_clip(cfg, args) -> int:
@@ -157,6 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("setup", help="install what is needed and download the speech model (handled before this parser)")
     sub.add_parser("doctor", help="check that everything needed is in place").set_defaults(fn=cmd_doctor)
+    p = sub.add_parser("check", help="try each part on this computer: finding videos, downloading, cutting, the review, posting")
+    p.add_argument("only", nargs="*", choices=[key for key, _ in check.PARTS], help="check only these parts")
+    p.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(fn=cmd_check)
     p = sub.add_parser("clip", help="make clips from one video file (no posting)")
     p.add_argument("video")
     p.add_argument("--count", type=int, default=5)

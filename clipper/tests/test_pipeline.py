@@ -231,3 +231,33 @@ def test_clip_the_review_rejects_is_not_made(cfg, ledger, footage, monkeypatch):
     assert rec["status"] == "dropped" and "file" not in rec and "loading screen" in rec["reason"]
     text = report.build(cfg, ledger, summary, NOW)
     assert "0 kept, 1 dropped" in text and "A loading screen fills most of the clip." in text
+
+
+def test_clip_whose_text_fails_the_search_check_is_made_but_not_posted_by_itself(cfg, ledger, footage, monkeypatch):
+    from clipper import metadata
+
+    cfg.publish.hold_for_review = False  # automatic posting
+    monkeypatch.setattr(metadata, "proof", lambda cfg, meta: ["the title was cut short"])
+    result = pipeline.plan(cfg, ledger, NOW, lambda m: None)
+    summary = pipeline.execute(cfg, ledger, cfg.path("out") / result["run"] / "plan.json", NOW, lambda m: None)
+    assert summary["clips"] == 1 and summary["failed"] == 0
+    rec = next(iter(ledger.clips.values()))
+    assert rec["status"] == "held" and rec["seo"] == ["the title was cut short"] and "publish" not in rec
+    assert not (cfg.path("out") / "outbox.json").exists()  # nothing was handed to the publisher
+    text = report.build(cfg, ledger, summary, NOW)
+    assert "## Text that needs a look" in text and "the title was cut short" in text
+
+
+def test_second_clip_with_the_same_title_is_flagged(cfg, ledger, footage):
+    """Without the review, clips cut from one video can end up with one title; the second is held back from automatic posting."""
+    cfg.publish.hold_for_review = False
+    result = pipeline.plan(cfg, ledger, NOW, lambda m: None)
+    plan_path = cfg.path("out") / result["run"] / "plan.json"
+    title = result["clips"][0]["meta"]["title"]
+    ledger.clips["earlier"] = {"id": "earlier", "status": "scheduled", "title": title.upper(), "slot": "2026-11-17T16:30:00+00:00",
+                               "created": "2026-11-17T12:00:00Z", "source_id": "other"}
+    summary = pipeline.execute(cfg, ledger, plan_path, NOW, lambda m: None)
+    rec = ledger.clips[result["clips"][0]["id"]]
+    assert summary["clips"] == 1 and rec["status"] == "held" and rec["seo"] == ["another clip already has this title"]
+    ledger.clips["earlier"]["status"] = "dropped"  # a dropped clip's title is free again
+    assert pipeline.update_clip(cfg, ledger, rec["id"], {"title": title})["seo"] == []

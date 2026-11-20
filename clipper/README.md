@@ -73,6 +73,8 @@ video's title to Claude, which answers in a fixed form:
 - **section**: findings, tricks, glitches or moments.
 - **title, on-screen headline and a one-line summary**, written from what the
   frames and the transcript show.
+- **search tags**: three to five phrases a viewer would type to find the clip.
+  They lead the YouTube tags.
 
 The clip is then rendered with that headline and its captions are rebuilt
 around that title, so nothing needs editing by hand. The verdicts are in
@@ -84,6 +86,46 @@ or a line spoken in the clip). If a request fails for one clip, that clip keeps
 its rule-based title; if the key is refused, the review stops and the run goes
 on. The model is `claude-opus-5-5` with the API's server-side fallback switched
 on; at a dozen clips a day the cost is tens of cents.
+
+## Search check
+
+Every caption names the game and what people search for in that section
+(`keyword` in `[[sections]]`): "Police car launches off the pier | GTA 6 Glitch".
+The game's main hashtag (the first in `seo.hashtags`) is on every clip, followed
+by the section's and a rotating pick from the rest.
+
+Before a clip can be posted, `metadata.proof` checks its text: the title says
+what happens, is not cut short, shouted or over 70 characters; the YouTube title
+names the game, ends in #shorts and fits in 100 characters; the description
+credits the source and carries 1 to 15 hashtags; there are at least three tags
+within YouTube's 500 characters; each caption names the game, credits the
+source, has 3 to 10 hashtags (30 on Instagram) without repeats, and uses no
+banned term. A title that a finished clip already carries is flagged too:
+without the automatic review, clips cut from one video can end up with the
+same title. The result is on each clip in the app. With automatic posting on,
+a clip that fails is made but held for a look instead of posted. Editing a
+clip's text in the app runs the check again.
+
+## System check
+
+```bash
+python3 -m clipper check
+```
+
+or "Check everything" on the Activity tab of the app. It tries each part on the
+computer it runs on, for real, and says part by part whether it works:
+
+| Part | What is tried |
+|---|---|
+| Tools on this computer | ffmpeg, the JavaScript runtime, the caption font, the speech model |
+| Finding videos | The first online source is asked what it lists; the title, views and length rules are applied |
+| Downloading a video | The first 15 seconds of one listed video are downloaded |
+| Cutting, captions and rendering | A short test video is transcribed, captioned and rendered as a vertical clip |
+| Automatic review | One real request to Claude must come back in the expected form (needs the key; a cent or two) |
+| Posting connection | The posting service accepts the key and the chosen profile has every account connected |
+
+Nothing is posted and nothing is added to the ledger. A part with no key yet is
+reported as not set up rather than as a failure.
 
 ## The app
 
@@ -133,6 +175,7 @@ The full daily run (reads `config.toml`, posts nothing while `publish.mode = "dr
 | Command | What it does |
 |---|---|
 | `doctor` | Checks ffmpeg, the speech models, the font, the config and the posting service |
+| `check` | Tries each part for real: finding videos, downloading, cutting, the review, the posting connection |
 | `clip VIDEO` | One-off: finished clips from a file into `out/manual/` |
 | `plan` | Collects footage, finds moments, writes `out/<run>/plan.json` |
 | `review` | Has Claude check the planned clips, drop the unsuitable ones and write the titles |
@@ -220,6 +263,15 @@ down the requests this code sends; the stand-in's responses are assumptions.
 The review tests run against a local stand-in for the Claude API in the same
 way: they pin down what is sent and how each kind of answer is handled.
 
+`tests/test_system.py` runs the whole system as one. It presses "Make clips now"
+on the running app, which starts a real run: the downloader fetches a generated
+five-minute video from a local web server, the speech model transcribes it, two
+clips of about 1:30 are found, reviewed, rendered and saved with their text; the
+app then schedules them and the test reads the upload requests. A second test
+does the same with automatic posting on, in one command. The video site, the
+Claude API and the posting service are local stand-ins; everything else is the
+real code path.
+
 ## Not yet verified against live services
 
 - The automatic review against the real Claude API: no key was available where
@@ -228,7 +280,8 @@ way: they pin down what is sent and how each kind of answer is handled.
 - Uploading through a real Upload-Post account, and the exact shape of its
   status and analytics responses (links and views are extracted defensively).
 - Downloading from YouTube: refused by its bot check from the cloud machine
-  this was built on, so no gameplay-only video has gone through end to end.
+  this was built on (finding videos there works). `python3 -m clipper check` on
+  a home connection tries both.
 - The facecam check was run on seven real streamer clips (all caught) and on the
   same clips with the webcam cropped out (all passed). It has not been run on
   no-commentary walkthrough footage.

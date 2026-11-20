@@ -41,6 +41,11 @@ In the app:
   clips that are not pure gameplay are dropped, and the title, headline and
   description are written for you. Without one, Clipper writes simpler titles
   by rule and you can edit them on each clip.
+- **Activity** shows the current run and the last report, and has **Check
+  everything**: it tries each part on this computer (finding videos,
+  downloading, cutting and captions, the automatic review, the posting
+  connection) and shows which work. Use it after installing and after adding a
+  key.
 - **Settings** holds clip length, posting times, searches and the rest. What
   you change there is kept in `clipper-run\data\settings.json` and survives
   updates.

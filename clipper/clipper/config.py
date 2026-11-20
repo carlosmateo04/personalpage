@@ -57,6 +57,7 @@ class Section:
     cues: list[str] = field(default_factory=list)  # words and phrases that mark this kind of clip
     hashtags: list[str] = field(default_factory=list)
     youtube_playlist_id: str = ""
+    keyword: str = ""  # what people search for, put after the game's name in titles and captions ("GTA 6 Glitch")
 
 
 def default_sections() -> list[Section]:
@@ -64,16 +65,16 @@ def default_sections() -> list[Section]:
         Section("findings", "NEW FINDING", "#FFE600",
                 ["easter egg", "secret", "hidden", "i found", "we found", "found a", "discovered", "did you know", "detail",
                  "nobody noticed", "reference", "never seen", "mystery", "bigfoot", "ufo", "alien", "ghost"],
-                ["#gta6secrets", "#gta6eastereggs"]),
+                ["#gta6secrets", "#gta6eastereggs"], keyword="Secret"),
         Section("tricks", "TRICK", "#00E0FF",
                 ["how to", "trick", "tip", "pro tip", "fastest way", "easy way", "easiest way", "unlock", "cheat", "shortcut",
                  "all you have to do", "you just need", "money fast", "best way"],
-                ["#gta6tips", "#gta6tricks"]),
+                ["#gta6tips", "#gta6tricks"], keyword="Tips"),
         Section("glitches", "GLITCH", "#7CFF4F",
                 ["glitch", "glitched", "bug", "bugged", "broken", "clipped through", "fell through", "under the map",
                  "out of bounds", "launched", "physics"],
-                ["#gta6glitch", "#gta6bugs"]),
-        Section("moments", "HIGHLIGHT", "#FF2E93", [], ["#gta6highlights", "#gta6moments"]),
+                ["#gta6glitch", "#gta6bugs"], keyword="Glitch"),
+        Section("moments", "HIGHLIGHT", "#FF2E93", [], ["#gta6highlights", "#gta6moments"], keyword="Gameplay"),
     ]
 
 

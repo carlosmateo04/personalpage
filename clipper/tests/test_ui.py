@@ -93,10 +93,10 @@ def test_editing_a_clips_text(app):
     status, _, _ = call(app, "/api/clip", {"id": "c1", "title": "Car sinks into the road", "caption": "Look at this #gta6", "description": "New description"})
     assert status == 200
     rec = Ledger(app.data / "state" / "ledger.json").clips["c1"]
-    assert rec["meta"]["title"] == "Car sinks into the road" and rec["meta"]["youtube"]["title"] == "Car sinks into the road #shorts"
+    assert rec["meta"]["title"] == "Car sinks into the road" and rec["meta"]["youtube"]["title"] == "Car sinks into the road | GTA 6 Glitch #shorts"
     assert {rec["meta"][p]["title"] for p in ("tiktok", "instagram", "facebook")} == {"Look at this #gta6"}
     kit = (app.data / "out" / "20261120-000000" / "c1.txt").read_text(encoding="utf-8")
-    assert "Title: Car sinks into the road #shorts" in kit and "Look at this #gta6" in kit and "New description" in kit
+    assert "Title: Car sinks into the road | GTA 6 Glitch #shorts" in kit and "Look at this #gta6" in kit and "New description" in kit
     assert call(app, "/api/clip", {"id": "missing", "title": "x"})[0] == 400
 
 

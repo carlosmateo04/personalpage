@@ -32,6 +32,7 @@ BOT_CHECK = ("confirm you", "not a bot", "captcha", "429", "too many requests")
 PAUSE = 1.0  # seconds between requests to a site
 HEARTBEAT = 60.0  # seconds between "still downloading" lines
 FETCH_LIMIT = 3600  # seconds one download may take
+UNKNOWN_LENGTH_LIMIT = "3G"  # a video whose length the site does not state is fetched whole up to this size
 
 
 @dataclass
@@ -178,6 +179,17 @@ def listing(src: Source) -> tuple[list[dict], str]:
     return entries, got.stderr.strip()[-300:]
 
 
+def wanted(src: Source, entry: dict) -> bool:
+    """Whether a listed video passes the source's title, views and length rules."""
+    low = str(entry.get("title") or "").lower()
+    if (src.title_any and not any(t.lower() in low for t in src.title_any)) or any(t.lower() in low for t in src.title_none):
+        return False
+    views, minutes = entry.get("view_count"), (entry.get("duration") or 0) / 60
+    if views is not None and views < src.min_views:
+        return False
+    return not (minutes and (minutes < src.min_minutes or (src.max_minutes and minutes > src.max_minutes)))
+
+
 def _refused(err: str) -> bool:
     return any(marker in err.lower() for marker in BOT_CHECK)
 
@@ -187,10 +199,12 @@ def details(url: str) -> tuple[dict, str]:
     return _json(got.stdout), got.stderr.strip()
 
 
-def fetch_args(src: Source, url: str, dest_dir: Path, duration: float = 0.0) -> list[str]:
+def fetch_args(src: Source, url: str, dest_dir: Path, duration: float = 0.0, whole: bool = False) -> list[str]:
     args = ["--no-progress", "--no-playlist", "-f", "bv*[height<=1080]+ba/b[height<=1080]/b", "--merge-output-format", "mp4"]
     limit = int(src.max_hours * 3600)
-    if not duration or duration > limit:
+    if whole:
+        args += ["--max-filesize", UNKNOWN_LENGTH_LIMIT]  # length unknown: take it whole, unless it is huge
+    elif not duration or duration > limit:
         args += ["--download-sections", f"*0-{limit}"]  # only the first hours of a long video
     else:
         args += ["--concurrent-fragments", "4"]  # a whole video downloads faster in parallel pieces
@@ -218,19 +232,16 @@ def _ytdlp(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
             log(f"{src.url}: two fetches in a row failed; leaving this source for now")
             break
         sid = "y" + text_id(str(entry["id"]))
-        url = entry.get("url") or entry.get("webpage_url") or src.url
+        # A single video's page lists itself, with `url` pointing at the media file. Its page is
+        # the address to ask about: that is where the length and the uploader are known.
+        url = entry.get("webpage_url") or entry.get("url") or src.url
         title = entry.get("title") or str(entry["id"])
         if _seen(ledger, sid):
             continue
-        low = title.lower()
         # Filters that cost nothing to apply are not recorded: another source may want the same video.
-        if (src.title_any and not any(t.lower() in low for t in src.title_any)) or any(t.lower() in low for t in src.title_none):
+        if not wanted(src, entry):
             continue
-        views, minutes = entry.get("view_count"), (entry.get("duration") or 0) / 60
-        if views is not None and views < src.min_views:
-            continue
-        if minutes and (minutes < src.min_minutes or (src.max_minutes and minutes > src.max_minutes)):
-            continue
+        views = entry.get("view_count")
 
         time.sleep(PAUSE)
         meta, err = details(url)
@@ -263,8 +274,17 @@ def _ytdlp(cfg: Config, src: Source, ledger: Ledger, log: Log) -> list[Item]:
             size = sum(f.stat().st_size for f in downloads.iterdir() if f.is_file() and f.stat().st_mtime >= began - 2)
             log(f"  still downloading: {size / 1e6:.0f} MB so far, {elapsed / 60:.0f} min elapsed")
 
+        def fetched(result: subprocess.CompletedProcess) -> Path | None:
+            return next((Path(p.strip()) for p in reversed(result.stdout.splitlines()) if p.strip() and Path(p.strip()).exists()), None)
+
         got = _yt(fetch_args(src, url, downloads, length), timeout=FETCH_LIMIT, tick=still_going)
-        path = next((Path(p.strip()) for p in reversed(got.stdout.splitlines()) if p.strip() and Path(p.strip()).exists()), None)
+        path = fetched(got)
+        if path is None and not length and "ffmpeg exited" in got.stderr:
+            # Cutting out the first part needs the site to serve the file in pieces. Where it does
+            # not, and the length is unknown, the whole file is taken instead.
+            log("  the first part could not be cut out; fetching the whole video")
+            got = _yt(fetch_args(src, url, downloads, length, whole=True), timeout=FETCH_LIMIT, tick=still_going)
+            path = fetched(got)
         if path is None:
             err = got.stderr.strip()
             log(f"could not fetch {url}: {err[:200]}")

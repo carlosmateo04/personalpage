@@ -75,14 +75,18 @@ listed in the report with the reason.
 | 6 | Find moments | Picks the stretches worth clipping | Every half second scored on loudness against the minutes around it, talking speed, the sections' cue words, and chat speed when a chat log is there; works with no speech; `[moments] min_len = 85`, `max_len = 95`, `max_per_source = 3`; a video of 80-100 s is used whole |
 | 7 | Quality checks | Removes repeats and unsuitable clips | Overlap with a clip already made at most 30%; text similarity with another clip at most 0.6; banned terms (gambling sponsors, political terms) |
 | 8 | Section + frames | Files each clip and prepares what the review looks at | Sections: findings, tricks, glitches, moments (`[[sections]]`, by cue words in the title and speech); sections take turns in the posting order; one image of 8 frames per clip |
-| 9 | Automatic review | Decides keep or drop, the section, the title, the headline and a one-line summary | `[review] model = "claude-opus-5-5"`, `effort = "low"`, `frames = 8`; answers in a fixed form; needs a Claude API key (Accounts in the app); with no key, or if a request fails, the clip keeps a rule-based title |
+| 9 | Automatic review | Decides keep or drop, the section, the title, the headline, a one-line summary and three to five search tags | `[review] model = "claude-opus-5-5"`, `effort = "low"`, `frames = 8`; answers in a fixed form; needs a Claude API key (Accounts in the app); with no key, or if a request fails, the clip keeps a rule-based title |
 | 10 | Render | The finished vertical video | 1080x1920, 30 fps; `layout = "blur"` (whole picture over a blurred copy, zoom 1.5); karaoke captions 3 words at a time, the spoken word in yellow; headline for the first 3.5 s; section badge; credit to the source channel; progress bar; sound levelled to -14 LUFS |
-| 11 | Post text | Caption for each platform | Title + credit + hashtags: 5 for TikTok, 8 for Instagram, 4 for Facebook; YouTube title ends in "#shorts" and its description carries the summary, the credit and a link to the original; saved next to the clip as `<id>.txt` |
+| 11 | Post text + search check | Caption for each platform, then a check that it will be found | Every caption reads "title \| GTA 6 keyword" (the section's `keyword`: Secret, Tips, Glitch, Gameplay), then the credit and hashtags: the section's, #gta6, and a rotating pick, to 5 for TikTok, 8 for Instagram, 4 for Facebook; YouTube title ends in "#shorts", its description carries the summary, the credit and a link to the original, its tags start with the review's search tags; saved next to the clip as `<id>.txt`. The check covers lengths, hashtag counts, the game's name, the credit and banned terms; a clip that fails is not posted by itself |
 | 12 | Queue | Where finished clips wait | `[publish] hold_for_review = true`: clips wait in the app until you post them. "Post automatically" in Settings sends them on without waiting |
 | 13 | Schedule | Gives each clip a posting time | `[schedule] slots = ["11:30", "15:00", "19:00", "21:30"]`, `timezone = "America/New_York"`; one clip per slot; extra clips fill up to 3 days ahead |
 | 14 | Publish | Sends the clip and its text to the four accounts | Upload-Post, one key for all four; `platforms = ["tiktok", "instagram", "youtube", "facebook"]`; `tiktok_post_mode = "DIRECT_POST"` (or `"MEDIA_UPLOAD"` to land in TikTok drafts); a dropped connection is retried without posting twice |
 | 15 | Links and views | Collects each post's link and view count | `python -m clipper status`, also part of the daily run |
 | 16 | Report + cleanup | What was made, posted, left out and why | `reports/latest.md` and the Activity tab; downloads deleted after 2 days, clips after 30 |
+
+"Check everything" in the app (`python -m clipper check`) tries stages 1, 2, 4,
+10, 9 and 14 for real on the computer it runs on and reports each as working,
+needing attention or not set up.
 
 Where things are kept: the ledger in `state/ledger.json`; settings changed in the
 app in `settings.json`; the two keys in Windows Credential Manager. On Windows

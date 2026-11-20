@@ -27,7 +27,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo
 
-from . import config, pipeline, publish, review, settings
+from . import check, config, metadata, pipeline, publish, review, settings
 from .config import ROOT
 
 PAGE = Path(__file__).with_name("ui.html")
@@ -48,6 +48,9 @@ class App:
         self.exit_code: int | None = None
         self._accounts: tuple[float, dict] | None = None
         self._lock = threading.Lock()
+        self.checking = False
+        self.check_results: list[dict] = []
+        self.check_at = ""
 
     # --- reading ---------------------------------------------------------------
 
@@ -98,6 +101,7 @@ class App:
                 "media": media, "links": rec.get("links", {}), "views": rec.get("views", {}),
                 "sent_to": rec.get("publish", {}).get("platforms", []), "error": rec.get("error", ""),
                 "review": rec.get("review", {}).get("summary") or rec.get("review", {}).get("reason", ""),
+                "seo": rec["seo"] if "seo" in rec else metadata.proof(cfg, meta),
             })
         latest = cfg.path("reports") / "latest.md"
         searches = [{"query": settings.search_text(s.url), "section": s.section or "moments"}
@@ -110,6 +114,8 @@ class App:
             "review": {"enabled": cfg.review.enabled, "has_key": bool(review.api_key(cfg)), "model": cfg.review.model,
                        "off": review.unavailable(cfg)},
             "daily": self.daily(),
+            "check": {"running": self.checking, "results": list(self.check_results), "at": self.check_at,
+                      "summary": check.summary(self.check_results) if self.check_results and not self.checking else ""},
             "report": latest.read_text(encoding="utf-8") if latest.exists() else "",
             "folder": str(out),
             "settings": {
@@ -150,6 +156,59 @@ class App:
                 self.log.append(line)
         self.exit_code = proc.wait()
         self.log.append("Finished." if self.exit_code == 0 else f"Finished with problems (code {self.exit_code}).")
+
+    def check_command(self) -> list[str]:
+        cmd = [sys.executable, "-m", "clipper"]
+        if self.config_path:
+            cmd += ["--config", self.config_path]
+        return [*cmd, "check", "--json"]
+
+    def start_check(self) -> None:
+        """Try each part of the system on this computer; the page shows the results as they come.
+
+        It runs as a process of its own, like a run: the speech model's memory is given back
+        when it ends, and a fault in one part cannot take the app down with it.
+        """
+        with self._lock:
+            if self.checking:
+                raise Problem("a check is already in progress")
+            if self.running():
+                raise Problem("wait for the current run to finish, then check")
+            self.checking, self.check_results, self.check_at = True, [], ""
+        zone = self.cfg().schedule.timezone
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1"}
+        try:
+            proc = subprocess.Popen(self.check_command(), cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, encoding="utf-8", errors="replace", bufsize=1)
+        except OSError as exc:
+            self.checking = False
+            raise Problem(f"the check could not start: {exc}") from exc
+
+        def follow() -> None:
+            last = ""
+            try:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    line = line.strip()
+                    try:
+                        result = json.loads(line) if line.startswith("{") else None
+                    except json.JSONDecodeError:
+                        result = None
+                    if isinstance(result, dict) and "key" in result and "status" in result:
+                        self.check_results = [r for r in self.check_results if r["key"] != result["key"]] + [result]
+                    elif line:
+                        last = line  # a notice from a library, or the reason the check stopped
+                proc.wait()
+            finally:
+                stopped = "the check stopped before this part finished" + (f": {last[-200:]}" if last else "")
+                results = [r if r["status"] != "running" else {**r, "status": "problem", "detail": stopped} for r in self.check_results]
+                if not results:
+                    results = [{"key": "check", "name": "System check", "status": "problem", "detail": f"the check could not run. {last[-200:]}".strip()}]
+                self.check_results = results
+                self.check_at = datetime.now(ZoneInfo(zone)).strftime("%a %d %b, %H:%M")
+                self.checking = False
+
+        threading.Thread(target=follow, daemon=True).start()
 
     def stop_run(self) -> None:
         if self.running() and self.proc is not None:
@@ -218,7 +277,11 @@ class App:
         ledger = pipeline.ledger_of(cfg)
         try:
             if name == "run":
+                if self.checking:
+                    raise Problem("wait for the system check to finish, then start a run")
                 self.start_run()
+            elif name == "check":
+                self.start_check()
             elif name == "stop":
                 self.stop_run()
             elif name == "clip":

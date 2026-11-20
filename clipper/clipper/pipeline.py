@@ -198,6 +198,20 @@ def plan(cfg: Config, ledger: Ledger, now: datetime | None = None, log: Log = _l
     return result
 
 
+def text_problems(cfg: Config, ledger: Ledger, rec: dict, meta: dict) -> list[str]:
+    """What the search check finds in a clip's text, plus a title that a finished clip already carries.
+
+    Three clips from one video with the same title look like the same post three times,
+    to viewers and to the platforms; each clip needs its own.
+    """
+    problems = metadata.proof(cfg, meta)
+    title = str(meta.get("title", "")).strip().lower()
+    if title and any(other.get("id") != rec["id"] and other.get("status") in ("held", "scheduled", "posted")
+                     and str(other.get("title", "")).strip().lower() == title for other in ledger.clips.values()):
+        problems.append("another clip already has this title")
+    return problems
+
+
 def latest_plan(cfg: Config) -> Path | None:
     plans = sorted(cfg.path("out").glob("*/plan.json"))
     return plans[-1] if plans else None
@@ -268,10 +282,14 @@ def execute(cfg: Config, ledger: Ledger, plan_path: Path | None = None, now: dat
         try:
             video = render_clip(cfg, clip, run_dir)
             rec["file"], rec["meta"] = str(video), clip["meta"]
+            rec["seo"] = text_problems(cfg, ledger, rec, clip["meta"])  # an empty list means the title, captions and tags pass
             video.with_suffix(".txt").write_text(report.post_kit(cfg, clip, rec["slot"]), encoding="utf-8")  # the text to post with it
             if cfg.publish.hold_for_review:
                 rec["status"] = "held"
                 log(f"  {rec['id']} rendered and held for review")
+            elif rec["seo"]:
+                rec["status"] = "held"  # nothing with a weak title or a broken caption is posted by itself
+                log(f"  {rec['id']} rendered but not posted, its text needs a look: {'; '.join(rec['seo'])}")
             else:
                 _send(cfg, ledger, pub, rec, clip["meta"], video, now, log)
             done += 1
@@ -340,13 +358,16 @@ def update_clip(cfg: Config, ledger: Ledger, clip_id: str, fields: dict) -> dict
     if "title" in fields:
         title = str(fields["title"]).strip()[:100]
         meta["title"] = rec["title"] = title
-        meta.setdefault("youtube", {})["title"] = title if "#shorts" in title.lower() else f"{title[:90]} #shorts"
+        # The YouTube title keeps the game's name and the section's search keyword after an edit.
+        section = cfg.section(rec.get("section") or meta.get("section", ""))
+        meta.setdefault("youtube", {})["title"] = title if "#shorts" in title.lower() else metadata.youtube_title(cfg, title, section)
     if "caption" in fields:
         caption = str(fields["caption"]).strip()[:2200]
         for platform in ("tiktok", "instagram", "facebook"):
             meta.setdefault(platform, {})["title"] = caption
     if "description" in fields:
         meta.setdefault("youtube", {})["description"] = str(fields["description"]).strip()[:5000]
+    rec["seo"] = text_problems(cfg, ledger, rec, meta)
     _kit(cfg, rec)
     ledger.save()
     return rec

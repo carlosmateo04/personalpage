@@ -61,9 +61,10 @@ class FakeClaude(BaseHTTPRequestHandler):
 
 
 KEEP = {"keep": True, "reason": "Pure gameplay: a police chase that ends in a crash.", "section": "glitches",
-        "title": "police car launches off the pier.", "hook": "It just took off", "summary": "A police car hits a ramp and flies into the sea."}
+        "title": "police car launches off the pier.", "hook": "It just took off", "summary": "A police car hits a ramp and flies into the sea.",
+        "tags": ["GTA 6 police chase", "#gta 6 pier jump", "gta 6 police chase", "gta 6 casino trick"]}
 DROP = {"keep": False, "reason": "A webcam box with a person is visible in every frame.", "section": "moments",
-        "title": "", "hook": "", "summary": ""}
+        "title": "", "hook": "", "summary": "", "tags": []}
 
 
 @pytest.fixture
@@ -111,7 +112,7 @@ def test_what_is_sent_for_a_clip(cfg, claude):
     assert body["model"] == "claude-opus-5-5" and body["fallbacks"] == "default" and "thinking" not in body
     assert body["output_config"]["effort"] == "low"
     schema = body["output_config"]["format"]
-    assert schema["type"] == "json_schema" and schema["schema"]["required"] == ["keep", "reason", "section", "title", "hook", "summary"]
+    assert schema["type"] == "json_schema" and schema["schema"]["required"] == ["keep", "reason", "section", "title", "hook", "summary", "tags"]
     assert "pure gameplay" in body["system"]
     image, text = body["messages"][0]["content"]
     assert image["type"] == "image" and image["source"]["media_type"] == "image/jpeg"
@@ -140,8 +141,11 @@ def test_kept_clip_gets_the_reviews_title_and_dropped_clip_is_marked(cfg, claude
     assert meta["youtube"]["title"] == "Police car launches off the pier | GTA 6 Glitch #shorts"
     assert "A police car hits a ramp and flies into the sea." in meta["youtube"]["description"]
     assert "Credit: RawPlay. Original: https://example.com/v" in meta["youtube"]["description"]
-    for platform in ("tiktok", "instagram", "facebook"):
-        assert meta[platform]["title"].startswith("Police car launches off the pier • Credit: RawPlay #gta6glitch")
+    for platform in ("tiktok", "instagram", "facebook"):  # every caption names the game and what people search for
+        assert meta[platform]["title"].startswith("Police car launches off the pier | GTA 6 Glitch • Credit: RawPlay #gta6glitch #gta6bugs #gta6 ")
+    # the review's search phrases lead the YouTube tags: tidied, repeats and banned terms ("casino") removed
+    assert meta["youtube"]["tags"][:3] == ["gta 6 police chase", "gta 6 pier jump", "gta 6"]
+    assert metadata.proof(cfg, meta) == []
     assert kept["review"] == {"by": "claude-opus-5-5", "keep": True, "reason": KEEP["reason"], "summary": KEEP["summary"]}
     assert cut["drop"] is True and cut["review"]["keep"] is False and "webcam" in cut["review"]["reason"]
     assert cut["meta"]["title"] == "GTA 6 Highlight"  # untouched

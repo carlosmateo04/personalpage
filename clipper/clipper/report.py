@@ -143,6 +143,11 @@ def build(cfg: Config, ledger: Ledger, last: dict | None = None, now: datetime |
             lines += [f"- Dropped, from {_cell(c.get('source_name', ''))} at {int(c.get('start', 0)) // 60}:{int(c.get('start', 0)) % 60:02d}: "
                       f"{_cell(c['review'].get('reason', ''))}" for c in cut[:20]] + [""]
 
+    weak = [c for c in clips if c.get("seo") and c.get("status") in ("held", "scheduled") and recent_clip(c)]
+    if weak:
+        lines += ["## Text that needs a look", "", "These clips were made, but their title, caption or tags did not pass the search check:", ""]
+        lines += [f"- `{c['id']}` {_cell(c.get('title', ''))}: {_cell('; '.join(c['seo']))}" for c in weak[:20]] + [""]
+
     failed = [c for c in clips if c.get("status") == "failed"]
     if failed:
         lines += ["## Failed clips", ""] + [f"- `{c['id']}` {_cell(c.get('title', ''))}: {_cell(c.get('error', ''))}" for c in failed] + [""]
